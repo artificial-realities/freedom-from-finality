@@ -19,7 +19,6 @@ class Protagonist(BaseModel):
 
 class Story(BaseModel):
     title: str
-    genre: str
     setting: str
     protagonist: Protagonist
     narrative_premise: str
@@ -37,7 +36,7 @@ The **narrative_premise** is the thematic engine — the underlying direction th
 
 ## Scenario
 
-Scenarios are separate from the story. They contain only a test focus and a sequence of user commands — no world-building, no characters, no rules. The story blueprint handles all of that.
+The scenario is separate from the story. It contain only a test focus and a sequence of user commands — no world-building, no characters, no rules. The story blueprint handles all of that.
 
 ```python
 class Turn(BaseModel):
@@ -57,7 +56,7 @@ class Scenario(BaseModel):
         return cls(**data)
 ```
 
-The single benchmark scenario ("The Audition") is 100 turns that test inventory persistence, character tracking, and world rule consistency — all woven into one continuous playthrough.
+The single benchmark scenario is 100 turns that test inventory persistence, character tracking, and world rule consistency — all woven into one continuous playthrough.
 
 ## State (Pydantic Models)
 
