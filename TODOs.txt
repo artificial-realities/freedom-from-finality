@@ -1,1 +1,2 @@
 TODO: Need to refine story.json and test_scenario.json. Need to define my own tests.
+TODO: Revisit the agent roster. For each agent (Chomsky, Tolkien, Wilde, Sherlock, Sheldon, Spielberg), analyze what they actually do, whether their responsibility is distinct enough to justify their existence, whether any roles overlap or could be merged, and whether the pipeline ordering makes sense. Do a thorough critical pass — don't just rubber-stamp the current design.
