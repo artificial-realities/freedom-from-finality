@@ -1,57 +1,19 @@
-# CLAUDE.md
+# CLAUDE.md — interactive-mas (IKT469)
 
-## 1. Plan Mode Default
+## Workflow
 
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately — don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
+- Enter plan mode for any non-trivial task (3+ steps or architectural decisions)
+- If something goes sideways, stop and re-plan — don't keep pushing
+- When uncertain mid-task, stop and ask — never assume
 
-## 2. Subagent Strategy
+## Elegance Check
 
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- One task per subagent for focused execution
+For non-trivial changes, pause and ask "is there a more elegant way?" — skip for simple fixes.
 
-## 3. Self-Improvement Loop
+## Project Notes
 
-- After ANY correction from the user: update `tasks/lessons.md` with the pattern
-- Write rules for yourself that prevent the same mistake
-- Review lessons at session start
-
-## 4. Verification Before Done
-
-- Never mark a task complete without proving it works
-- Run the code, check the output, demonstrate correctness
-- Ask yourself: "Would a staff engineer approve this?"
-
-## 5. Demand Elegance (Balanced)
-
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- Skip this for simple, obvious fixes — don't over-engineer
-- Challenge your own work before presenting it
-
-## Task Management
-
-1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
-2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review section to `tasks/todo.md`
-6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
-
-## Core Principles
-
-- **Simplicity First**: Make every change as simple as possible. Minimal code impact.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimal Impact**: Changes should only touch what's necessary.
-
-## Project-Specific Notes
-
-- All state models use **Pydantic v2 BaseModel** — not TypedDict, not raw dicts
-- Agent prompts are **.md template files** in `src/prompts/`, loaded via `prompt_loader.py`
-- LLM JSON responses are parsed through the **json_sanitizer** pipeline (try parse → extract → repair → fallback)
-- Every LLM call is logged via **interaction_logger** to `logs/`
-- Agents are **async functions**, not classes
-- The Memory agent returns **structured JSON** matching `MemoryUpdate` Pydantic schema
-- Test each agent in isolation before wiring into the graph
+- State models: **Pydantic BaseModel** — not TypedDict, not raw dicts
+- Prompts: **.md template files** in `src/prompts/`, loaded via `prompt_loader.py`
+- Agents: **async functions**, not classes
+- LLM JSON: parsed through **json_sanitizer** (try parse → extract → repair → fallback)
+- LLM: local **vLLM** (OpenAI-compatible) — model via `MODEL_NAME` env var
