@@ -8,7 +8,7 @@ Users interact via a terminal, typing natural-language commands to steer a prota
 
 The terminal shows a single flowing story. One sentence after another, like reading a book. The agents work behind the scenes.
 
-A benchmark suite compares different MAS configurations (1, 2, 3, and 4 agents) against each other using predefined 50-turn scenarios scored by an LLM-as-judge.
+A benchmark compares different agent configurations against each other using a predefined 100-turn scenario. The full session logs are evaluated post-hoc — no automated scoring pipeline, just structured logs that can be reviewed by a human or handed to an LLM for analysis.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the MAS design, state schema, agent s
 
 ## Benchmark
 
-See [BENCHMARK.md](BENCHMARK.md) for the evaluation methodology, metrics, and experiment matrix.
+See [BENCHMARK.md](BENCHMARK.md) for the evaluation methodology and experiment matrix.
 
 ## Project Structure
 
@@ -26,33 +26,33 @@ interactive-mas/
 ├── ARCHITECTURE.md
 ├── BENCHMARK.md
 ├── CLAUDE.md                        # Claude Code working instructions
+├── story.json                       # Story blueprint (setting, protagonist, rules, premise)
 ├── scenarios/
-│   ├── exploration.json
-│   ├── mystery.json
-│   ├── survival.json
-│   ├── social_intrigue.json
-│   └── puzzle.json
+│   └── the_audition.json            # 100-turn benchmark scenario
+├── reference/                       # Reference implementations to adapt
+│   ├── json_sanitizer.py
+│   └── interaction_logger.py
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py
-│   │   ├── narrator.py
-│   │   ├── director.py              # Silent — stored for future video pipeline
-│   │   ├── consistency.py
-│   │   └── memory.py
+│   │   ├── narrator.py              # "Tolkien" — the storyteller
+│   │   ├── director.py              # "Spielberg" — silent, for future video pipeline
+│   │   ├── consistency.py           # "Sherlock" — contradiction detector
+│   │   └── memory.py               # "Sheldon" — structured world state tracker
 │   ├── state/
 │   │   ├── __init__.py
 │   │   └── story_state.py           # Pydantic models for all state
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── config.py                # Pydantic config models loaded from YAML
-│   │   ├── scenario.py              # Pydantic scenario models loaded from JSON
-│   │   └── responses.py             # Pydantic response schemas for agent outputs
+│   │   ├── story.py                 # Pydantic story blueprint model loaded from JSON
+│   │   ├── scenario.py              # Pydantic scenario model loaded from JSON
+│   │   └── responses.py             # Pydantic response schema (Memory agent output)
 │   ├── graph/
 │   │   ├── __init__.py
-│   │   ├── mas_4_graph.py
-│   │   ├── mas_3_graph.py
-│   │   ├── mas_2_graph.py
-│   │   └── single_llm_graph.py
+│   │   ├── full_cast_graph.py       # Tolkien → Sherlock → Sheldon
+│   │   ├── essentials_graph.py      # Tolkien → Sheldon
+│   │   └── solo_graph.py            # Single LLM
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py
@@ -68,8 +68,7 @@ interactive-mas/
 │   │   ├── memory.system.md
 │   │   ├── memory.user.md
 │   │   ├── single_llm.system.md
-│   │   ├── single_llm.user.md
-│   │   └── judge.user.md
+│   │   └── single_llm.user.md
 │   ├── util/
 │   │   ├── __init__.py
 │   │   ├── json_sanitizer.py        # JSON repair, extraction, sanitization
@@ -77,21 +76,15 @@ interactive-mas/
 │   │   └── interaction_logger.py    # Full LLM call logging per session
 │   ├── eval/
 │   │   ├── __init__.py
-│   │   ├── runner.py
-│   │   ├── judge.py
-│   │   ├── metrics.py
-│   │   └── report.py
+│   │   └── runner.py                # Runs the scenario, logs everything
 │   └── ui/
 │       ├── __init__.py
 │       └── terminal.py
 ├── configs/
-│   ├── mas_4_agent.yaml
-│   ├── mas_3_agent.yaml
-│   ├── mas_2_agent.yaml
-│   ├── single_llm.yaml
-│   └── single_llm_openai.yaml
+│   ├── full_cast.yaml
+│   ├── essentials.yaml
+│   └── solo.yaml
 ├── logs/                            # LLM interaction logs per session
-├── results/                         # Benchmark output
 ├── requirements.txt
 └── main.py
 ```
@@ -127,22 +120,19 @@ vllm serve google/gemma-4-31b-it \
 
 ```bash
 # Interactive play
-python main.py play --config configs/mas_3_agent.yaml
+python main.py play --config configs/full_cast.yaml
 
-# Run a predefined scenario
-python main.py play --config configs/mas_3_agent.yaml --scenario scenarios/mystery.json
+# Run the benchmark scenario
+python main.py play --config configs/essentials.yaml --scenario scenarios/the_audition.json
 
-# Benchmark a single config
-python main.py benchmark --config configs/mas_3_agent.yaml --scenarios scenarios/
-
-# Full experiment
-python main.py experiment --output results/
+# Benchmark all configs against the scenario
+python main.py benchmark --scenarios scenarios/
 ```
 
 ## Tech Stack
 
 - **LangGraph** — multi-agent orchestration with typed shared state
-- **Pydantic v2** — validated models for state, config, scenarios, and LLM responses
+- **Pydantic v2** — validated models for state, config, story, and LLM responses
 - **Gemma 4 31B** — served locally via vLLM
 - **OpenAI GPT-4o** — optional alternative backend
 - **Rich** — terminal UI

@@ -10,143 +10,75 @@
 
 | ID | Name | Agents | Pipeline |
 |----|------|--------|----------|
-| C1 | `single_llm` | 1 | Single Gemma 4 handles everything |
-| C2 | `mas_2_agent` | 2 | Narrator → Memory |
-| C3 | `mas_3_agent` | 3 | Narrator → Consistency → Memory |
-| C4 | `mas_4_agent` | 4 | Narrator → Consistency → Director (silent) → Memory |
-| C5 | `single_llm_openai` | 1 | Single GPT-4o handles everything (optional) |
+| C1 | `solo` | 1 | Single Gemma 4 handles everything |
+| C2 | `essentials` | 2 | Tolkien (Narrator) → Sheldon (Memory) |
+| C3 | `full_cast` | 3 | Tolkien (Narrator) → Sherlock (Consistency) → Sheldon (Memory) |
 
-C4 includes the Director agent, but its output is not shown to the user. It exists to measure the overhead and to prepare scene descriptions for a future video pipeline.
+Spielberg (Director) exists in the codebase for a future video pipeline but is not included in any benchmark configuration — his output is silent and would only add overhead.
 
-### Scenarios
+### Story
 
-5 predefined 50-turn playthroughs, each stressing different capabilities:
+All runs use the same story blueprint defined in `story.json` — a LEGO colony on Mars called Brick City. The blueprint includes setting, protagonist, narrative premise, and a set of rules (LEGO physics, world constraints, tone) that must be respected throughout.
 
-| Scenario | Focus |
-|----------|-------|
-| **Exploration** | Spatial navigation, environment discovery, object persistence |
-| **Mystery** | Clue tracking, NPC interrogation, long-range deduction |
-| **Survival** | Resource management, time pressure, environmental state changes |
-| **Social Intrigue** | Multi-character dialogue, relationships, deception |
-| **Puzzle** | Logic, object interaction, cause-and-effect chains |
+### Scenario
 
-### Total: 5 configs × 5 scenarios × 50 turns = 1,250 turns
+One predefined 100-turn playthrough called "The Audition" that tests all capabilities in a single continuous run:
 
-## Metrics
+| Capability | What it tests |
+|------------|---------------|
+| **Inventory persistence** | Items picked up, used, combined, given away, and consumed are tracked correctly |
+| **Character tracking** | NPC names, descriptions, locations, relationships, and dialogue are remembered |
+| **World rule consistency** | Constraints from the story blueprint (can't swim, rover fits two, oxygen limits, etc.) are respected |
 
-### LLM-as-Judge (per turn, 1-5 scale)
+### Total: 3 configs × 1 scenario × 100 turns = 300 turns
 
-A separate LLM scores each turn given the full story context up to that point.
+## Evaluation
 
-**Narrative Coherence (NC)** — Does this turn logically follow? Any contradictions?
+### No Automated Scoring
 
-| 5 | Perfectly consistent, builds naturally |
-|---|---|
-| 4 | Consistent, minor awkwardness |
-| 3 | Mostly consistent, one small contradiction |
-| 2 | Notable contradiction or logical gap |
-| 1 | Directly contradicts established facts |
+There is no LLM-as-judge pipeline or automated scoring system. The interaction logger captures everything — every prompt, every response, every turn, every agent call with full context.
 
-**User Intent Fidelity (UIF)** — Did the system do what the user asked?
+After runs complete, evaluation is done post-hoc:
+- **Manual review** — read the logs, assess quality
+- **LLM-assisted review** — hand the log files to an LLM with a scoring prompt and let it analyze
 
-| 5 | Fully executes intent, enriches with detail |
-|---|---|
-| 4 | Executes intent with minor drift |
-| 3 | Partially addresses intent |
-| 2 | Largely ignores the command |
-| 1 | Completely ignores user input |
+This keeps the codebase simple and avoids self-preference bias from using the same model family as both generator and judge.
 
-**Story Quality (SQ)** — Is this engaging, well-written storytelling?
+### What to Look For
 
-| 5 | Compelling, vivid, advances meaningfully |
-|---|---|
-| 4 | Good writing, clear progression |
-| 3 | Adequate but not memorable |
-| 2 | Bland or repetitive |
-| 1 | Incoherent or fails to advance |
+When evaluating runs (manually or with an LLM), these are the dimensions that matter:
 
-**World Consistency (WC)** — Do characters, locations, objects behave consistently?
+**Narrative Coherence** — Does each turn logically follow from what came before? Any contradictions?
 
-| 5 | All world elements perfectly tracked |
-|---|---|
-| 4 | Consistent, very minor slips |
-| 3 | Mostly consistent, one element off |
-| 2 | Multiple world state errors |
-| 1 | World state is incoherent |
+**User Intent Fidelity** — Did the system do what the user asked? Or did it drift?
 
-### Automated Metrics
+**Story Quality** — Is the writing engaging? Does it have the right LEGO Movie tone? Or is it bland and repetitive?
 
-**Character Tracking Accuracy (CTA)** — At turns 10, 20, 30, 40, 50, prompt the system to list all known characters. Compare against ground truth.
+**World Rule Compliance** — Are the rules from the story blueprint respected? Does the narrator let you swim, fit three in the rover, or ignore oxygen limits?
 
-**Contradiction Count (CC)** — Total consistency flags across the full run.
+**Inventory Accuracy** — Are items tracked correctly? Are consumed items gone? Do combined items exist?
 
-**Response Latency (RL)** — Wall-clock seconds per turn.
+**Character Memory** — Are NPCs remembered? Are their descriptions, locations, and relationships consistent?
 
-**Token Efficiency (TE)** — Total tokens consumed across all agent calls per turn.
+### Aggregation Suggestions
 
-## Judge Protocol
-
-### Judge Model
-
-Use a different model family than the one being evaluated to avoid self-preference bias.
-
-### Judge Prompt
-
-The judge prompt template lives in `src/prompts/judge.user.md` and follows the same template loading pattern as all agent prompts.
-
-```
-You are evaluating interactive fiction. You receive the story so far, the user's
-latest command, and the system's response.
-
-Rate the response on four dimensions (1-5 each). Respond ONLY with valid JSON.
-
-STORY SO FAR:
-{story_context}
-
-USER COMMAND (Turn {turn_number}):
-{user_input}
-
-SYSTEM RESPONSE:
-{system_response}
-
-{
-  "narrative_coherence": <int 1-5>,
-  "user_intent_fidelity": <int 1-5>,
-  "story_quality": <int 1-5>,
-  "world_consistency": <int 1-5>,
-  "reasoning": "<brief explanation>"
-}
-```
-
-### Aggregation
-
-Per config × scenario:
-- **Per-turn scores** — raw
-- **Scenario mean** — average across 50 turns
-- **Early game** (turns 1-15) — setup quality
-- **Mid game** (turns 16-35) — sustained quality
-- **Late game** (turns 36-50) — long-range coherence (where MAS should shine)
-- **Config mean** — average across all 5 scenarios
+When scoring runs, it's useful to break them into phases:
+- **Early game** (turns 1-30) — setup quality, first impressions
+- **Mid game** (turns 31-70) — sustained quality, accumulated state
+- **Late game** (turns 71-100) — long-range coherence (where MAS should shine)
 
 ### Expected Hypothesis
 
-- Single LLM performs well early, degrades in late-game coherence
-- 2-agent (+ Memory) improves world consistency
-- 3-agent (+ Consistency) reduces contradictions
-- 4-agent adds Director overhead but shouldn't change user-facing quality
+- Solo performs well early but degrades in late-game coherence as context grows
+- Essentials (+ Sheldon) improves world consistency by maintaining structured state
+- Full Cast (+ Sherlock) reduces contradictions by catching them before they compound
 - Tradeoff: more agents = more latency and token cost per turn
-
-## Report Output
-
-1. Summary table — mean scores per config
-2. Scenario breakdown — per-scenario scores per config
-3. Degradation curve — coherence + world consistency over turn number per config (matplotlib)
-4. Cost analysis — tokens and latency per config
 
 ## Running
 
 ```bash
-python main.py benchmark --config configs/mas_3_agent.yaml --scenarios scenarios/
-python main.py experiment --output results/
-python main.py judge --results results/mas_3_agent/ --output results/mas_3_agent/scores.json
+# Benchmark all configs against the scenario
+python main.py benchmark --scenarios scenarios/
+
+# Logs are written to logs/ — evaluate them afterwards
 ```

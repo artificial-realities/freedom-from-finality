@@ -1,0 +1,24 @@
+{
+  "title": "Brick City: Mars",
+  "genre": "sci-fi comedy",
+  "setting": "A LEGO colony on Mars called Brick City — a cluster of snap-together domes, pressurized corridors, and modular habitats built entirely from interlocking plastic bricks. The colony sits in Valles Marineris, population 47 minifigures. Everything clicks, snaps, and occasionally falls apart. The domes are color-coded: Red Dome is residential, Blue Dome is operations and engineering, Green Dome is the greenhouse and kitchen, Yellow Dome is recreation, and there's a small Orange Dome that serves as the garage and rover bay. Sector C is an older expansion that was sealed off after a dome crack last month — nobody goes there.",
+  "protagonist": {
+    "name": "Brick",
+    "description": "A freshly arrived systems technician minifigure, still wearing the shipping sticker on their torso. Enthusiastic, slightly overwhelmed, and not yet used to the gravity — or the claw hands."
+  },
+  "narrative_premise": "A day in the life of a new arrival at Brick City. No grand quest, no villain — just a minifigure figuring out colony life, meeting neighbors, bumping into problems, and learning how things work on Mars. The story follows the day from morning to evening as it naturally unfolds.",
+  "rules": [
+    "This is a LEGO world. All characters are minifigures made of plastic. They treat this as completely normal — nobody finds it strange.",
+    "Minifigures have claw hands. They can grip objects but cannot point, snap fingers, write neatly, or perform fine motor tasks. They often drop small things.",
+    "Minifigure legs do not bend at the knee. They cannot sit naturally in chairs, crouch, or kneel. They perch awkwardly or stand.",
+    "Minifigure heads rotate 360 degrees but their facial expression is permanently printed and cannot change. Emotions are conveyed through body language, voice, and head-tilt only.",
+    "Hair pieces and hats are separate detachable accessories that can pop off if bumped. They can be swapped between minifigures.",
+    "Minifigures cannot swim. They sink immediately like the solid plastic blocks they are. Any body of water deeper than knee-height is dangerous.",
+    "Minifigures can be disassembled — legs, torso, head, and hair are separate pieces. This is uncomfortable but not fatal. Reassembly is possible.",
+    "The colony rover fits exactly two minifigures. No exceptions, no squeezing in a third.",
+    "Oxygen suits last exactly 30 minutes outside the domes. This is a hard limit — the tanks cannot be stretched or extended.",
+    "Sector C is sealed off due to a dome crack. The bulkhead is locked and nobody is authorized to enter without a suit and permission from the operations chief.",
+    "The greenhouse in Green Dome must stay above 15°C or the plants start dying within two hours.",
+    "The tone is LEGO Movie energy — earnest, fun, and warm, but with dry humor and layered jokes that adults appreciate. Physical comedy from LEGO limitations is encouraged. Nothing grimdark."
+  ]
+}

@@ -4,60 +4,90 @@
 
 Agents don't communicate directly. They read from and write to a shared state object — a whiteboard. One agent writes, the next reads. LangGraph orchestrates execution order and merges updates.
 
-Implicit qualities like mood, tone, time of day, and genre are never tracked as explicit state fields. The agents infer these naturally from the story history. Only things an LLM would genuinely lose track of over 50+ turns are stored explicitly: characters, locations, inventory, and a compressed history.
+Most agents work with plain text — prose summaries, recent story beats, the user's command. Context is context; a well-written paragraph carries the same information as a structured dict. Only the Memory agent ("Sheldon") outputs structured data, because its job is specifically to maintain a queryable world state that doesn't drift over 100+ turns.
+
+Implicit qualities like mood, tone, and time of day are never tracked. The agents infer these naturally from the story history.
+
+## Story Blueprint
+
+The story world is defined once in `story.json` — a blueprint that establishes everything the agents need to know before the first turn. This follows the same pattern as Comic Chaos blueprints: minimal but complete.
+
+```python
+class Protagonist(BaseModel):
+    name: str
+    description: str
+
+class Story(BaseModel):
+    title: str
+    genre: str
+    setting: str
+    protagonist: Protagonist
+    narrative_premise: str
+    rules: list[str]
+
+    @classmethod
+    def from_json(cls, path: Path) -> "Story":
+        data = json.loads(path.read_text())
+        return cls(**data)
+```
+
+The **rules** are constraints that must always hold — LEGO physics, world limits, tone guidelines. Every agent receives the rules as part of its context. The benchmark scenario tests whether these rules are respected throughout.
+
+The **narrative_premise** is the thematic engine — the underlying direction that guides the narrator when the user's commands are ambiguous.
+
+## Scenario
+
+Scenarios are separate from the story. They contain only a test focus and a sequence of user commands — no world-building, no characters, no rules. The story blueprint handles all of that.
+
+```python
+class Turn(BaseModel):
+    turn: int
+    user_input: str
+
+class Scenario(BaseModel):
+    scenario_id: str
+    title: str
+    description: str
+    test_focus: list[str]
+    turns: list[Turn]
+
+    @classmethod
+    def from_json(cls, path: Path) -> "Scenario":
+        data = json.loads(path.read_text())
+        return cls(**data)
+```
+
+The single benchmark scenario ("The Audition") is 100 turns that test inventory persistence, character tracking, and world rule consistency — all woven into one continuous playthrough.
 
 ## State (Pydantic Models)
 
-All state is defined as Pydantic `BaseModel` classes for validation, serialization, and type safety. This follows the pattern from Comic Chaos where Pydantic models are used throughout for both state management and LLM response parsing.
+State is intentionally lean. Most of it is text that agents read as prose context. Only the Memory agent's structured output uses Pydantic models — everything else is strings and lists.
 
 ```python
 from pydantic import BaseModel, Field
-
-class Character(BaseModel):
-    name: str
-    description: str
-    status: str = "alive"                    # alive, dead, unconscious, absent, etc.
-    location: str = ""
-    inventory: list[str] = Field(default_factory=list)
-    relationships: dict[str, str] = Field(default_factory=dict)
-    first_appeared: int = 0
-
-class Location(BaseModel):
-    name: str
-    description: str
-    connected_to: list[str] = Field(default_factory=list)
-    objects: list[str] = Field(default_factory=list)
-    characters_present: list[str] = Field(default_factory=list)
 
 class StoryBeat(BaseModel):
     turn: int
     user_input: str
     narration: str
-    active_characters: list[str] = Field(default_factory=list)
-    location: str = ""
-    consistency_flags: list[str] = Field(default_factory=list)
 
 class StoryState(BaseModel):
-    """Complete state for an interactive storytelling session.
+    """Shared state for an interactive storytelling session.
 
-    Designed to be lean — only tracks what LLMs genuinely lose track of.
-    Mood, tone, genre, time of day are inferred from history by the agents.
+    Most fields are plain text. Agents receive prose context and
+    produce prose output. Only the Memory agent writes structured data.
     """
     # Current turn
     turn_number: int = 0
     user_input: str = ""
     current_narration: str = ""
 
-    # World state
-    characters: dict[str, Character] = Field(default_factory=dict)
-    locations: dict[str, Location] = Field(default_factory=dict)
-    protagonist_name: str = ""
-    protagonist_location: str = ""
-    inventory: list[str] = Field(default_factory=list)
+    # World state — maintained by the Memory agent as structured data
+    world_state: str = ""  # Sheldon's structured summary (serialized JSON string)
 
     # History
     history: list[StoryBeat] = Field(default_factory=list)
-    summary: str = "The story has just begun."
+    summary: str = ""  # Compressed prose summary of older history
 
     # Consistency
     consistency_flags: list[str] = Field(default_factory=list)
@@ -69,87 +99,98 @@ class StoryState(BaseModel):
     # Meta
     config_name: str = ""
 
+    # Story blueprint fields — set once at initialization
+    story_setting: str = ""
+    protagonist_name: str = ""
+    rules: list[str] = Field(default_factory=list)
+    narrative_premise: str = ""
+
     def get_recent_beats(self, count: int = 5) -> list[StoryBeat]:
         """Get the most recent story beats."""
         return self.history[-count:]
 
     @classmethod
-    def initialize_from_scenario(cls, scenario: "Scenario", config_name: str) -> "StoryState":
-        """Create initial state from a scenario definition."""
-        protagonist = scenario.protagonist
+    def initialize(cls, story: "Story", config_name: str) -> "StoryState":
+        """Create initial state from a story blueprint."""
         return cls(
-            protagonist_name=protagonist.name,
-            protagonist_location=protagonist.starting_location,
-            inventory=list(protagonist.starting_inventory),
-            summary=f"{scenario.setting}",
+            summary=story.setting,
+            story_setting=story.setting,
+            protagonist_name=story.protagonist.name,
+            rules=list(story.rules),
+            narrative_premise=story.narrative_premise,
             config_name=config_name,
         )
 ```
 
-## Agent Response Models
+## Memory Agent Output Model
 
-Each agent returns structured output. The Memory agent in particular must return validated JSON that maps to Pydantic models. Response schemas are defined in `src/models/responses.py`:
+The Memory agent ("Sheldon") is the only agent that returns structured output. It parses the narration and extracts world state as validated JSON:
 
 ```python
 class MemoryUpdate(BaseModel):
-    """Structured output from the Memory agent."""
-    characters: dict[str, Character] = Field(default_factory=dict)
-    locations: dict[str, Location] = Field(default_factory=dict)
+    """Structured output from the Memory agent (Sheldon).
+
+    This is the only structured response schema in the system.
+    All other agents work with plain text.
+    """
+    characters: dict[str, dict] = Field(default_factory=dict)
+    locations: dict[str, dict] = Field(default_factory=dict)
     protagonist_location: str = ""
     inventory: list[str] = Field(default_factory=list)
     summary_update: str = ""  # only populated every N turns
-
-class ConsistencyCheck(BaseModel):
-    """Structured output from the Consistency agent."""
-    flags: list[str] = Field(default_factory=list)
-    reasoning: str = ""
 ```
+
+The Memory agent MERGES updates — if it doesn't mention a field, the existing value is preserved. The `world_state` field on `StoryState` stores the serialized version of Sheldon's accumulated output.
 
 ## Agents
 
-### Narrator
+Each agent has a name inspired by a famous figure who embodies their role.
+
+### Tolkien (Narrator)
 
 The creative core. Reads the user's command and writes the next story beat.
 
-**Reads:** `user_input`, recent history (last N beats), `summary`, `characters`, `protagonist_location`, `inventory`
+**Receives (as text):** story setting, rules, narrative premise, summary, world state, recent beats, user input
 
 **Writes:** `current_narration` (1-3 paragraphs)
 
-This is the ONLY output the user sees. It should advance the story meaningfully every turn. If the user says "go left," the story goes left.
+This is the ONLY output the user sees. It must respect all rules from the story blueprint.
 
-### Consistency
+### Sherlock (Consistency)
 
-The quality gate. Reviews the Narrator's output against world state and flags contradictions.
+The quality gate. Reviews the narration against established facts and rules, and flags contradictions.
 
-**Reads:** `current_narration`, `characters`, `locations`, recent history, `summary`
+**Receives (as text):** current narration, rules, summary, world state, recent beats
 
 **Writes:** `consistency_flags`, `contradiction_count`
 
-Does NOT rewrite narration. Only flags problems. If the config allows retries, the graph routes back to the Narrator with the flags.
+Does NOT rewrite narration. Only flags problems. If the config allows retries, the graph routes back to Tolkien with the flags.
 
-### Director (silent)
+### Spielberg (Director) — silent
 
-Translates the narration into a cinematic scene description. Stored in state but never shown to the user. Exists for the future video pipeline (Wan I2V via DashScope).
+Translates the narration into a cinematic scene description. Stored in state but never shown to the user. Exists for a future video pipeline (Wan I2V via DashScope).
 
-**Reads:** `current_narration`, `protagonist_location`, `characters`
+**Receives (as text):** current narration, world state
 
 **Writes:** `scene_description`
 
-### Memory
+Not included in any benchmark configuration. Lives in the codebase for future use.
 
-Maintains the world state. Extracts structured information from the narration. Returns a `MemoryUpdate` Pydantic model.
+### Sheldon (Memory)
 
-**Reads:** `current_narration`, `characters`, `locations`, `inventory`
+Maintains the world state. The only agent that outputs structured JSON.
 
-**Writes:** updated `characters`, `locations`, `protagonist_location`, `inventory`
+**Receives (as text):** current narration, current world state
 
-Every `summary_interval` turns, compresses old history into `summary`.
+**Writes:** updated `world_state` (serialized `MemoryUpdate`)
+
+Every `summary_interval` turns, also compresses old history into `summary`.
 
 MERGES updates — if it doesn't mention a field, preserve the existing value.
 
 ## Prompt Templates
 
-Agent prompts live as `.md` files in `src/prompts/`, loaded at runtime via a simple template loader (ported from Comic Chaos):
+Agent prompts live as `.md` files in `src/prompts/`, loaded at runtime via a simple template loader:
 
 ```python
 # src/util/prompt_loader.py
@@ -165,17 +206,23 @@ def load_prompt(filepath: Path, **kwargs) -> str:
     return content.format(**kwargs) if kwargs else content
 ```
 
-Each agent has a `system.md` and `user.md` template. Variables are substituted at call time:
+Each agent has a `system.md` and `user.md` template. Variables are substituted at call time. The rules from `story.json` are included in every agent's context. Example:
 
 ```markdown
 # narrator.user.md
-PROTAGONIST: {protagonist_name} — currently at {protagonist_location}
-INVENTORY: {inventory}
+SETTING: {story_setting}
 
-KNOWN CHARACTERS:
-{characters_summary}
+PROTAGONIST: {protagonist_name}
+
+RULES (always respect these):
+{rules}
+
+NARRATIVE PREMISE: {narrative_premise}
 
 STORY SO FAR: {summary}
+
+WORLD STATE:
+{world_state}
 
 RECENT EVENTS:
 {recent_beats}
@@ -187,12 +234,9 @@ Write the next 1-3 paragraphs of the story based on the user's command.
 
 ## JSON Sanitizer
 
-LLMs will produce malformed JSON — especially local models like Gemma. The `json_sanitizer.py` module (ported from Comic Chaos) provides battle-tested repair:
+LLMs will produce malformed JSON — especially local models like Gemma. The `json_sanitizer.py` module provides repair functions for parsing the Memory agent's structured output.
 
-- `sanitize_json_string(raw)` — pre-parse cleanup (null bytes, malformed unicode escapes)
-- `extract_json(text)` — find first `{` to last `}` and try to parse
-- `repair_json(text)` — truncate at last valid value boundary and close
-- `sanitize_parsed_response(data)` — deep-clean all string values post-parse
+Reference implementation is in `reference/json_sanitizer.py`. Study it but adapt for this project — remove anything not needed, keep it clean.
 
 Parse strategy for Memory agent responses:
 1. Try direct `json.loads()`
@@ -202,16 +246,21 @@ Parse strategy for Memory agent responses:
 
 ## Interaction Logger
 
-Every LLM call is logged to `logs/` as structured JSON (ported from Comic Chaos). Each session/run gets its own log file:
+Every LLM call is logged to `logs/` as structured JSON. Each session/run gets its own log file. This is the primary output for benchmark evaluation — logs are reviewed post-hoc by a human or LLM, not scored by an automated pipeline.
+
+Reference implementation is in `reference/interaction_logger.py`. Study it but adapt for this project.
+
+The log should capture everything needed to evaluate a run after the fact:
 
 ```json
 {
   "session_id": "20260409_143022",
-  "config": "mas_3_agent",
-  "scenario": "mystery",
+  "config": "full_cast",
+  "scenario": "the_audition",
+  "story": "Brick City: Mars",
   "interactions": [
     {
-      "type": "narrator",
+      "agent": "tolkien",
       "turn": 5,
       "timestamp": "2026-04-09T14:30:45",
       "model": "google/gemma-4-31b-it",
@@ -225,31 +274,26 @@ Every LLM call is logged to `logs/` as structured JSON (ported from Comic Chaos)
 }
 ```
 
-This is essential for debugging agent behavior and for the benchmark post-analysis.
-
 ## Graph Topology
 
-### 4-Agent (`mas_4_graph.py`)
+### The Full Cast (`full_cast_graph.py`)
+
+Tolkien → Sherlock → Sheldon
 
 ```
-User Input → Narrator → Consistency ─┬─ (clean) → Director → Memory → Output
-                                      └─ (flags + retries left) → Narrator
+User Input → Tolkien → Sherlock ─┬─ (clean) → Sheldon → Output
+                                 └─ (flags + retries left) → Tolkien
 ```
 
-### 3-Agent (`mas_3_graph.py`)
+### The Essentials (`essentials_graph.py`)
+
+Tolkien → Sheldon
 
 ```
-User Input → Narrator → Consistency ─┬─ (clean) → Memory → Output
-                                      └─ (flags + retries left) → Narrator
+User Input → Tolkien → Sheldon → Output
 ```
 
-### 2-Agent (`mas_2_graph.py`)
-
-```
-User Input → Narrator → Memory → Output
-```
-
-### Single LLM (`single_llm_graph.py`)
+### Solo Act (`solo_graph.py`)
 
 ```
 User Input → Single Agent → Output
@@ -269,11 +313,12 @@ class LLMBackend(ABC):
 
 ## Context Management
 
-Agents are stateless between calls. Context is reconstructed each time:
+Agents are stateless between calls. Context is reconstructed each turn as plain text:
 
 1. **Sliding window** — last N story beats verbatim (configurable, default 5)
-2. **Compressed summary** — older history condensed by the Memory agent every 10 turns
-3. **World state snapshot** — current characters, locations, inventory serialized from Pydantic models
+2. **Compressed summary** — older history condensed by Sheldon every N turns
+3. **World state** — Sheldon's structured output, serialized as text for other agents to read
+4. **Rules** — always included from the story blueprint
 
 Target: ~4-8K tokens per agent call.
 
@@ -282,9 +327,9 @@ Target: ~4-8K tokens per agent call.
 Configs are YAML files loaded into Pydantic models:
 
 ```yaml
-name: "mas_3_agent"
-description: "3-agent MAS: Narrator + Consistency + Memory"
-graph: "mas_3_graph"
+name: "full_cast"
+description: "Tolkien (Narrator) → Sherlock (Consistency) → Sheldon (Memory)"
+graph: "full_cast_graph"
 llm_backend: "gemma"
 model: "google/gemma-4-31b-it"
 temperature: 0.7
@@ -292,30 +337,4 @@ max_tokens_per_agent: 1024
 consistency_retries: 1
 summary_interval: 10
 context_window_beats: 5
-```
-
-## Scenario Definition
-
-Scenarios are JSON files loaded into Pydantic models:
-
-```python
-class Protagonist(BaseModel):
-    name: str
-    description: str
-    starting_location: str
-    starting_inventory: list[str]
-
-class Turn(BaseModel):
-    turn: int
-    user_input: str
-
-class Scenario(BaseModel):
-    scenario_id: str
-    title: str
-    genre: str
-    description: str
-    setting: str
-    protagonist: Protagonist
-    test_focus: list[str]
-    turns: list[Turn]
 ```

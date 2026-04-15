@@ -16,4 +16,10 @@ For non-trivial changes, pause and ask "is there a more elegant way?" — skip f
 - Prompts: **.md template files** in `src/prompts/`, loaded via `prompt_loader.py`
 - Agents: **async functions**, not classes
 - LLM JSON: parsed through **json_sanitizer** (try parse → extract → repair → fallback)
-- LLM: local **vLLM** (OpenAI-compatible) — model via `MODEL_NAME` env var
+- LLM: local **vLLM** (OpenAI-compatible) — model via config YAML
+- Most agents receive and return **plain text** — only Sheldon (Memory) outputs structured JSON
+- Reference implementations in `reference/` — study and adapt critically, don't copy blindly
+- Story world defined once in `story.json` as a blueprint (setting, protagonist, rules, premise)
+- One benchmark scenario: `the_audition.json` — 100 turns testing everything
+- Agent names: Tolkien (Narrator), Sherlock (Consistency), Spielberg (Director), Sheldon (Memory)
+- Rules from `story.json` must be included in every agent's context
