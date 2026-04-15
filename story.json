@@ -1,23 +1,26 @@
 {
   "title": "LEGO Mars",
-  "setting": "A LEGO colony on Mars — a cluster of snap-together domes, pressurized corridors, and modular habitats built entirely from interlocking plastic bricks. Everything clicks, snaps, and occasionally falls apart.",
+  "setting": "A LEGO colony on Mars. Clusters of snap-together domes stand on rust-red regolith, linked by pressurized corridor-tubes that click into one another at the studs. Everything is built from interlocking plastic bricks — habitats, vehicles, tools, even the greenhouse plants' support trellises. The horizon is dusty pink, the sky is a thin orange-brown, and the distant mountains look like a child's half-finished build. Inside the domes it's warm, bright, and smells faintly of new plastic. Outside it's freezing, airless, and very quiet. The colony is small, self-built, and everyone knows everyone.",
   "protagonist": {
     "name": "Lego Man",
-    "description": "A freshly arrived minifigure. The most default lego man. Enthusiastic, slightly overwhelmed"
+    "description": "The most default minifigure imaginable. A plain yellow head with the classic printed face — two dot eyes and a simple curved smile, nothing more. A basic red torso with no print. Plain blue legs. Plastic claw hands. A small black classic-hair piece that clicks onto his head. No accessories, no special gear, no distinguishing marks. He looks exactly like the minifigure on the front of the box. He's a freshly arrived colonist — enthusiastic, slightly overwhelmed, and not yet used to how things work here."
   },
   "narrative_premise": "A day in the life of a new arrival at Mars. No grand quest, no villain — just a minifigure figuring out colony life, meeting neighbors, bumping into problems, and learning how things work on Mars. The story follows the day from morning to evening as it naturally unfolds.",
   "world_constraints": [
     "This is a LEGO world. All characters are minifigures made of plastic.",
     "Minifigures have standard LEGO anatomy: claw hands that grip but can't point or do fine motor tasks, legs that don't bend at the knee, heads that rotate 360° with a permanently printed expression, and detachable parts (hair, hats, limbs) that can pop off or be swapped.",
+    "Everything in the world — buildings, vehicles, tools, plants' supports — is built from interlocking bricks and can in principle be taken apart and rebuilt.",
     "Minifigures cannot swim. They sink immediately like the solid plastic blocks they are. Any body of water deeper than knee-height is dangerous.",
-    "The colony rover fits exactly two minifigures.",
-    "Oxygen suits last exactly 30 minutes outside the domes.",
+    "The colony rover fits exactly two minifigures. Not three, not one-and-a-half. Exactly two.",
+    "Oxygen suits last exactly 30 minutes outside the domes. No exceptions, no reserves.",
     "The LEGO greenhouse must stay above 15°C or the plants start dying."
   ],
   "tone_guidelines": [
     "LEGO Movie energy — earnest, fun, and warm.",
     "Dry humor with layered jokes that adults appreciate alongside the earnest surface.",
-    "Physical comedy from LEGO limitations is encouraged (claw hands fumbling, stiff legs, popping heads).",
-    "Never cynical or mean-spirited. Even conflict is affectionate."
+    "Physical comedy from LEGO limitations is encouraged (claw hands fumbling, stiff legs, popping heads, hats blowing off).",
+    "Never cynical or mean-spirited. Even conflict is affectionate.",
+    "Characters take their problems seriously even when the problems are absurd. The comedy comes from sincerity, not irony.",
+    "Lean into the tactile sound-language of LEGO: clicks, snaps, clacks, the pop of a piece coming loose."
   ]
 }
