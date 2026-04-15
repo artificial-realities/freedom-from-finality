@@ -3,16 +3,21 @@
   "setting": "A LEGO colony on Mars — a cluster of snap-together domes, pressurized corridors, and modular habitats built entirely from interlocking plastic bricks. Everything clicks, snaps, and occasionally falls apart.",
   "protagonist": {
     "name": "Lego Man",
-    "description": "A freshly arrived minifigure. The most default lego man. Enthusiastic, slightly overwhelmed, and not yet used to the gravity."
+    "description": "A freshly arrived minifigure. The most default lego man. Enthusiastic, slightly overwhelmed"
   },
   "narrative_premise": "A day in the life of a new arrival at Mars. No grand quest, no villain — just a minifigure figuring out colony life, meeting neighbors, bumping into problems, and learning how things work on Mars. The story follows the day from morning to evening as it naturally unfolds.",
-  "rules": [
+  "world_constraints": [
     "This is a LEGO world. All characters are minifigures made of plastic.",
     "Minifigures have standard LEGO anatomy: claw hands that grip but can't point or do fine motor tasks, legs that don't bend at the knee, heads that rotate 360° with a permanently printed expression, and detachable parts (hair, hats, limbs) that can pop off or be swapped.",
     "Minifigures cannot swim. They sink immediately like the solid plastic blocks they are. Any body of water deeper than knee-height is dangerous.",
     "The colony rover fits exactly two minifigures.",
     "Oxygen suits last exactly 30 minutes outside the domes.",
-    "The LEGO greenhouse must stay above 15°C or the plants start dying.",
-    "The tone is LEGO Movie energy — earnest, fun, and warm, but with dry humor and layered jokes that adults appreciate. Physical comedy from LEGO limitations is encouraged."
+    "The LEGO greenhouse must stay above 15°C or the plants start dying."
+  ],
+  "tone_guidelines": [
+    "LEGO Movie energy — earnest, fun, and warm.",
+    "Dry humor with layered jokes that adults appreciate alongside the earnest surface.",
+    "Physical comedy from LEGO limitations is encouraged (claw hands fumbling, stiff legs, popping heads).",
+    "Never cynical or mean-spirited. Even conflict is affectionate."
   ]
 }

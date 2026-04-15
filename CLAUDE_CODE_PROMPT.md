@@ -47,7 +47,7 @@ The `reference/` folder contains implementations of `json_sanitizer.py` and `int
 
 5. **Text-first agents** — most agents receive and return plain text. Only Sheldon (Memory) outputs structured JSON. Context is context; prose carries the same information as structured dicts for LLMs.
 
-6. **Story blueprint** — the story world is defined once in `story.json` with setting, protagonist, narrative premise, and rules. Rules are always included in every agent's context. The scenario only contains user commands.
+6. **Story blueprint** — the story world is defined once in `story.json` with setting, protagonist, narrative premise, `world_constraints`, and `tone_guidelines`. These two lists are NOT broadcast to every agent — each agent only receives the subset relevant to its role (see agent specs). The scenario JSON only contains user commands.
 
 ## Tech Stack
 
@@ -65,7 +65,7 @@ The `reference/` folder contains implementations of `json_sanitizer.py` and `int
 
 **Pydantic models** (`src/state/story_state.py`, `src/models/`):
 - `StoryState` in `src/state/story_state.py` — the shared state as defined in ARCHITECTURE.md. Lean, text-first. Includes story blueprint fields (setting, rules, premise) set once at initialization.
-- `Story`, `Protagonist` in `src/models/story.py` — loaded from `story.json`. Includes `rules: list[str]` and `narrative_premise: str`.
+- `Story`, `Protagonist` in `src/models/story.py` — loaded from `story.json`. Includes `narrative_premise: str`, `world_constraints: list[str]`, and `tone_guidelines: list[str]`.
 - `Config` in `src/models/config.py` — loaded from YAML
 - `MemoryUpdate` in `src/models/responses.py` — structured output schema for Sheldon (Memory) only
 
@@ -90,12 +90,12 @@ Create all prompt templates in `src/prompts/`:
 
 Each agent gets a `system.md` and `user.md`. The user template uses `{variable}` placeholders filled at call time.
 
-**Critical:** Every agent's prompt must include the `{rules}` from the story blueprint. These are the world constraints that must always be respected.
+**Critical:** Blueprint constraints are split. Tolkien gets NEITHER `world_constraints` nor `tone_guidelines` — he writes freely. Wilde gets ONLY `tone_guidelines`. Sherlock gets ONLY `world_constraints`. This split is what makes the benchmark meaningful — don't leak constraints into other prompts.
 
 - `interpreter.system.md` / `interpreter.user.md` — parses raw user command into clarified intent, resolving vague references against world state.
-- `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, premise, and all context as prose.
-- `editor.system.md` / `editor.user.md` — polishes draft narration for LEGO-Movie tone without changing plot or facts.
-- `consistency.system.md` / `consistency.user.md` — analytical contradiction detection. Checks narration against rules and established facts.
+- `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, premise, and all context as prose — no constraints, no tone guidelines.
+- `editor.system.md` / `editor.user.md` — polishes draft narration for LEGO-Movie tone. Receives `tone_guidelines`.
+- `consistency.system.md` / `consistency.user.md` — analytical contradiction detection. Receives `world_constraints` and world state; flags violations.
 - `memory.system.md` / `memory.user.md` — structured JSON extraction of world state updates. The user prompt should explicitly include the `MemoryUpdate` JSON schema so the LLM knows what structure to return.
 - `director.system.md` / `director.user.md` — cinematic scene description for future I2V.
 - `single_llm.system.md` / `single_llm.user.md` — one agent does everything
@@ -107,15 +107,14 @@ Each agent is an async function: `async def agent_name(state: StoryState, llm: L
 Returns a partial state dict that LangGraph merges.
 
 **Tolkien — Narrator** (`narrator.py`):
-- Receives prose context: setting, rules, narrative premise, summary, world state, recent beats, user input
-- Writes: `current_narration`
-- The ONLY output the user sees
-- Must respect all rules from the story blueprint
+- Receives prose context: setting, narrative premise, summary, world state, recent beats, user input (or `user_intent` in full_cast)
+- Does NOT receive world_constraints or tone_guidelines
+- Writes: `current_narration` (draft in full_cast; final in core/solo)
 
 **Sherlock — Consistency** (`consistency.py`):
-- Receives prose context: narration, rules, summary, world state, recent beats
+- Receives prose context: narration, `world_constraints`, summary, world state, recent beats
 - Writes: `consistency_flags`, `contradiction_count`
-- Checks against both established story facts AND blueprint rules
+- Checks against established story facts AND world_constraints
 - Does NOT rewrite narration — only flags issues
 
 **Spielberg — Director** (`director.py`):
@@ -212,9 +211,9 @@ pyyaml>=6.0
 
 ## Guidelines
 
-- **Pydantic everywhere** — state, config, story, scenario, responses. Not raw dicts.
+- **Pydantic everywhere** — state, config, story, responses. Not raw dicts.
 - **Prompt templates as .md files** — never hardcode prompts as Python strings
-- **Rules in every prompt** — the story blueprint rules must be part of every agent's context
+- **Constraints are split, not shared** — `world_constraints` only to Sherlock; `tone_guidelines` only to Wilde; Tolkien gets neither
 - **JSON sanitizer for Sheldon's output** — always go through the pipeline
 - **Log every LLM call** — via interaction_logger
 - **Text-first** — most agents work with prose, not structured data

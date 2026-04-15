@@ -22,7 +22,8 @@ class Story(BaseModel):
     setting: str
     protagonist: Protagonist
     narrative_premise: str
-    rules: list[str]
+    world_constraints: list[str]
+    tone_guidelines: list[str]
 
     @classmethod
     def from_json(cls, path: Path) -> "Story":
@@ -30,9 +31,14 @@ class Story(BaseModel):
         return cls(**data)
 ```
 
-The **rules** are constraints that must always hold — LEGO physics, world limits, tone guidelines. Every agent receives the rules as part of its context. The benchmark scenario tests whether these rules are respected throughout.
+The blueprint splits its constraints into two buckets, each owned by a different agent:
 
-The **narrative_premise** is the thematic engine — the underlying direction that guides the narrator when the user's commands are ambiguous.
+- **`world_constraints`** — hard facts about the world (LEGO physics, rover capacity, oxygen limits). Given ONLY to Sherlock, who enforces them. Tolkien writes freely and may violate them; Sherlock catches it.
+- **`tone_guidelines`** — stylistic direction (LEGO Movie energy, dry humor, physical comedy). Given ONLY to Wilde, who polishes Tolkien's draft for voice.
+
+This split is deliberate: it sharpens the benchmark. In `solo` and `core`, nobody sees the tone guidelines, so any tone drift is expected. In `full_cast`, Wilde corrects it. Similarly, in `solo` nobody sees the world constraints — only `core` and `full_cast` (via Sherlock) get them.
+
+The **narrative_premise** is the thematic engine — the underlying direction that guides the narrator when the user's commands are ambiguous. It goes to Tolkien and to the solo agent.
 
 ## Scenario
 
@@ -96,8 +102,9 @@ class StoryState(BaseModel):
     # Story blueprint fields — set once at initialization
     story_setting: str = ""
     protagonist_name: str = ""
-    rules: list[str] = Field(default_factory=list)
     narrative_premise: str = ""
+    world_constraints: list[str] = Field(default_factory=list)  # given only to Sherlock
+    tone_guidelines: list[str] = Field(default_factory=list)    # given only to Wilde
 
     def get_recent_beats(self, count: int = 5) -> list[StoryBeat]:
         """Get the most recent story beats."""
@@ -110,8 +117,9 @@ class StoryState(BaseModel):
             summary=story.setting,
             story_setting=story.setting,
             protagonist_name=story.protagonist.name,
-            rules=list(story.rules),
             narrative_premise=story.narrative_premise,
+            world_constraints=list(story.world_constraints),
+            tone_guidelines=list(story.tone_guidelines),
             config_name=config_name,
         )
 ```
@@ -152,19 +160,19 @@ Only used in `full_cast`. In `core` and `solo`, Tolkien reads the raw user input
 
 ### Tolkien (Narrator)
 
-The creative core. Reads the user's command and writes the next story beat.
+The creative core. Reads the user's command (or Chomsky's clarified intent, in `full_cast`) and writes the next story beat.
 
-**Receives (as text):** story setting, rules, narrative premise, summary, world state, recent beats, user input
+**Receives (as text):** story setting, narrative premise, summary, world state, recent beats, user input or user_intent
 
-**Writes:** `current_narration` (1-3 paragraphs)
+**Does NOT receive:** world constraints or tone guidelines. Tolkien writes freely. Sherlock enforces physics; Wilde polishes voice.
 
-This is the ONLY output the user sees. It must respect all rules from the story blueprint.
+**Writes:** `current_narration` (1-3 paragraphs, draft in `full_cast`)
 
 ### Wilde (Editor)
 
 The stylist. Takes Tolkien's draft narration and polishes it for LEGO-Movie tone — earnest, warm, dry humor, physical-comedy beats — without changing plot or facts. A light touch, not a rewrite.
 
-**Receives (as text):** draft narration, tone guidelines
+**Receives (as text):** draft narration, `tone_guidelines` from the story blueprint
 
 **Writes:** `current_narration` (overwrites the draft with the polished version)
 
@@ -172,9 +180,9 @@ Only used in `full_cast`. In `core` and `solo`, Tolkien's output is shown direct
 
 ### Sherlock (Consistency)
 
-The quality gate. Reviews the narration against established facts and rules, and flags contradictions.
+The quality gate. Reviews the narration against established facts and the world constraints, and flags contradictions.
 
-**Receives (as text):** current narration, rules, summary, world state, recent beats
+**Receives (as text):** current narration, `world_constraints` from the story blueprint, summary, world state, recent beats
 
 **Writes:** `consistency_flags`, `contradiction_count`
 
@@ -220,16 +228,13 @@ def load_prompt(filepath: Path, **kwargs) -> str:
     return content.format(**kwargs) if kwargs else content
 ```
 
-Each agent has a `system.md` and `user.md` template. Variables are substituted at call time. The rules from `story.json` are included in every agent's context. Example:
+Each agent has a `system.md` and `user.md` template. Variables are substituted at call time. Agents only see the blueprint fields relevant to their job — Tolkien sees setting and premise, Wilde sees tone guidelines, Sherlock sees world constraints. Example:
 
 ```markdown
 # narrator.user.md
 SETTING: {story_setting}
 
 PROTAGONIST: {protagonist_name}
-
-RULES (always respect these):
-{rules}
 
 NARRATIVE PREMISE: {narrative_premise}
 
@@ -341,7 +346,7 @@ Agents are stateless between calls. Context is reconstructed each turn as plain 
 1. **Sliding window** — last N story beats verbatim (configurable, default 5)
 2. **Compressed summary** — older history condensed by Sheldon every N turns
 3. **World state** — Sheldon's structured output, serialized as text for other agents to read
-4. **Rules** — always included from the story blueprint
+4. **Blueprint fields** — only the subset each agent needs (Tolkien: setting + premise; Wilde: tone_guidelines; Sherlock: world_constraints)
 
 Target: ~4-8K tokens per agent call.
 

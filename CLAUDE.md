@@ -22,4 +22,4 @@ For non-trivial changes, pause and ask "is there a more elegant way?" — skip f
 - Story world defined once in `story.json` as a blueprint (setting, protagonist, rules, premise)
 - One benchmark scenario: `test_scenario.json` — 100 turns testing everything
 - Agent names: Chomsky (Interpreter), Tolkien (Narrator), Wilde (Editor), Sherlock (Consistency), Sheldon (Memory), Spielberg (Director)
-- Rules from `story.json` must be included in every agent's context
+- Constraints in `story.json` are split: `world_constraints` only to Sherlock, `tone_guidelines` only to Wilde. Tolkien gets neither and writes freely.
