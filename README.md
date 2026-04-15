@@ -27,8 +27,7 @@ interactive-mas/
 ├── BENCHMARK.md
 ├── CLAUDE.md                        # Claude Code working instructions
 ├── story.json                       # Story blueprint (setting, protagonist, rules, premise)
-├── scenarios/
-│   └── the_audition.json            # 100-turn benchmark scenario
+├── test_scenario.json               # 100-turn benchmark scenario
 ├── reference/                       # Reference implementations to adapt
 │   ├── json_sanitizer.py
 │   └── interaction_logger.py
@@ -123,10 +122,10 @@ vllm serve google/gemma-4-31b-it \
 python main.py play --config configs/full_cast.yaml
 
 # Run the benchmark scenario
-python main.py play --config configs/essentials.yaml --scenario scenarios/the_audition.json
+python main.py play --config configs/essentials.yaml --scenario test_scenario.json
 
 # Benchmark all configs against the scenario
-python main.py benchmark --scenarios scenarios/
+python main.py benchmark --scenario test_scenario.json
 ```
 
 ## Tech Stack

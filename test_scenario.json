@@ -1,7 +1,7 @@
 {
-  "scenario_id": "the_audition",
-  "title": "The Audition",
-  "description": "A full day in Brick City from morning to evening. Tests inventory persistence, character tracking, and world rule consistency across 100 turns in a single continuous playthrough.",
+  "scenario_id": "test_scenario",
+  "title": "Test Scenario",
+  "description": "A full day on LEGO Mars from morning to evening. Tests inventory persistence, character tracking, and world rule consistency across 100 turns in a single continuous playthrough.",
   "test_focus": [
     "inventory_tracking",
     "item_persistence",

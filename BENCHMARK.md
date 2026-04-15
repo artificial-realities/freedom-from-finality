@@ -18,7 +18,7 @@ Spielberg (Director) exists in the codebase for a future video pipeline but is n
 
 ### Story
 
-All runs use the same story blueprint defined in `story.json` — a LEGO colony on Mars called Brick City. The blueprint includes setting, protagonist, narrative premise, and a set of rules (LEGO physics, world constraints, tone) that must be respected throughout.
+All runs use the same story blueprint defined in `story.json` — a LEGO colony on Mars. The blueprint includes setting, protagonist, narrative premise, and a set of rules (LEGO physics, world constraints, tone) that must be respected throughout.
 
 ### Scenario
 
@@ -78,7 +78,7 @@ When scoring runs, it's useful to break them into phases:
 
 ```bash
 # Benchmark all configs against the scenario
-python main.py benchmark --scenarios scenarios/
+python main.py benchmark --scenario test_scenario.json
 
 # Logs are written to logs/ — evaluate them afterwards
 ```

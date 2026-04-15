@@ -255,8 +255,8 @@ The log should capture everything needed to evaluate a run after the fact:
 {
   "session_id": "20260409_143022",
   "config": "full_cast",
-  "scenario": "the_audition",
-  "story": "Brick City: Mars",
+  "scenario": "test_scenario",
+  "story": "LEGO Mars",
   "interactions": [
     {
       "agent": "tolkien",

@@ -20,7 +20,7 @@ Before writing any code, read ALL of these:
 - `ARCHITECTURE.md` — state schema, agent specs, graph topology, context management, prompt template pattern, JSON sanitizer, interaction logger
 - `BENCHMARK.md` — experiment matrix, evaluation approach
 - `story.json` — the story blueprint (setting, protagonist, rules, narrative premise)
-- `scenarios/the_audition.json` — the 100-turn benchmark scenario
+- `test_scenario.json` — the 100-turn benchmark scenario
 
 These are the source of truth. Follow them closely.
 
