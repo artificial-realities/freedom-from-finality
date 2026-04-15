@@ -73,6 +73,7 @@ class StoryState(BaseModel):
     # Current turn
     turn_number: int = 0
     user_input: str = ""
+    user_intent: str = ""  # Chomsky's clarified version (full_cast only)
     current_narration: str = ""
 
     # World state — maintained by the Memory agent as structured data
@@ -139,6 +140,16 @@ The Memory agent MERGES updates — if it doesn't mention a field, the existing 
 
 Each agent has a name inspired by a famous figure who embodies their role.
 
+### Chomsky (Interpreter)
+
+The front door. Parses the user's raw command into a clean, explicit intent before Tolkien writes. Resolves vague references against the world state ("the mechanic" → whoever that is right now), clarifies pronouns, and produces a short prose intent statement.
+
+**Receives (as text):** user input, world state, recent beats
+
+**Writes:** `user_intent` (1-2 sentences of clarified intent)
+
+Only used in `full_cast`. In `core` and `solo`, Tolkien reads the raw user input directly.
+
 ### Tolkien (Narrator)
 
 The creative core. Reads the user's command and writes the next story beat.
@@ -148,6 +159,16 @@ The creative core. Reads the user's command and writes the next story beat.
 **Writes:** `current_narration` (1-3 paragraphs)
 
 This is the ONLY output the user sees. It must respect all rules from the story blueprint.
+
+### Wilde (Editor)
+
+The stylist. Takes Tolkien's draft narration and polishes it for LEGO-Movie tone — earnest, warm, dry humor, physical-comedy beats — without changing plot or facts. A light touch, not a rewrite.
+
+**Receives (as text):** draft narration, tone guidelines
+
+**Writes:** `current_narration` (overwrites the draft with the polished version)
+
+Only used in `full_cast`. In `core` and `solo`, Tolkien's output is shown directly.
 
 ### Sherlock (Consistency)
 
@@ -159,7 +180,7 @@ The quality gate. Reviews the narration against established facts and rules, and
 
 Does NOT rewrite narration. Only flags problems. If the config allows retries, the graph routes back to Tolkien with the flags.
 
-### Spielberg (Director) — silent
+### Spielberg (Director)
 
 Translates the narration into a cinematic scene description. Stored in state but never shown to the user. Exists for a future video pipeline (Wan I2V via DashScope).
 
@@ -167,7 +188,7 @@ Translates the narration into a cinematic scene description. Stored in state but
 
 **Writes:** `scene_description`
 
-Not included in any benchmark configuration. Lives in the codebase for future use.
+Only used in `full_cast`.
 
 ### Sheldon (Memory)
 
@@ -269,28 +290,37 @@ The log should capture everything needed to evaluate a run after the fact:
 
 ## Graph Topology
 
-### The Full Cast (`full_cast_graph.py`)
+### Solo (`solo_graph.py`)
 
-Tolkien → Sherlock → Sheldon
+One LLM does everything.
+
+```
+User Input → Single Agent → Output
+```
+
+### Core (`core_graph.py`)
+
+Tolkien → Sherlock → Sheldon (3 agents)
 
 ```
 User Input → Tolkien → Sherlock ─┬─ (clean) → Sheldon → Output
                                  └─ (flags + retries left) → Tolkien
 ```
 
-### The Essentials (`essentials_graph.py`)
+### Full Cast (`full_cast_graph.py`)
 
-Tolkien → Sheldon
-
-```
-User Input → Tolkien → Sheldon → Output
-```
-
-### Solo Act (`solo_graph.py`)
+Chomsky → Tolkien → Wilde → Sherlock → Sheldon → Spielberg (6 agents)
 
 ```
-User Input → Single Agent → Output
+User Input
+    → Chomsky (parse intent)
+    → Tolkien (draft narration)
+    → Wilde (polish tone)
+    → Sherlock ─┬─ (clean) → Sheldon (memory) → Spielberg (scene desc) → Output
+                └─ (flags + retries left) → Tolkien
 ```
+
+On a Sherlock flag, the retry loop goes back to Tolkien; Wilde then re-polishes before Sherlock checks again. Spielberg runs last and is silent — his output is stored in `scene_description` but never shown.
 
 ## LLM Backend
 

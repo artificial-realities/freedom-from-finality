@@ -34,10 +34,12 @@ interactive-mas/
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py
+│   │   ├── interpreter.py           # "Chomsky" — parses user intent
 │   │   ├── narrator.py              # "Tolkien" — the storyteller
-│   │   ├── director.py              # "Spielberg" — silent, for future video pipeline
+│   │   ├── editor.py                # "Wilde" — polishes tone
 │   │   ├── consistency.py           # "Sherlock" — contradiction detector
-│   │   └── memory.py               # "Sheldon" — structured world state tracker
+│   │   ├── memory.py                # "Sheldon" — structured world state tracker
+│   │   └── director.py              # "Spielberg" — cinematic scene description
 │   ├── state/
 │   │   ├── __init__.py
 │   │   └── story_state.py           # Pydantic models for all state
@@ -48,23 +50,27 @@ interactive-mas/
 │   │   └── responses.py             # Pydantic response schema (Memory agent output)
 │   ├── graph/
 │   │   ├── __init__.py
-│   │   ├── full_cast_graph.py       # Tolkien → Sherlock → Sheldon
-│   │   ├── essentials_graph.py      # Tolkien → Sheldon
-│   │   └── solo_graph.py            # Single LLM
+│   │   ├── solo_graph.py            # Single LLM
+│   │   ├── core_graph.py            # Tolkien → Sherlock → Sheldon
+│   │   └── full_cast_graph.py       # Chomsky → Tolkien → Wilde → Sherlock → Sheldon → Spielberg
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py
 │   │   ├── gemma.py
 │   │   └── openai_backend.py
 │   ├── prompts/                     # Prompt templates as .md files
+│   │   ├── interpreter.system.md
+│   │   ├── interpreter.user.md
 │   │   ├── narrator.system.md
 │   │   ├── narrator.user.md
+│   │   ├── editor.system.md
+│   │   ├── editor.user.md
 │   │   ├── consistency.system.md
 │   │   ├── consistency.user.md
-│   │   ├── director.system.md
-│   │   ├── director.user.md
 │   │   ├── memory.system.md
 │   │   ├── memory.user.md
+│   │   ├── director.system.md
+│   │   ├── director.user.md
 │   │   ├── single_llm.system.md
 │   │   └── single_llm.user.md
 │   ├── util/
@@ -79,9 +85,9 @@ interactive-mas/
 │       ├── __init__.py
 │       └── terminal.py
 ├── configs/
-│   ├── full_cast.yaml
-│   ├── essentials.yaml
-│   └── solo.yaml
+│   ├── solo.yaml
+│   ├── core.yaml
+│   └── full_cast.yaml
 ├── logs/                            # LLM interaction logs per session
 ├── requirements.txt
 └── main.py
@@ -121,7 +127,7 @@ vllm serve google/gemma-4-31b-it \
 python main.py play --config configs/full_cast.yaml
 
 # Run the benchmark scenario
-python main.py play --config configs/essentials.yaml --scenario test_scenario.json
+python main.py play --config configs/core.yaml --scenario test_scenario.json
 
 # Benchmark all configs against the scenario
 python main.py benchmark --scenario test_scenario.json

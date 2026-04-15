@@ -92,10 +92,12 @@ Each agent gets a `system.md` and `user.md`. The user template uses `{variable}`
 
 **Critical:** Every agent's prompt must include the `{rules}` from the story blueprint. These are the world constraints that must always be respected.
 
-- `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, rules, premise, and all context as prose.
+- `interpreter.system.md` / `interpreter.user.md` — parses raw user command into clarified intent, resolving vague references against world state.
+- `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, premise, and all context as prose.
+- `editor.system.md` / `editor.user.md` — polishes draft narration for LEGO-Movie tone without changing plot or facts.
 - `consistency.system.md` / `consistency.user.md` — analytical contradiction detection. Checks narration against rules and established facts.
-- `director.system.md` / `director.user.md` — cinematic scene description for future I2V.
 - `memory.system.md` / `memory.user.md` — structured JSON extraction of world state updates. The user prompt should explicitly include the `MemoryUpdate` JSON schema so the LLM knows what structure to return.
+- `director.system.md` / `director.user.md` — cinematic scene description for future I2V.
 - `single_llm.system.md` / `single_llm.user.md` — one agent does everything
 
 ### Phase 3: Agents
@@ -117,10 +119,22 @@ Returns a partial state dict that LangGraph merges.
 - Does NOT rewrite narration — only flags issues
 
 **Spielberg — Director** (`director.py`):
-- SILENT — output stored but never shown
+- Silent — output stored but never shown to the user
 - Receives prose context: narration, world state
 - Writes: `scene_description`
-- Not in any benchmark config. Build it but don't include in graphs.
+- Only included in `full_cast`
+
+**Chomsky — Interpreter** (`interpreter.py`):
+- Parses raw user command into a clarified intent before Tolkien writes
+- Receives prose context: user input, world state, recent beats
+- Writes: `user_intent`
+- Only included in `full_cast`
+
+**Wilde — Editor** (`editor.py`):
+- Polishes Tolkien's draft for LEGO-Movie tone (light touch, no rewrite)
+- Receives prose context: draft narration, tone guidelines
+- Writes: `current_narration` (overwrites draft)
+- Only included in `full_cast`
 
 **Sheldon — Memory** (`memory.py`):
 - The ONLY agent that outputs structured JSON
@@ -135,20 +149,25 @@ Returns a partial state dict that LangGraph merges.
 
 ### Phase 4: Graphs
 
-**The Full Cast** (`full_cast_graph.py`):
+**Solo** (`solo_graph.py`) — 1 agent:
+```
+Input → Single Agent → Output
+```
+
+**Core** (`core_graph.py`) — 3 agents:
 ```
 Input → Tolkien → Sherlock ─┬─ (clean) → Sheldon → Output
                             └─ (flags + retries left) → Tolkien
 ```
 
-**The Essentials** (`essentials_graph.py`):
+**Full Cast** (`full_cast_graph.py`) — 6 agents:
 ```
-Input → Tolkien → Sheldon → Output
-```
-
-**Solo Act** (`solo_graph.py`):
-```
-Input → Single Agent → Output
+Input
+  → Chomsky (intent)
+  → Tolkien (draft)
+  → Wilde (polish)
+  → Sherlock ─┬─ (clean) → Sheldon → Spielberg → Output
+              └─ (flags + retries left) → Tolkien
 ```
 
 Note: LangGraph wants TypedDict for state, but agents work with Pydantic models internally. Bridge this by converting at the graph boundary — `state.model_dump()` to pass in, `StoryState(**state_dict)` to reconstruct. Or use LangGraph's Pydantic state support if available.
@@ -217,16 +236,17 @@ pyyaml>=6.0
 
 ## Build Order
 
-1. Pydantic models (state, config, story, scenario, responses)
+1. Pydantic models (state, config, story, responses)
 2. Utility modules (prompt_loader, json_sanitizer, interaction_logger)
 3. LLM backends
 4. Prompt templates (.md files)
 5. Tolkien (Narrator) alone → verify it works with a manual test
 6. Add Sheldon (Memory) → verify
-7. Add Sherlock (Consistency) → verify
-8. Build all 3 graph variants
-9. Terminal UI
-10. Benchmark runner
-11. Main entry point
+7. Add Sherlock (Consistency) → verify (completes Core)
+8. Add Chomsky, Wilde, Spielberg → verify (completes Full Cast)
+9. Build all 3 graph variants
+10. Terminal UI
+11. Benchmark runner
+12. Main entry point
 
 Test each step before moving on.

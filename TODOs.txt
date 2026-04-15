@@ -1,2 +1,1 @@
 TODO: Need to refine story.json and test_scenario.json. Need to define my own tests.
-TODO: Make the agent configs more different from eachother: 1 - 3 - 5 is to close to eachother, maybe 1 - 5 - 10?

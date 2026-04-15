@@ -11,10 +11,10 @@
 | ID | Name | Agents | Pipeline |
 |----|------|--------|----------|
 | C1 | `solo` | 1 | Single Gemma 4 handles everything |
-| C2 | `essentials` | 2 | Tolkien (Narrator) → Sheldon (Memory) |
-| C3 | `full_cast` | 3 | Tolkien (Narrator) → Sherlock (Consistency) → Sheldon (Memory) |
+| C2 | `core` | 3 | Tolkien → Sherlock → Sheldon |
+| C3 | `full_cast` | 6 | Chomsky → Tolkien → Wilde → Sherlock → Sheldon → Spielberg |
 
-Spielberg (Director) exists in the codebase for a future video pipeline but is not included in any benchmark configuration — his output is silent and would only add overhead.
+The spread (1 / 3 / 6) is intentional — each step roughly doubles the pipeline depth so the benchmark can reveal whether added agents earn their seat.
 
 ### Story
 
@@ -70,9 +70,9 @@ When scoring runs, it's useful to break them into phases:
 ### Expected Hypothesis
 
 - Solo performs well early but degrades in late-game coherence as context grows
-- Essentials (+ Sheldon) improves world consistency by maintaining structured state
-- Full Cast (+ Sherlock) reduces contradictions by catching them before they compound
-- Tradeoff: more agents = more latency and token cost per turn
+- Core (+ Sherlock + Sheldon) improves world consistency and reduces contradictions by catching them before they compound
+- Full Cast (+ Chomsky, Wilde, Spielberg) adds intent clarity and tone polish, but marginal gains may not justify the added latency
+- Tradeoff: more agents = more latency per turn
 
 ## Running
 
