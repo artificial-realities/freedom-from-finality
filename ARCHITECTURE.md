@@ -4,6 +4,8 @@
 
 Agents don't communicate directly. They read from and write to a shared state object — a whiteboard. One agent writes, the next reads. LangGraph orchestrates execution order and merges updates.
 
+The roster is deliberately lean: four named agents, each guarding exactly one failure mode, with no overlap. **Tolkien** writes the prose and owns the world rules. **Wilde** owns the voice. **Sheldon** owns the facts ledger. **Chekhov** owns the narrative promises ledger. There is no separate consistency or review agent — Tolkien receives `world_constraints` directly and is instructed to respect them, and long-horizon continuity is preserved through Sheldon's accumulated world_state and Chekhov's open threads, which feed back into Tolkien's context on every subsequent turn.
+
 Most agents work with plain text — prose summaries, recent story beats, the user's command. Context is context; a well-written paragraph carries the same information as a structured dict. Only the Memory agent ("Sheldon") and the Threads agent ("Chekhov") output structured data — both need stable IDs and queryable state that doesn't drift over 100+ turns. Sheldon tracks world facts (entities, inventory, locations); Chekhov tracks narrative promises (setups awaiting payoff).
 
 Implicit qualities like mood, tone, and time of day are never tracked. The agents infer these naturally from the story history.
@@ -33,10 +35,10 @@ class Story(BaseModel):
 
 The blueprint splits its constraints into two buckets, each owned by a different agent:
 
-- **`world_constraints`** — hard facts about the world (LEGO physics, rover capacity, oxygen limits). Given ONLY to Sherlock, who enforces them. Tolkien writes freely and may violate them; Sherlock catches it.
+- **`world_constraints`** — hard facts about the world (LEGO physics, rover capacity, oxygen limits). Given to Tolkien, who is instructed to respect them while writing. Proactive, not reactive — there is no separate consistency agent to catch violations after the fact.
 - **`tone_guidelines`** — stylistic direction (LEGO Movie energy, dry humor, physical comedy). Given ONLY to Wilde, who polishes Tolkien's draft for voice.
 
-This split is deliberate: it sharpens the benchmark. In `core`, Tolkien writes freely and Sherlock enforces world constraints — but nobody polishes tone. In `full_cast`, Wilde adds tone enforcement on top.
+This split keeps each agent's responsibility distinct: Tolkien owns what the world *is*, Wilde owns how the story *sounds*.
 
 **Solo is the exception.** The single-LLM baseline receives the *entire* blueprint — setting, protagonist, premise, world_constraints, and tone_guidelines — because it has no helper agents to decompose the work across. The question solo answers is "can one well-briefed LLM match a decomposed pipeline?", not "can an unbriefed LLM?".
 
@@ -94,10 +96,6 @@ class StoryState(BaseModel):
     history: list[StoryBeat] = Field(default_factory=list)
     summary: str = ""  # Compressed prose summary of older history
 
-    # Consistency
-    consistency_flags: list[str] = Field(default_factory=list)
-    contradiction_count: int = 0
-
     # Meta
     config_name: str = ""
 
@@ -106,7 +104,7 @@ class StoryState(BaseModel):
     protagonist_name: str = ""
     protagonist_description: str = ""
     narrative_premise: str = ""
-    world_constraints: list[str] = Field(default_factory=list)  # given only to Sherlock
+    world_constraints: list[str] = Field(default_factory=list)  # given to Tolkien
     tone_guidelines: list[str] = Field(default_factory=list)    # given only to Wilde
 
     def get_recent_beats(self, count: int = 5) -> list[StoryBeat]:
@@ -180,13 +178,15 @@ Each agent has a name inspired by a famous figure who embodies their role.
 
 ### Tolkien (Narrator)
 
-The creative core. Reads the user's command and writes the next story beat.
+The creative core. Reads the user's command and writes the next story beat while respecting the world rules upfront.
 
-**Receives (as text):** story setting, narrative premise, summary, world state, open threads, recent beats, user input
+**Receives (as text):** story setting, narrative premise, `world_constraints`, summary, world state, open threads, recent beats, user input
 
-**Does NOT receive:** world constraints or tone guidelines. Tolkien writes freely. Sherlock enforces physics; Wilde polishes voice.
+**Does NOT receive:** tone guidelines. Wilde polishes voice downstream.
 
 **Writes:** `current_narration` (1-3 paragraphs, draft in `full_cast`)
+
+Tolkien's prompt includes an explicit instruction to respect `world_constraints` and to avoid contradicting `world_state` or the recent beats. There is no reactive consistency gate — prevention is cheaper than cure, and the accumulated state fed back from Sheldon and Chekhov (one turn delayed) gives Tolkien enough grounding to self-police.
 
 The open-threads context comes with explicit guidance: *"Feel free to reference these when the user's action naturally invites it. Do not force payoffs — slow burn is fine."* Without that framing, Tolkien tries to close every thread immediately.
 
@@ -199,16 +199,6 @@ The stylist. Takes Tolkien's draft narration and polishes it for LEGO-Movie tone
 **Writes:** `current_narration` (overwrites the draft with the polished version)
 
 Only used in `full_cast`. In `core` and `solo`, Tolkien's output is shown directly.
-
-### Sherlock (Consistency)
-
-The quality gate. Reviews the narration against established facts and the world constraints, and flags contradictions.
-
-**Receives (as text):** current narration, `world_constraints` from the story blueprint, summary, world state, recent beats
-
-**Writes:** `consistency_flags`, `contradiction_count`
-
-Does NOT rewrite narration. Only flags problems. If the config allows retries, the graph routes back to Tolkien with the flags.
 
 ### Sheldon (Memory)
 
@@ -226,13 +216,13 @@ MERGES updates — if it doesn't mention a field, preserve the existing value.
 
 The promise keeper. Tracks open narrative threads — setups that have been introduced but not yet paid off. Sheldon tracks *facts* (who exists, what's in the inventory); Chekhov tracks *narrative weight* (what the story has set up and owes the reader).
 
-Three kinds of memory, three failure modes, no overlap: **Sherlock guards physics, Sheldon guards facts, Chekhov guards promises.**
+Two kinds of persistent state, two failure modes, no overlap: **Sheldon guards facts, Chekhov guards promises.** (World rules are Tolkien's responsibility, enforced proactively via his prompt.)
 
 **Receives (as text):** current narration, current open threads, recent beats
 
 **Writes:** updated `open_threads` (serialized `ThreadUpdate`)
 
-Runs in parallel with Sheldon on clean narration (both depend on the same narration, neither depends on the other's output). Never runs on flagged narration — the Sherlock retry loop only goes through Tolkien → Wilde → Sherlock.
+Runs in parallel with Sheldon on the polished narration (both depend on the same narration, neither depends on the other's output).
 
 Closes a thread only when the narration explicitly references its payoff or outcome. When in doubt, leaves it open. Also populates `payoff_summary` with a one-line description of how the thread was resolved, used for benchmark telemetry.
 
@@ -256,7 +246,7 @@ def load_prompt(filepath: Path, **kwargs) -> str:
     return content.format(**kwargs) if kwargs else content
 ```
 
-Each agent has a `system.md` and `user.md` template. Variables are substituted at call time. Agents only see the blueprint fields relevant to their job — Tolkien sees setting and premise, Wilde sees tone guidelines, Sherlock sees world constraints. Chekhov sees neither (it only inspects narration and its own thread list). Example:
+Each agent has a `system.md` and `user.md` template. Variables are substituted at call time. Agents only see the blueprint fields relevant to their job — Tolkien sees setting, premise, and `world_constraints`; Wilde sees `tone_guidelines`. Sheldon and Chekhov see neither (they only inspect narration and their own accumulated state). Example:
 
 ```markdown
 # narrator.user.md
@@ -341,28 +331,26 @@ User Input → Single Agent → Output
 
 ### Core (`core_graph.py`)
 
-Tolkien → Sherlock → Sheldon (3 agents)
+Tolkien → Sheldon (2 agents)
 
 ```
-User Input → Tolkien → Sherlock ─┬─ (clean) → Sheldon → Output
-                                 └─ (flags + retries left) → Tolkien
+User Input → Tolkien → Sheldon → Output
 ```
 
 ### Full Cast (`full_cast_graph.py`)
 
-Tolkien → Wilde → Sherlock → [Sheldon ∥ Chekhov] (5 agents)
+Tolkien → Wilde → [Sheldon ∥ Chekhov] (4 agents)
 
 ```
 User Input
-    → Tolkien (draft narration)
+    → Tolkien (draft narration, respects world_constraints)
     → Wilde (polish tone)
-    → Sherlock ─┬─ (clean) ─┬─→ Sheldon (memory) ─┐
-                │           │                     ├─→ Output
-                │           └─→ Chekhov (threads) ─┘
-                └─ (flags + retries left) → Tolkien
+    ─┬─→ Sheldon (memory) ─┐
+     │                     ├─→ Output
+     └─→ Chekhov (threads) ─┘
 ```
 
-On a Sherlock flag, the retry loop goes back to Tolkien; Wilde then re-polishes before Sherlock checks again. Sheldon and Chekhov run in parallel on clean narration — both consume the narration, each writes to an independent state field (`world_state` and `open_threads` respectively), and neither depends on the other's output. Neither runs on flagged narration; the retry loop only cycles Tolkien → Wilde → Sherlock.
+Sheldon and Chekhov run in parallel on the polished narration — both consume the narration, each writes to an independent state field (`world_state` and `open_threads` respectively), and neither depends on the other's output. There is no retry loop: Tolkien respects rules upfront, and long-horizon continuity comes from the one-turn-delayed feedback of Sheldon's and Chekhov's state into Tolkien's next-turn context.
 
 ## LLM Backend
 
@@ -384,7 +372,7 @@ Agents are stateless between calls. Context is reconstructed each turn as plain 
 2. **Compressed summary** — older history condensed by Sheldon every N turns
 3. **World state** — Sheldon's structured output, serialized as text for other agents to read
 4. **Open threads** — Chekhov's live thread list, formatted as a bulleted prose list for Tolkien to read (live threads only — closed threads are kept in state for telemetry but are not included in Tolkien's context)
-5. **Blueprint fields** — only the subset each agent needs (Tolkien: setting + premise; Wilde: tone_guidelines; Sherlock: world_constraints)
+5. **Blueprint fields** — only the subset each agent needs (Tolkien: setting + premise + world_constraints; Wilde: tone_guidelines)
 
 Target: ~4-8K tokens per agent call.
 
@@ -394,13 +382,12 @@ Configs are YAML files loaded into Pydantic models:
 
 ```yaml
 name: "full_cast"
-description: "Tolkien → Wilde → Sherlock → [Sheldon ∥ Chekhov]"
+description: "Tolkien → Wilde → [Sheldon ∥ Chekhov]"
 graph: "full_cast_graph"
 llm_backend: "gemma"
 model: "google/gemma-4-31b-it"
 temperature: 0.7
 max_tokens_per_agent: 1024
-consistency_retries: 1
 summary_interval: 10
 context_window_beats: 5
 ```

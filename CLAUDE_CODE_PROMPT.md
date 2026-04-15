@@ -90,13 +90,12 @@ Create all prompt templates in `src/prompts/`:
 
 Each agent gets a `system.md` and `user.md`. The user template uses `{variable}` placeholders filled at call time.
 
-**Critical:** Blueprint constraints are split across the MAS pipeline. Tolkien gets NEITHER `world_constraints` nor `tone_guidelines` — he writes freely. Wilde gets ONLY `tone_guidelines`. Sherlock gets ONLY `world_constraints`. This split is what makes the benchmark meaningful — don't leak constraints into other prompts.
+**Critical:** Blueprint constraints are split across the MAS pipeline. Tolkien gets `world_constraints` (and is instructed to respect them upfront) but NOT `tone_guidelines`. Wilde gets ONLY `tone_guidelines`. There is no dedicated consistency agent — Tolkien owns rule compliance.
 
-**Solo is the exception:** the single_llm prompt receives the full blueprint (setting, protagonist, premise, `world_constraints`, `tone_guidelines`) because it has no helper agents. Solo is a baseline — a well-briefed single LLM — not a handicapped Tolkien.
+**Solo is the exception:** the single_llm prompt receives the full blueprint (setting, protagonist, premise, `world_constraints`, `tone_guidelines`) because it has no helper agents. Solo is a baseline — a well-briefed single LLM.
 
-- `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, premise, `open_threads` (live-only, prose-rendered), and all context as prose — no constraints, no tone guidelines. Include the "do not force payoffs — slow burn is fine" instruction alongside the threads list.
+- `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, premise, `world_constraints`, `open_threads` (live-only, prose-rendered), and all context as prose. Include the "do not force payoffs — slow burn is fine" instruction alongside the threads list, and a self-check instruction to respect `world_constraints` and avoid contradicting `world_state` / recent beats.
 - `editor.system.md` / `editor.user.md` — polishes draft narration for LEGO-Movie tone. Receives `tone_guidelines`.
-- `consistency.system.md` / `consistency.user.md` — analytical contradiction detection. Receives `world_constraints` and world state; flags violations.
 - `memory.system.md` / `memory.user.md` — structured JSON extraction of world state updates. The user prompt should explicitly include the `MemoryUpdate` JSON schema so the LLM knows what structure to return.
 - `threads.system.md` / `threads.user.md` — structured JSON extraction of open narrative threads (new setups introduced + existing threads paid off). The user prompt should explicitly include the `ThreadUpdate` JSON schema. Emphasize: "a thread is closed ONLY when the narration explicitly references its payoff or outcome. When in doubt, leave it open."
 - `single_llm.system.md` / `single_llm.user.md` — one agent does everything
@@ -108,15 +107,10 @@ Each agent is an async function: `async def agent_name(state: StoryState, llm: L
 Returns a partial state dict that LangGraph merges.
 
 **Tolkien — Narrator** (`narrator.py`):
-- Receives prose context: setting, narrative premise, summary, world state, open threads (live-only), recent beats, user input
-- Does NOT receive world_constraints or tone_guidelines
+- Receives prose context: setting, narrative premise, `world_constraints`, summary, world state, open threads (live-only), recent beats, user input
+- Does NOT receive `tone_guidelines`
 - Writes: `current_narration` (draft in full_cast; final in core/solo)
-
-**Sherlock — Consistency** (`consistency.py`):
-- Receives prose context: narration, `world_constraints`, summary, world state, recent beats
-- Writes: `consistency_flags`, `contradiction_count`
-- Checks against established story facts AND world_constraints
-- Does NOT rewrite narration — only flags issues
+- Prompt includes an explicit self-check instruction: respect world_constraints, do not contradict world_state or recent beats
 
 **Wilde — Editor** (`editor.py`):
 - Polishes Tolkien's draft for LEGO-Movie tone (light touch, no rewrite)
@@ -138,7 +132,7 @@ Returns a partial state dict that LangGraph merges.
 - MERGES updates — threads Chekhov doesn't mention stay unchanged
 - Closes a thread ONLY when the narration explicitly references its payoff. When in doubt, leaves it open
 - Stable IDs are load-bearing: Chekhov sees the current list in its prompt and must reuse existing IDs when closing/updating, only minting new IDs for genuinely new threads
-- Runs in parallel with Sheldon on clean narration; never runs on flagged narration
+- Runs in parallel with Sheldon on the polished narration
 - Only included in `full_cast`
 
 **All agents:**
@@ -153,23 +147,21 @@ Returns a partial state dict that LangGraph merges.
 Input → Single Agent → Output
 ```
 
-**Core** (`core_graph.py`) — 3 agents:
+**Core** (`core_graph.py`) — 2 agents:
 ```
-Input → Tolkien → Sherlock ─┬─ (clean) → Sheldon → Output
-                            └─ (flags + retries left) → Tolkien
+Input → Tolkien → Sheldon → Output
 ```
 
-**Full Cast** (`full_cast_graph.py`) — 5 agents:
+**Full Cast** (`full_cast_graph.py`) — 4 agents:
 ```
 Input
-  → Tolkien (draft)
+  → Tolkien (draft, respects world_constraints)
   → Wilde (polish)
-  → Sherlock ─┬─ (clean) ─┬─→ Sheldon (memory) ─┐
-              │           │                     ├─→ Output
-              │           └─→ Chekhov (threads)─┘
-              └─ (flags + retries left) → Tolkien
+  ─┬─→ Sheldon (memory) ─┐
+   │                     ├─→ Output
+   └─→ Chekhov (threads)─┘
 ```
-Sheldon and Chekhov run in parallel on clean narration. Neither runs on flagged narration — the retry loop only cycles Tolkien → Wilde → Sherlock.
+Sheldon and Chekhov run in parallel on the polished narration. No retry loop — Tolkien handles rule compliance upfront.
 
 Note: LangGraph wants TypedDict for state, but agents work with Pydantic models internally. Bridge this by converting at the graph boundary — `state.model_dump()` to pass in, `StoryState(**state_dict)` to reconstruct. Or use LangGraph's Pydantic state support if available.
 
@@ -215,7 +207,7 @@ pyyaml>=6.0
 
 - **Pydantic everywhere** — state, config, story, responses. Not raw dicts.
 - **Prompt templates as .md files** — never hardcode prompts as Python strings
-- **Constraints are split, not shared** — `world_constraints` only to Sherlock; `tone_guidelines` only to Wilde; Tolkien gets neither
+- **Constraints are split, not shared** — `world_constraints` only to Tolkien; `tone_guidelines` only to Wilde
 - **JSON sanitizer for Sheldon's and Chekhov's output** — always go through the pipeline
 - **Log every LLM call** — via interaction_logger
 - **Text-first** — most agents work with prose, not structured data
@@ -242,9 +234,8 @@ pyyaml>=6.0
 3. LLM backends
 4. Prompt templates (.md files)
 5. Tolkien (Narrator) alone → verify it works with a manual test
-6. Add Sheldon (Memory) → verify
-7. Add Sherlock (Consistency) → verify (completes Core)
-8. Add Wilde (Editor) and Chekhov (Threads) → verify (completes Full Cast)
+6. Add Sheldon (Memory) → verify (completes Core)
+7. Add Wilde (Editor) and Chekhov (Threads) → verify (completes Full Cast)
 9. Build all 3 graph variants
 10. Terminal UI
 11. Benchmark runner

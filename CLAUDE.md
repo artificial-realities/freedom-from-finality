@@ -21,6 +21,6 @@ For non-trivial changes, pause and ask "is there a more elegant way?" — skip f
 - Reference implementations in `reference/` — study and adapt critically, don't copy blindly
 - Story world defined once in `story.json` as a blueprint (setting, protagonist, rules, premise)
 - One benchmark scenario: `test_scenario.json` — 100 turns testing everything
-- Agent names: Tolkien (Narrator), Wilde (Editor), Sherlock (Consistency), Sheldon (Memory), Chekhov (Threads)
-- Constraints in `story.json` are split: `world_constraints` only to Sherlock, `tone_guidelines` only to Wilde. Tolkien gets neither and writes freely.
-- Benchmark matrix: **solo (1) / core (3: Tolkien → Sherlock → Sheldon) / full_cast (5: Tolkien → Wilde → Sherlock → [Sheldon ∥ Chekhov])**. Sheldon and Chekhov run in parallel on clean narration. Sherlock's retry loop goes back to Tolkien → Wilde → Sherlock only.
+- Agent names: Tolkien (Narrator), Wilde (Editor), Sheldon (Memory), Chekhov (Threads)
+- Constraints in `story.json` are split: `world_constraints` goes to Tolkien (respect upfront), `tone_guidelines` only to Wilde.
+- Benchmark matrix: **solo (1) / core (2: Tolkien → Sheldon) / full_cast (4: Tolkien → Wilde → [Sheldon ∥ Chekhov])**. Sheldon and Chekhov run in parallel on the polished narration.

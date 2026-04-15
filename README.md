@@ -34,9 +34,8 @@ interactive-mas/
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py
-│   │   ├── narrator.py              # "Tolkien" — the storyteller
+│   │   ├── narrator.py              # "Tolkien" — the storyteller (respects world_constraints)
 │   │   ├── editor.py                # "Wilde" — polishes tone
-│   │   ├── consistency.py           # "Sherlock" — contradiction detector
 │   │   ├── memory.py                # "Sheldon" — structured world state tracker
 │   │   └── threads.py               # "Chekhov" — narrative thread tracker
 │   ├── state/
@@ -50,8 +49,8 @@ interactive-mas/
 │   ├── graph/
 │   │   ├── __init__.py
 │   │   ├── solo_graph.py            # Single LLM
-│   │   ├── core_graph.py            # Tolkien → Sherlock → Sheldon
-│   │   └── full_cast_graph.py       # Tolkien → Wilde → Sherlock → [Sheldon ∥ Chekhov]
+│   │   ├── core_graph.py            # Tolkien → Sheldon
+│   │   └── full_cast_graph.py       # Tolkien → Wilde → [Sheldon ∥ Chekhov]
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py
@@ -62,8 +61,6 @@ interactive-mas/
 │   │   ├── narrator.user.md
 │   │   ├── editor.system.md
 │   │   ├── editor.user.md
-│   │   ├── consistency.system.md
-│   │   ├── consistency.user.md
 │   │   ├── memory.system.md
 │   │   ├── memory.user.md
 │   │   ├── threads.system.md

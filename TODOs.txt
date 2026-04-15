@@ -4,3 +4,17 @@ TODO: Do a full consistency pass across the whole project once the design is fro
 
 
 TODO: Last session was closed. Check for fails.
+
+
+
+
+TODO: Add long term goal and short term goal (from ComicChaos) becasue I know these are effective. And the MAS needs to know where to go without interactions.
+TODO: Once everything is nicely structured in story.json, I can properly assign the different stuff to the right agents.
+
+TODO: Sheldon -> Bible. We need to decide on the agent that stores all the facts. Should one agent store all facts? Should we separate facts from eachother?TODO: Sheldon has two jobs... I dont think he should be in charge of the rolling summary.
+TODO: If Tolkien "makes" the story maybe we still need Wilde as the step before output, so that the stuff shown to the user is perfect. Tolkien dosent care about this. Tolkien just makes crasy good stories. Wilde transcribes Tolkiens story into the correct outputs; conversation, next sentence or something...
+TODO: Drop Wilde. Fold tone_guidelines into Tolkien's system prompt as a dedicated "Voice" section. Tone becomes Tolkien's responsibility alongside rules,
+  because tone is not a reliability failure mode — it's a prose preference, and one agent can hold both. But instead of Wilde have an agent that succefully looks at Tolkiens story and makes voice lines and stuff from it.
+TODO: I think Bible (Sheldon) and Chekov should only give the stuff that is relevant to Tolkien, so context is not gigantic. But how??? This is actaully okay since the format, either rolling sentences or i2v have short timefram updates, so if user says something that bible hasnt yet given to Tolkien, he can just do it on the next turn.
+TODO: The one-turn-delayed feedback loop should be explicitly mentioned in the .md files. 
+
