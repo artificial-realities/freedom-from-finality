@@ -1,6 +1,3 @@
-# Claude Code handoff prompt — local only
-CLAUDE_CODE_PROMPT.md
-
 # Python
 __pycache__/
 *.py[cod]

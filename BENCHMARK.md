@@ -10,11 +10,11 @@
 
 | ID | Name | Agents | Pipeline |
 |----|------|--------|----------|
-| C1 | `solo` | 1 | Single Gemma 4 handles everything |
+| C1 | `solo` | 1 | Single Gemma 4 handles everything, fully briefed |
 | C2 | `core` | 3 | Tolkien → Sherlock → Sheldon |
-| C3 | `full_cast` | 6 | Chomsky → Tolkien → Wilde → Sherlock → Sheldon → Spielberg |
+| C3 | `full_cast` | 5 | Tolkien → Wilde → Sherlock → [Sheldon ∥ Chekhov] |
 
-The spread (1 / 3 / 6) is intentional — each step roughly doubles the pipeline depth so the benchmark can reveal whether added agents earn their seat.
+The spread (1 / 3 / 5) is intentional — each step adds a structurally justified subset of agents. `core` adds a consistency gate (Sherlock) and structured memory (Sheldon) to the lone narrator. `full_cast` adds tone polish (Wilde) up front and narrative-thread tracking (Chekhov) at the back, with Sheldon and Chekhov running in parallel on clean narration so the added latency is one agent-call worth, not two.
 
 ### Story
 
@@ -24,11 +24,14 @@ All runs use the same story blueprint defined in `story.json` — a LEGO colony 
 
 One predefined 100-turn playthrough called "The Audition" that tests all capabilities in a single continuous run:
 
-| Capability | What it tests |
-|------------|---------------|
-| **Inventory persistence** | Items picked up, used, combined, given away, and consumed are tracked correctly |
-| **Character tracking** | NPC names, descriptions, locations, relationships, and dialogue are remembered |
-| **World rule consistency** | Constraints from the story blueprint (can't swim, rover fits two, oxygen limits, etc.) are respected |
+| Capability | What it tests | Targets |
+|------------|---------------|---------|
+| **Inventory persistence** | Items picked up, used, combined, given away, and consumed are tracked correctly | Sheldon |
+| **Character tracking** | NPC names, descriptions, locations, relationships, and dialogue are remembered | Sheldon |
+| **World rule consistency** | Constraints from the story blueprint (can't swim, rover fits two, oxygen limits, etc.) are respected | Sherlock |
+| **Tone consistency** | LEGO-Movie voice holds up across turns (earnest, tactile sound-language, physical comedy) | Wilde |
+| **Thread closure** | Long-range setups get paid off; how many dangle at end of run; average thread lifetime | Chekhov |
+| **Atmospheric writing** | Sparse user inputs produce vivid narration rather than filler | Tolkien |
 
 ### Total: 3 configs × 1 scenario × 100 turns = 300 turns
 
@@ -60,6 +63,8 @@ When evaluating runs (manually or with an LLM), these are the dimensions that ma
 
 **Character Memory** — Are NPCs remembered? Are their descriptions, locations, and relationships consistent?
 
+**Thread Closure** — How many introduced narrative threads were paid off vs left dangling at end of run? What's the average thread lifetime (turns between introduction and payoff)? This is the dimension where MAS is most expected to outperform solo — solo's sliding window forgets setups faster than Chekhov's persistent thread list does.
+
 ### Aggregation Suggestions
 
 When scoring runs, it's useful to break them into phases:
@@ -69,10 +74,10 @@ When scoring runs, it's useful to break them into phases:
 
 ### Expected Hypothesis
 
-- Solo performs well early but degrades in late-game coherence as context grows
-- Core (+ Sherlock + Sheldon) improves world consistency and reduces contradictions by catching them before they compound
-- Full Cast (+ Chomsky, Wilde, Spielberg) adds intent clarity and tone polish, but marginal gains may not justify the added latency
-- Tradeoff: more agents = more latency per turn
+- Solo performs well early but degrades in late-game coherence as context grows — dropped setups, forgotten rules, inventory drift
+- Core (+ Sherlock + Sheldon) improves world consistency and reduces contradictions by catching them before they compound; inventory and NPC memory stay sharp
+- Full Cast (+ Wilde, Chekhov) adds tone polish and narrative-thread tracking. Expected biggest gains in **late game (turns 71-100)** via thread closure rate — solo and core should drop at least one long-range setup; full_cast should pay off all but the deliberately dangling one
+- Tradeoff: more agents = more latency per turn, but Sheldon and Chekhov run in parallel so the full_cast penalty is smaller than the agent count suggests
 
 ## Running
 

@@ -34,12 +34,11 @@ interactive-mas/
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py
-│   │   ├── interpreter.py           # "Chomsky" — parses user intent
 │   │   ├── narrator.py              # "Tolkien" — the storyteller
 │   │   ├── editor.py                # "Wilde" — polishes tone
 │   │   ├── consistency.py           # "Sherlock" — contradiction detector
 │   │   ├── memory.py                # "Sheldon" — structured world state tracker
-│   │   └── director.py              # "Spielberg" — cinematic scene description
+│   │   └── threads.py               # "Chekhov" — narrative thread tracker
 │   ├── state/
 │   │   ├── __init__.py
 │   │   └── story_state.py           # Pydantic models for all state
@@ -47,20 +46,18 @@ interactive-mas/
 │   │   ├── __init__.py
 │   │   ├── config.py                # Pydantic config models loaded from YAML
 │   │   ├── story.py                 # Pydantic story blueprint model loaded from JSON
-│   │   └── responses.py             # Pydantic response schema (Memory agent output)
+│   │   └── responses.py             # Pydantic response schemas (MemoryUpdate, ThreadUpdate)
 │   ├── graph/
 │   │   ├── __init__.py
 │   │   ├── solo_graph.py            # Single LLM
 │   │   ├── core_graph.py            # Tolkien → Sherlock → Sheldon
-│   │   └── full_cast_graph.py       # Chomsky → Tolkien → Wilde → Sherlock → Sheldon → Spielberg
+│   │   └── full_cast_graph.py       # Tolkien → Wilde → Sherlock → [Sheldon ∥ Chekhov]
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py
 │   │   ├── gemma.py
 │   │   └── openai_backend.py
 │   ├── prompts/                     # Prompt templates as .md files
-│   │   ├── interpreter.system.md
-│   │   ├── interpreter.user.md
 │   │   ├── narrator.system.md
 │   │   ├── narrator.user.md
 │   │   ├── editor.system.md
@@ -69,8 +66,8 @@ interactive-mas/
 │   │   ├── consistency.user.md
 │   │   ├── memory.system.md
 │   │   ├── memory.user.md
-│   │   ├── director.system.md
-│   │   ├── director.user.md
+│   │   ├── threads.system.md
+│   │   ├── threads.user.md
 │   │   ├── single_llm.system.md
 │   │   └── single_llm.user.md
 │   ├── util/
