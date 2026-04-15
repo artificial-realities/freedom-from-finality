@@ -36,7 +36,9 @@ The blueprint splits its constraints into two buckets, each owned by a different
 - **`world_constraints`** — hard facts about the world (LEGO physics, rover capacity, oxygen limits). Given ONLY to Sherlock, who enforces them. Tolkien writes freely and may violate them; Sherlock catches it.
 - **`tone_guidelines`** — stylistic direction (LEGO Movie energy, dry humor, physical comedy). Given ONLY to Wilde, who polishes Tolkien's draft for voice.
 
-This split is deliberate: it sharpens the benchmark. In `solo` and `core`, nobody sees the tone guidelines, so any tone drift is expected. In `full_cast`, Wilde corrects it. Similarly, in `solo` nobody sees the world constraints — only `core` and `full_cast` (via Sherlock) get them.
+This split is deliberate: it sharpens the benchmark. In `core`, Tolkien writes freely and Sherlock enforces world constraints — but nobody polishes tone. In `full_cast`, Wilde adds tone enforcement on top.
+
+**Solo is the exception.** The single-LLM baseline receives the *entire* blueprint — setting, protagonist, premise, world_constraints, and tone_guidelines — because it has no helper agents to decompose the work across. The question solo answers is "can one well-briefed LLM match a decomposed pipeline?", not "can an unbriefed LLM?".
 
 The **narrative_premise** is the thematic engine — the underlying direction that guides the narrator when the user's commands are ambiguous. It goes to Tolkien and to the solo agent.
 
@@ -102,6 +104,7 @@ class StoryState(BaseModel):
     # Story blueprint fields — set once at initialization
     story_setting: str = ""
     protagonist_name: str = ""
+    protagonist_description: str = ""
     narrative_premise: str = ""
     world_constraints: list[str] = Field(default_factory=list)  # given only to Sherlock
     tone_guidelines: list[str] = Field(default_factory=list)    # given only to Wilde
@@ -117,6 +120,7 @@ class StoryState(BaseModel):
             summary=story.setting,
             story_setting=story.setting,
             protagonist_name=story.protagonist.name,
+            protagonist_description=story.protagonist.description,
             narrative_premise=story.narrative_premise,
             world_constraints=list(story.world_constraints),
             tone_guidelines=list(story.tone_guidelines),
@@ -234,7 +238,7 @@ Each agent has a `system.md` and `user.md` template. Variables are substituted a
 # narrator.user.md
 SETTING: {story_setting}
 
-PROTAGONIST: {protagonist_name}
+PROTAGONIST: {protagonist_name} — {protagonist_description}
 
 NARRATIVE PREMISE: {narrative_premise}
 

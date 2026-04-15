@@ -90,7 +90,9 @@ Create all prompt templates in `src/prompts/`:
 
 Each agent gets a `system.md` and `user.md`. The user template uses `{variable}` placeholders filled at call time.
 
-**Critical:** Blueprint constraints are split. Tolkien gets NEITHER `world_constraints` nor `tone_guidelines` — he writes freely. Wilde gets ONLY `tone_guidelines`. Sherlock gets ONLY `world_constraints`. This split is what makes the benchmark meaningful — don't leak constraints into other prompts.
+**Critical:** Blueprint constraints are split across the MAS pipeline. Tolkien gets NEITHER `world_constraints` nor `tone_guidelines` — he writes freely. Wilde gets ONLY `tone_guidelines`. Sherlock gets ONLY `world_constraints`. This split is what makes the benchmark meaningful — don't leak constraints into other prompts.
+
+**Solo is the exception:** the single_llm prompt receives the full blueprint (setting, protagonist, premise, `world_constraints`, `tone_guidelines`) because it has no helper agents. Solo is a baseline — a well-briefed single LLM — not a handicapped Tolkien.
 
 - `interpreter.system.md` / `interpreter.user.md` — parses raw user command into clarified intent, resolving vague references against world state.
 - `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, premise, and all context as prose — no constraints, no tone guidelines.
