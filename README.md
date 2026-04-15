@@ -45,7 +45,6 @@ interactive-mas/
 │   │   ├── __init__.py
 │   │   ├── config.py                # Pydantic config models loaded from YAML
 │   │   ├── story.py                 # Pydantic story blueprint model loaded from JSON
-│   │   ├── scenario.py              # Pydantic scenario model loaded from JSON
 │   │   └── responses.py             # Pydantic response schema (Memory agent output)
 │   ├── graph/
 │   │   ├── __init__.py

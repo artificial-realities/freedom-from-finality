@@ -36,24 +36,18 @@ The **narrative_premise** is the thematic engine — the underlying direction th
 
 ## Scenario
 
-The scenario is separate from the story. It contain only a test focus and a sequence of user commands — no world-building, no characters, no rules. The story blueprint handles all of that.
+The scenario is separate from the story. It is a bare JSON list of user command strings — no schema, no Pydantic model. The story blueprint handles all world-building.
+
+```json
+["Wake up in my quarters...", "Try to sit up in bed", ...]
+```
+
+Loaded directly in the runner:
 
 ```python
-class Turn(BaseModel):
-    turn: int
-    user_input: str
-
-class Scenario(BaseModel):
-    scenario_id: str
-    title: str
-    description: str
-    test_focus: list[str]
-    turns: list[Turn]
-
-    @classmethod
-    def from_json(cls, path: Path) -> "Scenario":
-        data = json.loads(path.read_text())
-        return cls(**data)
+turns = json.loads(Path("test_scenario.json").read_text())
+for turn_number, user_input in enumerate(turns, start=1):
+    ...
 ```
 
 The single benchmark scenario is 100 turns that test inventory persistence, character tracking, and world rule consistency — all woven into one continuous playthrough.

@@ -66,7 +66,6 @@ The `reference/` folder contains implementations of `json_sanitizer.py` and `int
 **Pydantic models** (`src/state/story_state.py`, `src/models/`):
 - `StoryState` in `src/state/story_state.py` — the shared state as defined in ARCHITECTURE.md. Lean, text-first. Includes story blueprint fields (setting, rules, premise) set once at initialization.
 - `Story`, `Protagonist` in `src/models/story.py` — loaded from `story.json`. Includes `rules: list[str]` and `narrative_premise: str`.
-- `Scenario`, `Turn` in `src/models/scenario.py` — loaded from scenario JSON. Contains only test focus and turns.
 - `Config` in `src/models/config.py` — loaded from YAML
 - `MemoryUpdate` in `src/models/responses.py` — structured output schema for Sheldon (Memory) only
 
