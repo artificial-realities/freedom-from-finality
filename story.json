@@ -1,26 +1,29 @@
 {
-  "title": "LEGO Mars",
-  "setting": "A LEGO colony on Mars. Clusters of snap-together domes stand on rust-red regolith, linked by pressurized corridor-tubes that click into one another at the studs. Everything is built from interlocking plastic bricks — habitats, vehicles, tools, even the greenhouse plants' support trellises. The horizon is dusty pink, the sky is a thin orange-brown, and the distant mountains look like a child's half-finished build. Inside the domes it's warm, bright, and smells faintly of new plastic. Outside it's freezing, airless, and very quiet. The colony is small, self-built, and everyone knows everyone.",
-  "protagonist": {
-    "name": "Lego Man",
-    "description": "The most default minifigure imaginable. A plain yellow head with the classic printed face — two dot eyes and a simple curved smile, nothing more. A basic red torso with no print. Plain blue legs. Plastic claw hands. A small black classic-hair piece that clicks onto his head. No accessories, no special gear, no distinguishing marks. He looks exactly like the minifigure on the front of the box. He's a freshly arrived colonist — enthusiastic, slightly overwhelmed, and not yet used to how things work here."
-  },
-  "narrative_premise": "A day in the life of a new arrival at Mars. No grand quest, no villain — just a minifigure figuring out colony life, meeting neighbors, bumping into problems, and learning how things work on Mars. The story follows the day from morning to evening as it naturally unfolds.",
-  "world_constraints": [
-    "This is a LEGO world. All characters are minifigures made of plastic.",
-    "Minifigures have standard LEGO anatomy: claw hands that grip but can't point or do fine motor tasks, legs that don't bend at the knee, heads that rotate 360° with a permanently printed expression, and detachable parts (hair, hats, limbs) that can pop off or be swapped.",
-    "Everything in the world — buildings, vehicles, tools, plants' supports — is built from interlocking bricks and can in principle be taken apart and rebuilt.",
-    "Minifigures cannot swim. They sink immediately like the solid plastic blocks they are. Any body of water deeper than knee-height is dangerous.",
-    "The colony rover fits exactly two minifigures. Not three, not one-and-a-half. Exactly two.",
-    "Oxygen suits last exactly 30 minutes outside the domes. No exceptions, no reserves.",
-    "The LEGO greenhouse must stay above 15°C or the plants start dying."
+  "title": "Lego Man in the White Void",
+  "synopsis": "A single LEGO minifigure alone in an infinite white space, doing whatever comes to mind — dancing, playing with props, trying tricks, failing, trying again. No story, no destination. Just a minifigure finding things to do in a featureless void, with the user tossing ideas his way.",
+  "visual_style": "Studio product-shot aesthetic. The frame is pure white — no background, no horizon, no floor seam, no shadows except a very subtle soft contact shadow directly under the minifigure. Soft even lighting from all directions like a photography tent. The minifigure is the only fixed element on screen; props come and go as the story requires. Motion has a slight stop-motion feel — every click, snap, and pop-off reads clearly. No on-screen text, no camera flourish. Cuts and zooms only when they genuinely serve a gag.",
+  "locations": [
+    {
+      "name": "The White Void",
+      "description": "An infinite, featureless white space. No floor line, no horizon, no walls. Soft shadowless studio lighting from all directions. Objects and props exist only when the story summons them; otherwise the space is empty except for the minifigure. Props enter in one of two ways: (1) they simply appear in frame, or (2) the minifigure walks a few steps out of frame and returns carrying the new prop."
+    }
   ],
-  "tone_guidelines": [
-    "LEGO Movie energy — earnest, fun, and warm.",
-    "Dry humor with layered jokes that adults appreciate alongside the earnest surface.",
-    "Physical comedy from LEGO limitations is encouraged (claw hands fumbling, stiff legs, popping heads, hats blowing off).",
-    "Never cynical or mean-spirited. Even conflict is affectionate.",
-    "Characters take their problems seriously even when the problems are absurd. The comedy comes from sincerity, not irony.",
-    "Lean into the tactile sound-language of LEGO: clicks, snaps, clacks, the pop of a piece coming loose."
-  ]
+  "characters": [
+    {
+      "name": "Lego Man",
+      "description": "The protagonist and only character in this world. The most default minifigure imaginable: plain yellow head with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands, short black classic-hair piece. He never speaks — only acts, reacts, and emotes through posture, body language, head tilts, and physical comedy."
+    }
+  ],
+  "world_constraints": [
+    "This is a LEGO world. The minifigure is made of plastic.",
+    "LEGO anatomy is absolute: claw hands that grip but can't point or do fine motor tasks, legs that do not bend at the knee, the head rotates 360° but has one permanently printed expression, and parts (hair, hats, limbs, head) can pop off and click back on.",
+    "The minifigure never speaks. No dialogue, no voiceover, no on-screen text. All humor and emotion comes from body language and physical comedy.",
+    "There is only one character. No other minifigures ever appear, by any mechanism. Non-human props and creatures are fine (a plastic dog, a plastic butterfly, a cardboard box).",
+    "The background is always pure white — featureless, infinite, shadowless. The story never relocates to another place; all variety comes from props and actions, not from environment changes.",
+    "Props enter the scene in one of two ways: (1) they simply appear in frame, or (2) the minifigure walks a few steps out of frame and returns carrying the new prop. Both are valid; mix them for variety.",
+    "Props that are still in play should be remembered and can be revisited turns later. Props can also be removed (disassembled into bricks, thrown off-screen, packed away)."
+  ],
+  "narrative_premise": "A minifigure alone in a white void does whatever comes to mind — dance, play, try tricks, fail, try again. Props and bits come and go. The fun comes from callbacks: the soccer ball from early on reappears, the hat changes, gags escalate. Earnest, warm, physical-comedy humor. Never cynical.",
+  "long_term_narrative": "Bits escalate in absurdity across the session, and props introduced earlier are remembered and revisited — the longer the session goes, the more the minifigure's world of accumulated toys and running gags has to build on.",
+  "short_term_narrative": "The minifigure wakes up in the empty white space and starts figuring out what to do with himself."
 }

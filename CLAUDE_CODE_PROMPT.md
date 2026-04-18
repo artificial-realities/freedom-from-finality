@@ -6,54 +6,57 @@ Copy everything below the line as your Claude Code prompt.
 
 ## Project Context
 
-You are building **interactive-mas** — a multi-agent system (MAS) for interactive storytelling, built with LangGraph. Users type commands to steer a protagonist through a story. Agents collaborate behind the scenes to generate coherent narrative.
+You are building **interactive-mas** — a multi-agent system (MAS) for interactive storytelling, built with LangGraph. The story plays as a flowing sequence of ~5-second video clips chained via image-to-video (i2v), with the user optionally steering the story between clips through natural-language commands.
 
 This is an academic project for IKT469 (Deep Neural Networks) at the University of Agder. It has two purposes:
-1. A working interactive storytelling system with a terminal UI
-2. A benchmark comparing different agent configurations, evaluated post-hoc from session logs
+
+1. A working interactive storytelling system with a terminal UI.
+2. A benchmark comparing a single well-briefed LLM against a 3-agent MAS, evaluated post-hoc from session logs.
 
 ## Read These First
 
 Before writing any code, read ALL of these:
-- `CLAUDE.md` — your working instructions (plan mode, verification, task management)
+
+- `CLAUDE.md` — your working instructions
 - `README.md` — overview and structure
-- `ARCHITECTURE.md` — state schema, agent specs, graph topology, context management, prompt template pattern, JSON sanitizer, interaction logger
-- `BENCHMARK.md` — experiment matrix, evaluation approach
-- `story.json` — the story blueprint (setting, protagonist, rules, narrative premise)
+- `ARCHITECTURE.md` — design philosophy, agent specs, state schema, turn execution order, pipeline buffer, one-turn-delayed feedback loop
+- `BENCHMARK.md` — research question, experiment matrix, evaluation approach
+- `story.json` — the story blueprint (synopsis, visual_style, locations, characters, rules, premise, narrative directions)
 - `test_scenario.json` — the 100-turn benchmark scenario
 
 These are the source of truth. Follow them closely.
 
 ## Reference Implementations
 
-The `reference/` folder contains implementations of `json_sanitizer.py` and `interaction_logger.py` from a previous project. These are battle-tested but written for a different context.
+The `reference/` folder contains:
 
-**Study them critically before using:**
-- Understand the patterns and logic
-- Remove anything this project doesn't need
-- Adapt to this project's models and conventions
-- Keep them as clean and minimal as possible
-- Don't copy blindly
+- `json_sanitizer.py` and `interaction_logger.py` — battle-tested utilities from a previous project. Study, keep only what this project needs, adapt to this project's models and conventions. Do not copy blindly.
+- `blueprint.json` and `narratron.system.md` — prior-project blueprint and narrator prompt. Use as stylistic inspiration for the new blueprint and prompts; do not carry over panel/comic-specific structure.
+- `i2v_chaining_test.ipynb`, `wan_test.ipynb`, `wan2.2_i2v_local_test.ipynb` — i2v chaining experiments. Context only; not used by the runtime code in this project.
 
 ## Key Patterns
 
-1. **Pydantic v2 BaseModel everywhere** — state, configs, story, scenarios, and LLM response schemas are all Pydantic models. Not TypedDict, not raw dicts.
+1. **Pydantic v2 BaseModel everywhere** — state, configs, story, and all LLM response schemas are Pydantic models. Not TypedDict, not raw dicts.
 
-2. **Prompt templates as .md files** — agent prompts live in `src/prompts/` as Markdown files with `{variable}` placeholders. Loaded at runtime via `src/util/prompt_loader.py` using a simple `lru_cache` + `.format(**kwargs)` pattern.
+2. **Prompt templates as .md files** — agent prompts live in `src/prompts/` as Markdown files with `{variable}` placeholders. Loaded at runtime via `src/util/prompt_loader.py` using `lru_cache` + `.format(**kwargs)`.
 
-3. **JSON sanitizer pipeline** — LLMs (especially local Gemma) will produce malformed JSON. Canon (Memory) and Chekhov (Threads) both emit JSON and share this pipeline. Parse strategy: try direct parse → extract → repair → skip and log.
+3. **All three agents emit structured output.** Tolkien emits `Beat`, Spielberg emits `Shot`, Supervisor emits `MemoryUpdate`. Solo emits all three in a single structured response. Every structured response passes through the `json_sanitizer` repair pipeline.
 
-4. **Interaction logger** — every LLM call gets logged to `logs/` as structured JSON. Each session/run gets its own file. This is the primary benchmark output — evaluation happens post-hoc from these logs.
+4. **JSON sanitizer pipeline** — local Gemma 4 will occasionally produce malformed JSON. Parse strategy: try direct parse → extract → repair → skip and log.
 
-5. **Text-first agents** — most agents receive and return plain text. Only Canon (Memory) and Chekhov (Threads) output structured JSON — Canon for entities/inventory, Chekhov for open narrative setups. Context is context; prose carries the same information as structured dicts for LLMs.
+5. **Interaction logger** — every LLM call gets logged to `logs/` as structured JSON. Each session gets its own file. This is the primary benchmark output — evaluation happens post-hoc from these logs.
 
-6. **Story blueprint** — the story world is defined once in `story.json` with setting, protagonist, narrative premise, `world_constraints`, and `tone_guidelines`. These two lists are NOT broadcast to every agent — each agent only receives the subset relevant to its role (see agent specs). The scenario JSON only contains user commands.
+6. **Story blueprint** — the story is defined once in `story.json` with `title`, `synopsis`, `visual_style`, `locations[]`, `characters[]`, `world_constraints[]`, `narrative_premise`, `long_term_narrative`, and `short_term_narrative`. Each field has a primary audience (see ARCHITECTURE.md) — agents only see the subset their role needs.
+
+7. **One-turn-delayed feedback loop** — Supervisor's state updates from turn N are read by Tolkien at turn N+1. Never within the same turn. This is load-bearing: it keeps the graph strictly forward and prevents self-reinforcing drift.
+
+8. **Pipeline buffer (when video is live)** — the MAS runs ~6 clips ahead of the viewer. User input enters a queue and applies to the next unrendered clip. Story must keep flowing on silent turns. Video generation is opt-out; benchmark mode bypasses the buffer and runs synchronously.
 
 ## Tech Stack
 
 - **Python 3.10+**
 - **LangGraph** — graph-based multi-agent orchestration
-- **Pydantic v2** — all models (state, config, story, scenario, responses)
+- **Pydantic v2** — all models
 - **OpenAI SDK** — HTTP client for both vLLM (Gemma 4) and OpenAI API (GPT-4o)
 - **Rich** — terminal UI
 - **vLLM** — serves Gemma 4 locally on `localhost:8000` (started separately by the user)
@@ -63,135 +66,135 @@ The `reference/` folder contains implementations of `json_sanitizer.py` and `int
 
 ### Phase 1: Core Infrastructure
 
-**Pydantic models** (`src/state/story_state.py`, `src/models/`):
-- `StoryState` in `src/state/story_state.py` — the shared state as defined in ARCHITECTURE.md. Lean, text-first. Includes story blueprint fields (setting, rules, premise) set once at initialization.
-- `Story`, `Protagonist` in `src/models/story.py` — loaded from `story.json`. Includes `narrative_premise: str`, `world_constraints: list[str]`, and `tone_guidelines: list[str]`.
-- `Config` in `src/models/config.py` — loaded from YAML
-- `MemoryUpdate`, `NarrativeThread`, and `ThreadUpdate` in `src/models/responses.py` — structured output schemas for Canon (Memory) and Chekhov (Threads)
+**Pydantic models**:
+
+- `src/state/story_state.py` — `StoryState` as defined in ARCHITECTURE.md, plus `HistoryEntry`. Lean, text-first. Includes blueprint fields set once at initialization.
+- `src/models/story.py` — `Story`, `Location`, `Character`. Loaded from `story.json`.
+- `src/models/config.py` — `Config` loaded from YAML.
+- `src/models/responses.py` — `Beat`, `Shot`, `WorldStateDelta`, `MemoryUpdate`. (No dialogue field — this project's protagonist does not speak.)
 
 **Utility modules** (`src/util/`):
-- `prompt_loader.py` — load and format .md prompt templates (see ARCHITECTURE.md)
-- `json_sanitizer.py` — JSON repair pipeline. Adapt from `reference/json_sanitizer.py`
-- `interaction_logger.py` — log every LLM call to `logs/`. Adapt from `reference/interaction_logger.py`
+
+- `prompt_loader.py` — load and format .md prompt templates.
+- `json_sanitizer.py` — JSON repair pipeline. Adapt from `reference/json_sanitizer.py`.
+- `interaction_logger.py` — log every LLM call to `logs/`. Adapt from `reference/interaction_logger.py`.
 
 **LLM backends** (`src/llm/`):
-- `base.py` — abstract `LLMBackend` with `async generate(messages, temperature, max_tokens) -> str`. Should also return token usage.
+
+- `base.py` — abstract `LLMBackend` with `async generate(messages, temperature, max_tokens) -> tuple[str, dict]`. Returns `(response_text, token_usage)`.
 - `gemma.py` — calls vLLM on `localhost:8000/v1/chat/completions` using the `openai` SDK with `base_url="http://localhost:8000/v1"`. Model from config.
 - `openai_backend.py` — calls OpenAI API. Key from `OPENAI_API_KEY` env var.
 
-Both backends: handle errors gracefully, return token usage, async, log via interaction_logger.
+Both backends: handle errors gracefully, return token usage, async, log via `interaction_logger`.
 
 **Configs** (`configs/`):
-YAML files for each of the 3 experiment configurations. Load into the `Config` Pydantic model.
+
+- `solo.yaml` — single LLM, fully briefed.
+- `mas.yaml` — three agents.
+
+Both load into the `Config` Pydantic model.
 
 ### Phase 2: Prompts
 
-Create all prompt templates in `src/prompts/`:
+Create all templates in `src/prompts/`. Each agent gets a `system.md` and `user.md`. The user template uses `{variable}` placeholders filled at call time.
 
-Each agent gets a `system.md` and `user.md`. The user template uses `{variable}` placeholders filled at call time.
+**Critical: blueprint fields are split by audience.** See ARCHITECTURE.md for the full table. Briefly:
 
-**Critical:** Blueprint constraints are split across the MAS pipeline. Tolkien gets `world_constraints` (and is instructed to respect them upfront) but NOT `tone_guidelines`. Wilde gets ONLY `tone_guidelines`. There is no dedicated consistency agent — Tolkien owns rule compliance.
+- **Tolkien** gets `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, Supervisor's `context_brief`, location **names only**, character **names + one-line summary only**, and `user_input`. Does NOT get `visual_style` or full descriptions.
+- **Spielberg** gets `visual_style`, full `locations[]`, full `characters[]`, Tolkien's `Beat`, previous clip's `end_frame_description`, current `protagonist_location`.
+- **Supervisor** gets `current_beat`, `current_shot`, current `world_state`, current `narrative_memory`, and recent history.
+- **Solo** gets the entire blueprint plus the full rolling state and recent history — in one structured call that emits all three response shapes.
 
-**Solo is the exception:** the single_llm prompt receives the full blueprint (setting, protagonist, premise, `world_constraints`, `tone_guidelines`) because it has no helper agents. Solo is a baseline — a well-briefed single LLM.
+Prompt file list:
 
-- `narrator.system.md` / `narrator.user.md` — creative writing, user agency, story advancement. Receives setting, premise, `world_constraints`, `open_threads` (live-only, prose-rendered), and all context as prose. Include the "do not force payoffs — slow burn is fine" instruction alongside the threads list, and a self-check instruction to respect `world_constraints` and avoid contradicting `world_state` / recent beats.
-- `editor.system.md` / `editor.user.md` — polishes draft narration for LEGO-Movie tone. Receives `tone_guidelines`.
-- `memory.system.md` / `memory.user.md` — structured JSON extraction of world state updates. The user prompt should explicitly include the `MemoryUpdate` JSON schema so the LLM knows what structure to return.
-- `threads.system.md` / `threads.user.md` — structured JSON extraction of open narrative threads (new setups introduced + existing threads paid off). The user prompt should explicitly include the `ThreadUpdate` JSON schema. Emphasize: "a thread is closed ONLY when the narration explicitly references its payoff or outcome. When in doubt, leave it open."
-- `single_llm.system.md` / `single_llm.user.md` — one agent does everything
+- `narrator.system.md` / `narrator.user.md` — creative beat writing (action + outcome, no dialogue). Include the self-check: respect `world_constraints`, do not contradict `context_brief`. Instruct Tolkien to advance on `short_term_narrative` when `user_input` is empty, and to actively look for callback opportunities when props or bits from earlier in the run would fit.
+- `director.system.md` / `director.user.md` — i2v shot composition. Instruct Spielberg to re-anchor on the locked blueprint descriptors every turn (this is how visual consistency survives long runs). Must describe continuity from the previous `end_frame_description` and produce a new `end_frame_description` for the next turn. When introducing a new prop, pick either the **summon** or **walk-in-from-offscreen** entry pattern and reflect it in the prompt.
+- `supervisor.system.md` / `supervisor.user.md` — structured `MemoryUpdate`. Emphasize: `world_state_delta` MERGES (unmentioned fields preserved). `narrative_memory` is rolling prose, compressed older / detailed recent, bounded around `narrative_memory_target_tokens` from config. `context_brief` is the filtered slice for Tolkien's next turn — deliberately lean.
+- `single_llm.system.md` / `single_llm.user.md` — one agent produces `Beat` + `Shot` + `MemoryUpdate` in a single structured response. Fully briefed.
+
+Each prompt ends with a plain-text description of the structured output fields the agent must produce (not a raw JSON schema dump).
 
 ### Phase 3: Agents
 
-Each agent is an async function: `async def agent_name(state: StoryState, llm: LLMBackend, config: Config, logger: InteractionLogger) -> dict`
+Each agent is an async function:
 
-Returns a partial state dict that LangGraph merges.
+```python
+async def agent_name(state: StoryState, llm: LLMBackend, config: Config, logger: InteractionLogger) -> dict
+```
 
-**Tolkien — Narrator** (`narrator.py`):
-- Receives prose context: setting, narrative premise, `world_constraints`, summary, world state, open threads (live-only), recent beats, user input
-- Does NOT receive `tone_guidelines`
-- Writes: `current_narration` (draft in full_cast; final in core/solo)
-- Prompt includes an explicit self-check instruction: respect world_constraints, do not contradict world_state or recent beats
+Returns a partial state dict that the graph merges.
 
-**Wilde — Editor** (`editor.py`):
-- Polishes Tolkien's draft for LEGO-Movie tone (light touch, no rewrite)
-- Receives prose context: draft narration, tone guidelines
-- Writes: `current_narration` (overwrites draft)
-- Only included in `full_cast`
+**Tolkien — Narrator** (`src/agents/narrator.py`):
 
-**Canon — Memory** (`memory.py`):
-- One of two structured-output agents (Chekhov is the other)
-- Returns a `MemoryUpdate` parsed via the json_sanitizer pipeline
-- MERGES updates into existing `world_state` — never overwrites unmentioned fields
-- Every `summary_interval` turns, also generates a compressed `summary`
+- Reads from `state`: `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, `context_brief`, location names, character summaries, `user_input`.
+- Writes: `current_beat` (`Beat`), updates `short_term_narrative`, optionally `long_term_narrative`.
+- Advances on `short_term_narrative` when `user_input` is empty — never stalls.
 
-**Chekhov — Threads** (`threads.py`):
-- The other structured-output agent
-- Returns a `ThreadUpdate` parsed via the json_sanitizer pipeline (same infrastructure Canon uses)
-- Receives prose context: current narration, current open threads list, recent beats
-- Writes: updated `open_threads` — appends `new_threads`, moves IDs in `close_threads` from open to closed, populates `payoff_summary` from `payoff_summaries`
-- MERGES updates — threads Chekhov doesn't mention stay unchanged
-- Closes a thread ONLY when the narration explicitly references its payoff. When in doubt, leaves it open
-- Stable IDs are load-bearing: Chekhov sees the current list in its prompt and must reuse existing IDs when closing/updating, only minting new IDs for genuinely new threads
-- Runs in parallel with Canon on the polished narration
-- Only included in `full_cast`
+**Spielberg — Director** (`src/agents/director.py`):
+
+- Reads from `state`: `visual_style`, full `locations`, full `characters`, `current_beat`, previous `Shot.end_frame_description` (from `history[-1].shot` if present), `world_state.protagonist_location`.
+- Writes: `current_shot` (`Shot`).
+- Re-anchors on blueprint descriptors every turn for visual consistency.
+
+**Supervisor — Memory and Curator** (`src/agents/supervisor.py`):
+
+- Reads from `state`: `current_beat`, `current_shot`, `world_state`, `narrative_memory`, recent history.
+- Writes: merged `world_state`, new `narrative_memory`, new `context_brief`.
+- MERGES `world_state_delta` into `world_state` — unmentioned fields preserved. `inventory` is `None` for unchanged, list for replacement.
 
 **All agents:**
-- Load prompts via `prompt_loader`
-- Log every call via `interaction_logger`
-- Target ~4-8K tokens per call
+
+- Load prompts via `prompt_loader`.
+- Log every call via `interaction_logger`.
+- Parse structured output via `json_sanitizer`.
+- Target per-agent context budgets from ARCHITECTURE.md.
 
 ### Phase 4: Graphs
 
-**Solo** (`solo_graph.py`) — 1 agent:
+**Solo** (`src/graph/solo_graph.py`) — 1 agent, fully briefed, single structured response carrying `Beat` + `Shot` + `MemoryUpdate`:
+
 ```
-Input → Single Agent → Output
+Input → Solo → (Beat + Shot + MemoryUpdate merged into state) → Output
 ```
 
-**Core** (`core_graph.py`) — 2 agents:
+**MAS** (`src/graph/mas_graph.py`) — 3 agents sequential:
+
 ```
-Input → Tolkien → Canon → Output
+Input → Tolkien → Spielberg → Supervisor → Output
 ```
 
-**Full Cast** (`full_cast_graph.py`) — 4 agents:
-```
-Input
-  → Tolkien (draft, respects world_constraints)
-  → Wilde (polish)
-  ─┬─→ Canon (memory) ─┐
-   │                     ├─→ Output
-   └─→ Chekhov (threads)─┘
-```
-Canon and Chekhov run in parallel on the polished narration. No retry loop — Tolkien handles rule compliance upfront.
+No retry loop. Tolkien handles rule compliance upfront; Supervisor catches drift on the next turn via the one-turn-delayed feedback loop.
 
-Note: LangGraph wants TypedDict for state, but agents work with Pydantic models internally. Bridge this by converting at the graph boundary — `state.model_dump()` to pass in, `StoryState(**state_dict)` to reconstruct. Or use LangGraph's Pydantic state support if available.
+LangGraph prefers TypedDict for state, but agents work with Pydantic internally. Bridge at the graph boundary — `state.model_dump()` to pass in, `StoryState(**state_dict)` to reconstruct — or use LangGraph's Pydantic state support if available.
 
 ### Phase 5: Terminal UI
 
 (`src/ui/terminal.py`)
 
-**Single flowing story.** Like reading a book. No panels, no sections, no slash commands.
+A minimal terminal view of the story as it unfolds. Each turn, print a short textual rendering of the current `Beat` (action + any dialogue + outcome) so the user can read along without rendering video. The point is to validate the pipeline, not to be pretty.
 
-- Rich for styled text
-- Each turn: display narration as continuous flowing text
-- Simple input prompt after each narration
-- On startup: story setting and protagonist info, or a brief intro for free play
-- Ctrl+C to quit
+- Rich for styling.
+- Input prompt between turns — user may type a command or press Enter to let the story advance on its own.
+- On startup: display `title`, `synopsis`, and protagonist info.
+- Ctrl+C to quit.
 
 ### Phase 6: Benchmark Runner
 
 (`src/eval/runner.py`)
 
-Run the scenario through a config. For each of the 100 turns: feed the user command, run the graph, log everything via interaction_logger. Save the full session log to `logs/`.
+Run the scenario through a config. For each of the 100 turns: feed the user command, run the graph synchronously (bypassing any pipeline buffer), log everything via `interaction_logger`. Save the full session log to `logs/`.
 
 No judge, no metrics, no report generation. Just run and log. Evaluation happens afterwards.
 
 ### Phase 7: Entry Point
 
 **`main.py`** with argparse:
-- `play` — interactive (optional `--scenario`)
-- `benchmark` — run the scenario against all configs, log everything
+
+- `play` — interactive (optional `--scenario` to drive from a file instead of stdin).
+- `benchmark` — run the scenario against both configs, log everything.
 
 **`requirements.txt`**:
+
 ```
 langgraph>=0.2.0
 langchain>=0.3.0
@@ -206,39 +209,42 @@ pyyaml>=6.0
 ## Guidelines
 
 - **Pydantic everywhere** — state, config, story, responses. Not raw dicts.
-- **Prompt templates as .md files** — never hardcode prompts as Python strings
-- **Constraints are split, not shared** — `world_constraints` only to Tolkien; `tone_guidelines` only to Wilde
-- **JSON sanitizer for Canon's and Chekhov's output** — always go through the pipeline
-- **Log every LLM call** — via interaction_logger
-- **Text-first** — most agents work with prose, not structured data
-- Async everywhere, type hints everywhere
-- `logging` module, not print
-- Errors handled gracefully
-- Functions over classes where possible (agents are functions)
-- Follow the project structure exactly
+- **Prompt templates as .md files** — never hardcode prompts as Python strings.
+- **Blueprint fields split by audience** — follow the table in ARCHITECTURE.md. Do not hand Tolkien the full `visual_style` or full location/character descriptions.
+- **All three MAS agents + solo produce structured output** — always go through the json_sanitizer pipeline.
+- **One-turn-delayed feedback loop** — Tolkien reads Supervisor's previous turn's `context_brief`, never this turn's.
+- **Story must keep flowing when the user is silent** — Tolkien advances on `short_term_narrative`.
+- **Log every LLM call** — via `interaction_logger`.
+- Async everywhere, type hints everywhere.
+- `logging` module, not print.
+- Errors handled gracefully — a failed parse skips that turn's update rather than crashing.
+- Functions over classes where possible (agents are async functions).
+- Follow the project structure exactly.
 
 ## What NOT to Build
 
-- No web frontend
-- No database
-- No Docker
-- No vLLM management
-- No model fine-tuning
-- No automated judge or scoring pipeline
-- No matplotlib reports
+- No web frontend.
+- No database.
+- No Docker.
+- No vLLM management (user starts it separately).
+- No model fine-tuning.
+- No automated judge or scoring pipeline.
+- No matplotlib reports.
+- No live video generation in the benchmark path (runtime-only, opt-out).
 
 ## Build Order
 
-1. Pydantic models (state, config, story, responses — including MemoryUpdate and ThreadUpdate)
-2. Utility modules (prompt_loader, json_sanitizer, interaction_logger)
-3. LLM backends
-4. Prompt templates (.md files)
-5. Tolkien (Narrator) alone → verify it works with a manual test
-6. Add Canon (Memory) → verify (completes Core)
-7. Add Wilde (Editor) and Chekhov (Threads) → verify (completes Full Cast)
-9. Build all 3 graph variants
-10. Terminal UI
-11. Benchmark runner
-12. Main entry point
+1. Pydantic models (state, config, story, responses — `Beat`, `Shot`, `MemoryUpdate`, `WorldStateDelta`). No dialogue / `Line` model — the protagonist does not speak.
+2. Utility modules (`prompt_loader`, `json_sanitizer`, `interaction_logger`).
+3. LLM backends.
+4. Prompt templates (.md files).
+5. Tolkien alone → verify with a manual single-turn test.
+6. Add Spielberg → verify two-agent output.
+7. Add Supervisor → verify full MAS loop with Supervisor's `context_brief` feeding Tolkien's next turn.
+8. Build the solo graph (single structured response).
+9. Build the MAS graph.
+10. Terminal UI.
+11. Benchmark runner.
+12. Main entry point.
 
 Test each step before moving on.

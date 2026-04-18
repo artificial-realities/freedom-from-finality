@@ -1,22 +1,30 @@
 # interactive-mas
 
-A multi-agent system (MAS) for interactive storytelling, built with LangGraph. Specialized agents collaborate to interpret user input and continuously adapt a coherent narrative in real time.
+A multi-agent system (MAS) for interactive storytelling, built with LangGraph. Three specialized agents collaborate to produce a continuous stream of short video clips chained via image-to-video (i2v), while the user optionally steers the story with natural-language commands between clips.
 
 ## Overview
 
-Users interact via a terminal, typing natural-language commands to steer a protagonist through a story. The MAS interprets each command, generates the next narrative beat, checks for contradictions, and maintains a persistent world state — all transparently.
+The story plays as a flowing sequence of ~5-second clips. Each clip's final frame is the next clip's input image, giving the story a continuous visual feel. The user types guidance between clips — but the story keeps flowing even when they don't.
 
-The terminal shows a single flowing story. One sentence after another, like reading a book. The agents work behind the scenes.
+The test story is deliberately minimal: a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind — props come and go, bits get tried, callbacks build up. No dialogue, no locations, no other characters. The setting strips away every variable except long-horizon memory, which is exactly the dimension the benchmark is built to test.
 
-A benchmark compares different agent configurations against each other using a predefined 100-turn scenario. The full session logs are evaluated post-hoc — no automated scoring pipeline, just structured logs that can be reviewed by a human or handed to an LLM for analysis.
+Three agents collaborate behind the scenes:
+
+- **Tolkien** (narrator) — writes what happens in the next clip: action, dialogue, outcome.
+- **Spielberg** (shot composer) — translates the beat into an image-to-video prompt: camera, composition, motion, continuity from the previous last frame.
+- **Supervisor** (memory + context curator) — after each turn, updates structured world state and a rolling narrative memory, and hands Tolkien a filtered context brief for the next turn.
+
+A benchmark compares this MAS against a single well-briefed LLM baseline using a predefined 100-turn scenario. Full session logs are evaluated post-hoc — no automated scoring, just structured logs that a human or an LLM can review.
+
+Video generation is opt-out. The system is designed so the MAS always behaves as if video rendering were live — every agent produces complete, usable output — but actual clip generation can be skipped at runtime, which is the default for benchmark runs.
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the MAS design, state schema, agent specs, and graph topology.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the MAS design, state schema, agent specs, turn execution order, pipeline buffer, and the one-turn-delayed feedback loop.
 
 ## Benchmark
 
-See [BENCHMARK.md](BENCHMARK.md) for the evaluation methodology and experiment matrix.
+See [BENCHMARK.md](BENCHMARK.md) for the research question, experiment matrix, and evaluation methodology.
 
 ## Project Structure
 
@@ -26,62 +34,64 @@ interactive-mas/
 ├── ARCHITECTURE.md
 ├── BENCHMARK.md
 ├── CLAUDE.md                        # Claude Code working instructions
-├── story.json                       # Story blueprint (setting, protagonist, rules, premise)
+├── CLAUDE_CODE_PROMPT.md            # Build-time prompt for Claude Code
+├── story.json                       # Story blueprint (visual_style, locations, characters, rules, premise, directions)
 ├── test_scenario.json               # 100-turn benchmark scenario
-├── reference/                       # Reference implementations to adapt
+├── reference/                       # Reference implementations and prior art
 │   ├── json_sanitizer.py
-│   └── interaction_logger.py
+│   ├── interaction_logger.py
+│   ├── prompt_loader.py
+│   ├── blueprint.json               # Comic Chaos blueprint (inspiration)
+│   ├── narratron.system.md          # Comic Chaos narrator prompt (inspiration)
+│   ├── i2v_chaining_test.ipynb      # i2v chaining experiment
+│   ├── wan_test.ipynb               # wan experiment
+│   └── wan2.2_i2v_local_test.ipynb  # wan2.2 local i2v
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py
-│   │   ├── narrator.py              # "Tolkien" — the storyteller (respects world_constraints)
-│   │   ├── editor.py                # "Wilde" — polishes tone
-│   │   ├── memory.py                # "Canon" — structured world state tracker
-│   │   └── threads.py               # "Chekhov" — narrative thread tracker
+│   │   ├── narrator.py              # "Tolkien" — beat writer, updates narrative direction
+│   │   ├── director.py              # "Spielberg" — shot composer, i2v prompts
+│   │   └── supervisor.py            # "Supervisor" — world_state, narrative_memory, context_brief
 │   ├── state/
 │   │   ├── __init__.py
-│   │   └── story_state.py           # Pydantic models for all state
+│   │   └── story_state.py           # StoryState and related Pydantic models
 │   ├── models/
 │   │   ├── __init__.py
-│   │   ├── config.py                # Pydantic config models loaded from YAML
-│   │   ├── story.py                 # Pydantic story blueprint model loaded from JSON
-│   │   └── responses.py             # Pydantic response schemas (MemoryUpdate, ThreadUpdate)
+│   │   ├── config.py                # Config model loaded from YAML
+│   │   ├── story.py                 # Story blueprint model loaded from JSON
+│   │   └── responses.py             # Beat, Shot, MemoryUpdate, WorldStateDelta
 │   ├── graph/
 │   │   ├── __init__.py
-│   │   ├── solo_graph.py            # Single LLM
-│   │   ├── core_graph.py            # Tolkien → Canon
-│   │   └── full_cast_graph.py       # Tolkien → Wilde → [Canon ∥ Chekhov]
+│   │   ├── solo_graph.py            # Single LLM (fully briefed)
+│   │   └── mas_graph.py             # Tolkien → Spielberg → Supervisor
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py
 │   │   ├── gemma.py
 │   │   └── openai_backend.py
-│   ├── prompts/                     # Prompt templates as .md files
+│   ├── prompts/
 │   │   ├── narrator.system.md
 │   │   ├── narrator.user.md
-│   │   ├── editor.system.md
-│   │   ├── editor.user.md
-│   │   ├── memory.system.md
-│   │   ├── memory.user.md
-│   │   ├── threads.system.md
-│   │   ├── threads.user.md
+│   │   ├── director.system.md
+│   │   ├── director.user.md
+│   │   ├── supervisor.system.md
+│   │   ├── supervisor.user.md
 │   │   ├── single_llm.system.md
 │   │   └── single_llm.user.md
 │   ├── util/
 │   │   ├── __init__.py
-│   │   ├── json_sanitizer.py        # JSON repair, extraction, sanitization
-│   │   ├── prompt_loader.py         # Load and format .md prompt templates
-│   │   └── interaction_logger.py    # Full LLM call logging per session
+│   │   ├── json_sanitizer.py
+│   │   ├── prompt_loader.py
+│   │   └── interaction_logger.py
 │   ├── eval/
 │   │   ├── __init__.py
-│   │   └── runner.py                # Runs the scenario, logs everything
+│   │   └── runner.py                # Scenario runner, logs every LLM call
 │   └── ui/
 │       ├── __init__.py
 │       └── terminal.py
 ├── configs/
 │   ├── solo.yaml
-│   ├── core.yaml
-│   └── full_cast.yaml
+│   └── mas.yaml
 ├── logs/                            # LLM interaction logs per session
 ├── requirements.txt
 └── main.py
@@ -92,8 +102,9 @@ interactive-mas/
 ### Prerequisites
 
 - Python 3.10+
-- GPU with sufficient VRAM for Gemma 4 31B (H100 recommended)
+- GPU with sufficient VRAM for Gemma 4 31B (H100 recommended) when running locally
 - (Optional) OpenAI API key for GPT-4o comparison
+- (Optional) i2v model for live video generation — skipped by default
 
 ### Installation
 
@@ -117,21 +128,21 @@ vllm serve google/gemma-4-31b-it \
 ### Running
 
 ```bash
-# Interactive play
-python main.py play --config configs/full_cast.yaml
+# Interactive play (MAS, video disabled)
+python main.py play --config configs/mas.yaml
 
-# Run the benchmark scenario
-python main.py play --config configs/core.yaml --scenario test_scenario.json
+# Run the benchmark scenario against one config
+python main.py play --config configs/solo.yaml --scenario test_scenario.json
 
-# Benchmark all configs against the scenario
+# Benchmark both configs against the scenario
 python main.py benchmark --scenario test_scenario.json
 ```
 
 ## Tech Stack
 
 - **LangGraph** — multi-agent orchestration with typed shared state
-- **Pydantic v2** — validated models for state, config, story, and LLM responses
-- **Gemma 4 31B** — served locally via vLLM
+- **Pydantic v2** — validated models for state, config, story, and all LLM response schemas
+- **Gemma 4 31B** — served locally via vLLM (OpenAI-compatible endpoint)
 - **OpenAI GPT-4o** — optional alternative backend
 - **Rich** — terminal UI
 - **vLLM** — high-throughput local LLM serving
