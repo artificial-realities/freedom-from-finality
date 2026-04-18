@@ -11,10 +11,10 @@
 | ID | Name | Agents | Pipeline |
 |----|------|--------|----------|
 | C1 | `solo` | 1 | Single Gemma 4 handles everything, fully briefed |
-| C2 | `core` | 2 | Tolkien → Sheldon |
-| C3 | `full_cast` | 4 | Tolkien → Wilde → [Sheldon ∥ Chekhov] |
+| C2 | `core` | 2 | Tolkien → Canon |
+| C3 | `full_cast` | 4 | Tolkien → Wilde → [Canon ∥ Chekhov] |
 
-The spread (1 / 2 / 4) is intentional — each step adds a structurally justified subset of agents. `core` adds structured memory (Sheldon) to the lone narrator so facts persist across 100 turns. `full_cast` adds tone polish (Wilde) up front and narrative-thread tracking (Chekhov) at the back, with Sheldon and Chekhov running in parallel on the polished narration so the added latency is one agent-call worth, not two.
+The spread (1 / 2 / 4) is intentional — each step adds a structurally justified subset of agents. `core` adds structured memory (Canon) to the lone narrator so facts persist across 100 turns. `full_cast` adds tone polish (Wilde) up front and narrative-thread tracking (Chekhov) at the back, with Canon and Chekhov running in parallel on the polished narration so the added latency is one agent-call worth, not two.
 
 Tolkien receives `world_constraints` directly from the blueprint and is instructed to respect them upfront — there is no dedicated consistency agent. The design trades a reactive quality gate for proactive rule-awareness and a simpler topology.
 
@@ -28,8 +28,8 @@ One predefined 100-turn playthrough called "The Audition" that tests all capabil
 
 | Capability | What it tests | Targets |
 |------------|---------------|---------|
-| **Inventory persistence** | Items picked up, used, combined, given away, and consumed are tracked correctly | Sheldon |
-| **Character tracking** | NPC names, descriptions, locations, relationships, and dialogue are remembered | Sheldon |
+| **Inventory persistence** | Items picked up, used, combined, given away, and consumed are tracked correctly | Canon |
+| **Character tracking** | NPC names, descriptions, locations, relationships, and dialogue are remembered | Canon |
 | **World rule consistency** | Constraints from the story blueprint (can't swim, rover fits two, oxygen limits, etc.) are respected | Tolkien |
 | **Tone consistency** | LEGO-Movie voice holds up across turns (earnest, tactile sound-language, physical comedy) | Wilde |
 | **Thread closure** | Long-range setups get paid off; how many dangle at end of run; average thread lifetime | Chekhov |
@@ -77,9 +77,9 @@ When scoring runs, it's useful to break them into phases:
 ### Expected Hypothesis
 
 - Solo performs well early but degrades in late-game coherence as context grows — dropped setups, forgotten rules, inventory drift
-- Core (+ Sheldon) keeps inventory and NPC memory sharp via the structured facts ledger, even as the sliding window drops old beats
+- Core (+ Canon) keeps inventory and NPC memory sharp via the structured facts ledger, even as the sliding window drops old beats
 - Full Cast (+ Wilde, Chekhov) adds tone polish and narrative-thread tracking. Expected biggest gains in **late game (turns 71-100)** via thread closure rate — solo and core should drop at least one long-range setup; full_cast should pay off all but the deliberately dangling one
-- Tradeoff: more agents = more latency per turn, but Sheldon and Chekhov run in parallel so the full_cast penalty is smaller than the agent count suggests
+- Tradeoff: more agents = more latency per turn, but Canon and Chekhov run in parallel so the full_cast penalty is smaller than the agent count suggests
 
 ## Running
 

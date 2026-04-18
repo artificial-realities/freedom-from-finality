@@ -41,11 +41,11 @@ The `reference/` folder contains implementations of `json_sanitizer.py` and `int
 
 2. **Prompt templates as .md files** — agent prompts live in `src/prompts/` as Markdown files with `{variable}` placeholders. Loaded at runtime via `src/util/prompt_loader.py` using a simple `lru_cache` + `.format(**kwargs)` pattern.
 
-3. **JSON sanitizer pipeline** — LLMs (especially local Gemma) will produce malformed JSON. Sheldon (Memory) and Chekhov (Threads) both emit JSON and share this pipeline. Parse strategy: try direct parse → extract → repair → skip and log.
+3. **JSON sanitizer pipeline** — LLMs (especially local Gemma) will produce malformed JSON. Canon (Memory) and Chekhov (Threads) both emit JSON and share this pipeline. Parse strategy: try direct parse → extract → repair → skip and log.
 
 4. **Interaction logger** — every LLM call gets logged to `logs/` as structured JSON. Each session/run gets its own file. This is the primary benchmark output — evaluation happens post-hoc from these logs.
 
-5. **Text-first agents** — most agents receive and return plain text. Only Sheldon (Memory) and Chekhov (Threads) output structured JSON — Sheldon for entities/inventory, Chekhov for open narrative setups. Context is context; prose carries the same information as structured dicts for LLMs.
+5. **Text-first agents** — most agents receive and return plain text. Only Canon (Memory) and Chekhov (Threads) output structured JSON — Canon for entities/inventory, Chekhov for open narrative setups. Context is context; prose carries the same information as structured dicts for LLMs.
 
 6. **Story blueprint** — the story world is defined once in `story.json` with setting, protagonist, narrative premise, `world_constraints`, and `tone_guidelines`. These two lists are NOT broadcast to every agent — each agent only receives the subset relevant to its role (see agent specs). The scenario JSON only contains user commands.
 
@@ -67,7 +67,7 @@ The `reference/` folder contains implementations of `json_sanitizer.py` and `int
 - `StoryState` in `src/state/story_state.py` — the shared state as defined in ARCHITECTURE.md. Lean, text-first. Includes story blueprint fields (setting, rules, premise) set once at initialization.
 - `Story`, `Protagonist` in `src/models/story.py` — loaded from `story.json`. Includes `narrative_premise: str`, `world_constraints: list[str]`, and `tone_guidelines: list[str]`.
 - `Config` in `src/models/config.py` — loaded from YAML
-- `MemoryUpdate`, `NarrativeThread`, and `ThreadUpdate` in `src/models/responses.py` — structured output schemas for Sheldon (Memory) and Chekhov (Threads)
+- `MemoryUpdate`, `NarrativeThread`, and `ThreadUpdate` in `src/models/responses.py` — structured output schemas for Canon (Memory) and Chekhov (Threads)
 
 **Utility modules** (`src/util/`):
 - `prompt_loader.py` — load and format .md prompt templates (see ARCHITECTURE.md)
@@ -118,7 +118,7 @@ Returns a partial state dict that LangGraph merges.
 - Writes: `current_narration` (overwrites draft)
 - Only included in `full_cast`
 
-**Sheldon — Memory** (`memory.py`):
+**Canon — Memory** (`memory.py`):
 - One of two structured-output agents (Chekhov is the other)
 - Returns a `MemoryUpdate` parsed via the json_sanitizer pipeline
 - MERGES updates into existing `world_state` — never overwrites unmentioned fields
@@ -126,13 +126,13 @@ Returns a partial state dict that LangGraph merges.
 
 **Chekhov — Threads** (`threads.py`):
 - The other structured-output agent
-- Returns a `ThreadUpdate` parsed via the json_sanitizer pipeline (same infrastructure Sheldon uses)
+- Returns a `ThreadUpdate` parsed via the json_sanitizer pipeline (same infrastructure Canon uses)
 - Receives prose context: current narration, current open threads list, recent beats
 - Writes: updated `open_threads` — appends `new_threads`, moves IDs in `close_threads` from open to closed, populates `payoff_summary` from `payoff_summaries`
 - MERGES updates — threads Chekhov doesn't mention stay unchanged
 - Closes a thread ONLY when the narration explicitly references its payoff. When in doubt, leaves it open
 - Stable IDs are load-bearing: Chekhov sees the current list in its prompt and must reuse existing IDs when closing/updating, only minting new IDs for genuinely new threads
-- Runs in parallel with Sheldon on the polished narration
+- Runs in parallel with Canon on the polished narration
 - Only included in `full_cast`
 
 **All agents:**
@@ -149,7 +149,7 @@ Input → Single Agent → Output
 
 **Core** (`core_graph.py`) — 2 agents:
 ```
-Input → Tolkien → Sheldon → Output
+Input → Tolkien → Canon → Output
 ```
 
 **Full Cast** (`full_cast_graph.py`) — 4 agents:
@@ -157,11 +157,11 @@ Input → Tolkien → Sheldon → Output
 Input
   → Tolkien (draft, respects world_constraints)
   → Wilde (polish)
-  ─┬─→ Sheldon (memory) ─┐
+  ─┬─→ Canon (memory) ─┐
    │                     ├─→ Output
    └─→ Chekhov (threads)─┘
 ```
-Sheldon and Chekhov run in parallel on the polished narration. No retry loop — Tolkien handles rule compliance upfront.
+Canon and Chekhov run in parallel on the polished narration. No retry loop — Tolkien handles rule compliance upfront.
 
 Note: LangGraph wants TypedDict for state, but agents work with Pydantic models internally. Bridge this by converting at the graph boundary — `state.model_dump()` to pass in, `StoryState(**state_dict)` to reconstruct. Or use LangGraph's Pydantic state support if available.
 
@@ -208,7 +208,7 @@ pyyaml>=6.0
 - **Pydantic everywhere** — state, config, story, responses. Not raw dicts.
 - **Prompt templates as .md files** — never hardcode prompts as Python strings
 - **Constraints are split, not shared** — `world_constraints` only to Tolkien; `tone_guidelines` only to Wilde
-- **JSON sanitizer for Sheldon's and Chekhov's output** — always go through the pipeline
+- **JSON sanitizer for Canon's and Chekhov's output** — always go through the pipeline
 - **Log every LLM call** — via interaction_logger
 - **Text-first** — most agents work with prose, not structured data
 - Async everywhere, type hints everywhere
@@ -234,7 +234,7 @@ pyyaml>=6.0
 3. LLM backends
 4. Prompt templates (.md files)
 5. Tolkien (Narrator) alone → verify it works with a manual test
-6. Add Sheldon (Memory) → verify (completes Core)
+6. Add Canon (Memory) → verify (completes Core)
 7. Add Wilde (Editor) and Chekhov (Threads) → verify (completes Full Cast)
 9. Build all 3 graph variants
 10. Terminal UI

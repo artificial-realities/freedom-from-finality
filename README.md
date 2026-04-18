@@ -36,7 +36,7 @@ interactive-mas/
 │   │   ├── __init__.py
 │   │   ├── narrator.py              # "Tolkien" — the storyteller (respects world_constraints)
 │   │   ├── editor.py                # "Wilde" — polishes tone
-│   │   ├── memory.py                # "Sheldon" — structured world state tracker
+│   │   ├── memory.py                # "Canon" — structured world state tracker
 │   │   └── threads.py               # "Chekhov" — narrative thread tracker
 │   ├── state/
 │   │   ├── __init__.py
@@ -49,8 +49,8 @@ interactive-mas/
 │   ├── graph/
 │   │   ├── __init__.py
 │   │   ├── solo_graph.py            # Single LLM
-│   │   ├── core_graph.py            # Tolkien → Sheldon
-│   │   └── full_cast_graph.py       # Tolkien → Wilde → [Sheldon ∥ Chekhov]
+│   │   ├── core_graph.py            # Tolkien → Canon
+│   │   └── full_cast_graph.py       # Tolkien → Wilde → [Canon ∥ Chekhov]
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py

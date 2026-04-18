@@ -4,9 +4,9 @@
 
 Agents don't communicate directly. They read from and write to a shared state object — a whiteboard. One agent writes, the next reads. LangGraph orchestrates execution order and merges updates.
 
-The roster is deliberately lean: four named agents, each guarding exactly one failure mode, with no overlap. **Tolkien** writes the prose and owns the world rules. **Wilde** owns the voice. **Sheldon** owns the facts ledger. **Chekhov** owns the narrative promises ledger. There is no separate consistency or review agent — Tolkien receives `world_constraints` directly and is instructed to respect them, and long-horizon continuity is preserved through Sheldon's accumulated world_state and Chekhov's open threads, which feed back into Tolkien's context on every subsequent turn.
+The roster is deliberately lean: four named agents, each guarding exactly one failure mode, with no overlap. **Tolkien** writes the prose and owns the world rules. **Wilde** owns the voice. **Canon** owns the facts ledger. **Chekhov** owns the narrative promises ledger. There is no separate consistency or review agent — Tolkien receives `world_constraints` directly and is instructed to respect them, and long-horizon continuity is preserved through Canon's accumulated world_state and Chekhov's open threads, which feed back into Tolkien's context on every subsequent turn.
 
-Most agents work with plain text — prose summaries, recent story beats, the user's command. Context is context; a well-written paragraph carries the same information as a structured dict. Only the Memory agent ("Sheldon") and the Threads agent ("Chekhov") output structured data — both need stable IDs and queryable state that doesn't drift over 100+ turns. Sheldon tracks world facts (entities, inventory, locations); Chekhov tracks narrative promises (setups awaiting payoff).
+Most agents work with plain text — prose summaries, recent story beats, the user's command. Context is context; a well-written paragraph carries the same information as a structured dict. Only the Memory agent ("Canon") and the Threads agent ("Chekhov") output structured data — both need stable IDs and queryable state that doesn't drift over 100+ turns. Canon tracks world facts (entities, inventory, locations); Chekhov tracks narrative promises (setups awaiting payoff).
 
 Implicit qualities like mood, tone, and time of day are never tracked. The agents infer these naturally from the story history.
 
@@ -78,7 +78,7 @@ class StoryState(BaseModel):
     """Shared state for an interactive storytelling session.
 
     Most fields are plain text. Agents receive prose context and
-    produce prose output. Only Sheldon (Memory) and Chekhov (Threads)
+    produce prose output. Only Canon (Memory) and Chekhov (Threads)
     write structured data.
     """
     # Current turn
@@ -86,8 +86,8 @@ class StoryState(BaseModel):
     user_input: str = ""
     current_narration: str = ""
 
-    # World state — maintained by the Memory agent (Sheldon) as structured data
-    world_state: str = ""  # Sheldon's structured summary (serialized JSON string)
+    # World state — maintained by the Memory agent (Canon) as structured data
+    world_state: str = ""  # Canon's structured summary (serialized JSON string)
 
     # Narrative threads — maintained by Chekhov as structured data
     open_threads: str = ""  # Chekhov's thread list (serialized JSON string)
@@ -128,15 +128,15 @@ class StoryState(BaseModel):
 
 ## Structured Output Models
 
-Two agents return structured output: Sheldon (Memory) tracks world state, and Chekhov (Threads) tracks open narrative setups. Everyone else works with plain text.
+Two agents return structured output: Canon (Memory) tracks world state, and Chekhov (Threads) tracks open narrative setups. Everyone else works with plain text.
 
-### MemoryUpdate — Sheldon
+### MemoryUpdate — Canon
 
-Sheldon parses the narration and extracts world state as validated JSON:
+Canon parses the narration and extracts world state as validated JSON:
 
 ```python
 class MemoryUpdate(BaseModel):
-    """Structured output from the Memory agent (Sheldon)."""
+    """Structured output from the Memory agent (Canon)."""
     characters: dict[str, dict] = Field(default_factory=dict)
     locations: dict[str, dict] = Field(default_factory=dict)
     protagonist_location: str = ""
@@ -144,7 +144,7 @@ class MemoryUpdate(BaseModel):
     summary_update: str = ""  # only populated every N turns
 ```
 
-Sheldon MERGES updates — if it doesn't mention a field, the existing value is preserved. The `world_state` field on `StoryState` stores the serialized version of Sheldon's accumulated output.
+Canon MERGES updates — if it doesn't mention a field, the existing value is preserved. The `world_state` field on `StoryState` stores the serialized version of Canon's accumulated output.
 
 ### ThreadUpdate — Chekhov
 
@@ -186,7 +186,7 @@ The creative core. Reads the user's command and writes the next story beat while
 
 **Writes:** `current_narration` (1-3 paragraphs, draft in `full_cast`)
 
-Tolkien's prompt includes an explicit instruction to respect `world_constraints` and to avoid contradicting `world_state` or the recent beats. There is no reactive consistency gate — prevention is cheaper than cure, and the accumulated state fed back from Sheldon and Chekhov (one turn delayed) gives Tolkien enough grounding to self-police.
+Tolkien's prompt includes an explicit instruction to respect `world_constraints` and to avoid contradicting `world_state` or the recent beats. There is no reactive consistency gate — prevention is cheaper than cure, and the accumulated state fed back from Canon and Chekhov (one turn delayed) gives Tolkien enough grounding to self-police.
 
 The open-threads context comes with explicit guidance: *"Feel free to reference these when the user's action naturally invites it. Do not force payoffs — slow burn is fine."* Without that framing, Tolkien tries to close every thread immediately.
 
@@ -200,7 +200,7 @@ The stylist. Takes Tolkien's draft narration and polishes it for LEGO-Movie tone
 
 Only used in `full_cast`. In `core` and `solo`, Tolkien's output is shown directly.
 
-### Sheldon (Memory)
+### Canon (Memory)
 
 Maintains the world state. One of two agents that output structured JSON (the other is Chekhov).
 
@@ -214,15 +214,15 @@ MERGES updates — if it doesn't mention a field, preserve the existing value.
 
 ### Chekhov (Threads)
 
-The promise keeper. Tracks open narrative threads — setups that have been introduced but not yet paid off. Sheldon tracks *facts* (who exists, what's in the inventory); Chekhov tracks *narrative weight* (what the story has set up and owes the reader).
+The promise keeper. Tracks open narrative threads — setups that have been introduced but not yet paid off. Canon tracks *facts* (who exists, what's in the inventory); Chekhov tracks *narrative weight* (what the story has set up and owes the reader).
 
-Two kinds of persistent state, two failure modes, no overlap: **Sheldon guards facts, Chekhov guards promises.** (World rules are Tolkien's responsibility, enforced proactively via his prompt.)
+Two kinds of persistent state, two failure modes, no overlap: **Canon guards facts, Chekhov guards promises.** (World rules are Tolkien's responsibility, enforced proactively via his prompt.)
 
 **Receives (as text):** current narration, current open threads, recent beats
 
 **Writes:** updated `open_threads` (serialized `ThreadUpdate`)
 
-Runs in parallel with Sheldon on the polished narration (both depend on the same narration, neither depends on the other's output).
+Runs in parallel with Canon on the polished narration (both depend on the same narration, neither depends on the other's output).
 
 Closes a thread only when the narration explicitly references its payoff or outcome. When in doubt, leaves it open. Also populates `payoff_summary` with a one-line description of how the thread was resolved, used for benchmark telemetry.
 
@@ -246,7 +246,7 @@ def load_prompt(filepath: Path, **kwargs) -> str:
     return content.format(**kwargs) if kwargs else content
 ```
 
-Each agent has a `system.md` and `user.md` template. Variables are substituted at call time. Agents only see the blueprint fields relevant to their job — Tolkien sees setting, premise, and `world_constraints`; Wilde sees `tone_guidelines`. Sheldon and Chekhov see neither (they only inspect narration and their own accumulated state). Example:
+Each agent has a `system.md` and `user.md` template. Variables are substituted at call time. Agents only see the blueprint fields relevant to their job — Tolkien sees setting, premise, and `world_constraints`; Wilde sees `tone_guidelines`. Canon and Chekhov see neither (they only inspect narration and their own accumulated state). Example:
 
 ```markdown
 # narrator.user.md
@@ -279,7 +279,7 @@ Note: `{open_threads_prose}` is a rendered bulleted list of *live* threads only 
 
 ## JSON Sanitizer
 
-LLMs will produce malformed JSON — especially local models like Gemma. The `json_sanitizer.py` module provides repair functions for parsing structured output from Sheldon (`MemoryUpdate`) and Chekhov (`ThreadUpdate`). Both agents share this pipeline.
+LLMs will produce malformed JSON — especially local models like Gemma. The `json_sanitizer.py` module provides repair functions for parsing structured output from Canon (`MemoryUpdate`) and Chekhov (`ThreadUpdate`). Both agents share this pipeline.
 
 Reference implementation is in `reference/json_sanitizer.py`. Study it but adapt for this project — remove anything not needed, keep it clean.
 
@@ -331,26 +331,26 @@ User Input → Single Agent → Output
 
 ### Core (`core_graph.py`)
 
-Tolkien → Sheldon (2 agents)
+Tolkien → Canon (2 agents)
 
 ```
-User Input → Tolkien → Sheldon → Output
+User Input → Tolkien → Canon → Output
 ```
 
 ### Full Cast (`full_cast_graph.py`)
 
-Tolkien → Wilde → [Sheldon ∥ Chekhov] (4 agents)
+Tolkien → Wilde → [Canon ∥ Chekhov] (4 agents)
 
 ```
 User Input
     → Tolkien (draft narration, respects world_constraints)
     → Wilde (polish tone)
-    ─┬─→ Sheldon (memory) ─┐
+    ─┬─→ Canon (memory) ─┐
      │                     ├─→ Output
      └─→ Chekhov (threads) ─┘
 ```
 
-Sheldon and Chekhov run in parallel on the polished narration — both consume the narration, each writes to an independent state field (`world_state` and `open_threads` respectively), and neither depends on the other's output. There is no retry loop: Tolkien respects rules upfront, and long-horizon continuity comes from the one-turn-delayed feedback of Sheldon's and Chekhov's state into Tolkien's next-turn context.
+Canon and Chekhov run in parallel on the polished narration — both consume the narration, each writes to an independent state field (`world_state` and `open_threads` respectively), and neither depends on the other's output. There is no retry loop: Tolkien respects rules upfront, and long-horizon continuity comes from the one-turn-delayed feedback of Canon's and Chekhov's state into Tolkien's next-turn context.
 
 ## LLM Backend
 
@@ -369,8 +369,8 @@ class LLMBackend(ABC):
 Agents are stateless between calls. Context is reconstructed each turn as plain text:
 
 1. **Sliding window** — last N story beats verbatim (configurable, default 5)
-2. **Compressed summary** — older history condensed by Sheldon every N turns
-3. **World state** — Sheldon's structured output, serialized as text for other agents to read
+2. **Compressed summary** — older history condensed by Canon every N turns
+3. **World state** — Canon's structured output, serialized as text for other agents to read
 4. **Open threads** — Chekhov's live thread list, formatted as a bulleted prose list for Tolkien to read (live threads only — closed threads are kept in state for telemetry but are not included in Tolkien's context)
 5. **Blueprint fields** — only the subset each agent needs (Tolkien: setting + premise + world_constraints; Wilde: tone_guidelines)
 
@@ -382,7 +382,7 @@ Configs are YAML files loaded into Pydantic models:
 
 ```yaml
 name: "full_cast"
-description: "Tolkien → Wilde → [Sheldon ∥ Chekhov]"
+description: "Tolkien → Wilde → [Canon ∥ Chekhov]"
 graph: "full_cast_graph"
 llm_backend: "gemma"
 model: "google/gemma-4-31b-it"
