@@ -107,9 +107,9 @@ Create all templates in `src/prompts/`. Each agent gets a `system.md` and `user.
 
 **Critical: blueprint fields are split by audience.** See ARCHITECTURE.md for the full table. Briefly:
 
-- **Tolkien** gets `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, the **protagonist entry only** (name + description from `characters[0]`), Spock's `context_brief` (which surfaces any other currently-relevant characters/locations with names + one-line summaries, plus inventory highlights and recent commitments), and `user_input`. Does NOT get `visual_style`, `tone_guidelines`, full non-protagonist character or location descriptions, or raw `world_state`.
+- **Tolkien** gets `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, the **protagonist entry only** (name + description from `characters[0]`), the current rolling `narrative_memory` (so the story's accumulated context reaches him just like it reaches solo), Spock's `context_brief` (coordination pointer — surfaces other currently-relevant characters/locations with names + one-line summaries, plus inventory highlights and recent commitments), and `user_input`. Does NOT get `visual_style`, `tone_guidelines`, full non-protagonist character or location descriptions, or the raw `world_state` dict.
 - **Spielberg** gets `visual_style`, full `locations[]`, full `characters[]`, Tolkien's `Beat` (especially `narration`), previous clip's `end_frame_description`, current `protagonist_location` (defaults to `locations[0].name` when unset).
-- **Attenborough** gets `tone_guidelines`, `current_beat` (especially `narration`), `current_shot` (camera + motion + end-frame), and recent commentary history (last ~5 entries' `Commentary.voiceover`).
+- **Attenborough** gets `tone_guidelines`, `current_beat` (especially `narration`), `current_shot` (camera + motion + end-frame), the current rolling `narrative_memory` (for callback-aware commentary), and recent commentary history (last ~5 entries' `Commentary.voiceover`).
 - **Spock** gets `current_beat`, `current_shot`, `current_commentary`, current `world_state`, current `narrative_memory`, full blueprint `locations[]` + `characters[]` (so he can surface relevant ones in the brief), and recent history.
 - **Solo** gets the entire blueprint (including `tone_guidelines`) plus the full rolling state and recent history — in one structured call that emits all four response shapes.
 
@@ -135,10 +135,10 @@ Returns a partial state dict that the graph merges.
 
 **Tolkien — Narrator** (`src/agents/narrator.py`):
 
-- Reads from `state`: `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, `characters[0]` (protagonist), `context_brief`, `user_input`.
+- Reads from `state`: `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, `characters[0]` (protagonist), `narrative_memory`, `context_brief`, `user_input`.
 - Writes: `current_beat` (`Beat`), updates `short_term_narrative`, optionally `long_term_narrative`.
 - Advances on `short_term_narrative` when `user_input` is empty — never stalls.
-- Turn 1 has an empty `context_brief`; Tolkien opens from blueprint material alone.
+- Turn 1 has empty `context_brief` and empty `narrative_memory`; Tolkien opens from blueprint material alone.
 
 **Spielberg — Director** (`src/agents/director.py`):
 
@@ -148,7 +148,7 @@ Returns a partial state dict that the graph merges.
 
 **Attenborough — Commentator** (`src/agents/commentator.py`):
 
-- Reads from `state`: `tone_guidelines`, `current_beat`, `current_shot`, recent commentary history via `get_recent_history(config.context_window_history)`.
+- Reads from `state`: `tone_guidelines`, `current_beat`, `current_shot`, `narrative_memory`, recent commentary history via `get_recent_history(config.context_window_history)`.
 - Writes: `current_commentary` (`Commentary`).
 - If `config.audio_enabled: true`, hands the `voiceover` text to `src/tts/elevenlabs.py` and writes the resulting audio file path into the log. If TTS fails, catch and log — never let TTS failure break the turn.
 

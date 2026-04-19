@@ -4,7 +4,7 @@
 
 The system tells an interactive story as a stream of short (~5s) video clips chained together via image-to-video (i2v), layered with live voice-over commentary on top. The user types natural-language guidance between clips; the story keeps flowing whether or not the user speaks.
 
-A single well-briefed LLM can in principle do every job this system does. The hypothesis we are testing is that **a single LLM does not hold up over long horizons** — context balloons, facts drift, setups get dropped. Splitting the work across specialized agents with clear responsibilities and explicit communication should produce more coherent long-horizon storytelling at a tolerable latency cost.
+A single well-briefed LLM can in principle do every job this system does. The hypothesis we are testing is that **monolithic single-pass handling does not hold up over long horizons** — as the story accumulates, a model asked to produce beat + shot + commentary + memory in one structured response starts to drop setups, drift on facts, and lose threads. Splitting the work across specialized agents, each focused on one narrow job, should produce more coherent long-horizon storytelling at a tolerable latency cost. Both solo and the MAS see comparably growing context; the MAS's advantage (if any) comes from task specialization and explicit forward-passing between specialists, not from seeing less per call.
 
 The roster is **four agents**, each owning exactly one job, with no overlap.
 
@@ -237,12 +237,13 @@ The creative core. Writes the beat for this turn and keeps the narrative directi
 - `narrative_premise`, `world_constraints`
 - `long_term_narrative`, `short_term_narrative`
 - The protagonist entry from `characters[0]` (name + description) — always visible, since he writes about this character every turn
-- Spock's `context_brief` (filtered slice — any OTHER currently-relevant characters and locations with names + one-line summaries, current location, inventory highlights, recent commitments)
+- Current `narrative_memory` (rolling prose of what has happened across the whole run — grows with the story, compressed older / detailed recent per Spock's discipline)
+- Spock's `context_brief` (coordination pointer across the one-turn delay — surfaces OTHER currently-relevant characters and locations with names + one-line summaries, current location, inventory highlights, recent commitments)
 - `user_input` (possibly empty if the user is silent)
 
 **Writes:** `current_beat` (`Beat`) carrying `narration` (2–4 sentence prose paragraph — the richest downstream source), `action` (mechanical events for Spielberg), `outcome` (state-delta hint for Spock), and the updated `short_term_narrative`. Occasionally updates `long_term_narrative`.
 
-**Does NOT receive:** `visual_style`, `tone_guidelines`, full non-protagonist character or location descriptions, raw `world_state`. These are other agents' domains.
+**Does NOT receive:** `visual_style`, `tone_guidelines`, full non-protagonist character or location descriptions, raw `world_state` dict. These are other agents' domains.
 
 Tolkien's prompt includes an explicit self-check: respect `world_constraints`, do not contradict `context_brief`. There is no reactive consistency gate — prevention is cheaper than cure, and Spock's one-turn-delayed corrections keep drift bounded.
 
@@ -275,6 +276,7 @@ The narrator-in-the-mix. Writes the spoken line that plays over the clip — in 
 - `tone_guidelines` (the voice anchor)
 - `current_beat` (especially the prose `narration`)
 - `current_shot` (camera + motion + end-frame, so the commentary lands on visible action)
+- Current `narrative_memory` (rolling prose — so he can spot callbacks and pace his voice against the arc, not just the current clip)
 - Recent `HistoryEntry.commentary` from the last ~5 turns (so he doesn't repeat himself and his rhythm carries over)
 
 **Writes:** `current_commentary` (`Commentary`) with a short spoken line (~1–3 sentences, paced for ~5s of audio) and a one-line `tone_note` recording the chosen register.
@@ -299,17 +301,17 @@ Memory is Spock's whole identity. Two output shapes (structured state + prose me
 2. `narrative_memory` — full replacement of the rolling prose memory. Spock is instructed to compress older events into high-level strokes while keeping recent events detailed. Drifts toward `narrative_memory_target_tokens` from config (soft target, not a hard cap).
 3. `context_brief` — a filtered prose brief for Tolkien's next turn. Deliberately lean. Pulls from `world_state`, `narrative_memory`, and the blueprint's character/location entries to surface only what Tolkien needs: which OTHER characters are currently in scene (names + one-line summaries), where he is (location name + one-line summary), what's in his hands, what direction the story is heading, and any recent commitments that should influence the next beat.
 
-The `context_brief` is the load-bearing mechanism for long-horizon coherence. A monolithic LLM at turn 80 has all context in one wall of tokens; solo degrades as that wall grows. Spock's brief grows only with current story complexity, not with run length — one-line summaries of currently-active props and characters, not the entire cast.
+The `context_brief` is the coordination artifact across the one-turn delay. It highlights — explicitly — what matters next for Tolkien's beat: who is present, where we are, what's in play, which recent commitments still matter. The brief is not a context-shrinking trick; Tolkien also reads the full `narrative_memory` directly. The brief's job is to direct attention, not to replace the rolling world. It grows with story complexity as more characters and props come into play.
 
 ## Turn Execution Order
 
 Per turn, in order:
 
 1. **Read user input** (may be empty).
-2. **Tolkien** reads `context_brief` (from last turn's Spock), `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
+2. **Tolkien** reads `context_brief` (from last turn's Spock), `narrative_memory`, `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
 3. **Spielberg** reads `current_beat`, `visual_style`, full blueprint `locations` + `characters`, previous `end_frame_description`. Writes `current_shot`.
 4. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped in benchmark mode and when `video_enabled: false`.
-5. **Attenborough** reads `tone_guidelines`, `current_beat`, `current_shot`, recent commentary history. Writes `current_commentary`.
+5. **Attenborough** reads `tone_guidelines`, `current_beat`, `current_shot`, `narrative_memory`, recent commentary history. Writes `current_commentary`.
 6. **(Optional)** ElevenLabs TTS renders `current_commentary.voiceover`. Skipped in benchmark mode and when `audio_enabled: false`.
 7. **Spock** reads `current_beat`, `current_shot`, `current_commentary`, current `world_state`, current `narrative_memory`, full blueprint chars/locs, recent history. Writes `world_state_delta`, new `narrative_memory`, new `context_brief`.
 8. **Commit** the history entry (`turn`, `user_input`, `beat`, `shot`, `commentary`).
@@ -427,13 +429,13 @@ class LLMBackend(ABC):
 
 Agents are stateless between calls. Context is reconstructed each turn as prose.
 
-- **Tolkien** — receives premise + constraints + long/short narrative + protagonist entry + Spock's filtered `context_brief` + `user_input`. On turn 1 the `context_brief` is empty; Tolkien opens from the blueprint alone.
+- **Tolkien** — receives premise + constraints + long/short narrative + protagonist entry + `narrative_memory` + Spock's `context_brief` + `user_input`. On turn 1 the `context_brief` and `narrative_memory` are empty; Tolkien opens from the blueprint alone.
 - **Spielberg** — receives `visual_style` + full blueprint locations/characters + Tolkien's beat (including `narration`) + previous `end_frame_description` + current location.
-- **Attenborough** — receives `tone_guidelines` + `current_beat` (especially `narration`) + `current_shot` + recent commentary history.
+- **Attenborough** — receives `tone_guidelines` + `current_beat` (especially `narration`) + `current_shot` + `narrative_memory` + recent commentary history.
 - **Spock** — receives beat + shot + commentary + current `world_state` + current `narrative_memory` + full blueprint chars/locs + recent history.
 - **Solo** — receives the full blueprint (including `tone_guidelines`) + full rolling state + recent history + user input in one call, and emits `Beat + Shot + Commentary + MemoryUpdate` as a single structured response.
 
-Both solo and MAS contexts grow as the run progresses — there is no hard token cap on either side. The MAS grows **slower and smarter**: Spock's `context_brief` and `narrative_memory` compress older material into higher-level strokes while keeping recent events detailed, so what Tolkien and Attenborough see each turn stays lean and focused on what matters now. Solo accumulates linearly — every character, location, rule, and full rolling state payload lands in its prompt every turn, and the prompt grows monotonically with history. That delta is the central bet of the architecture.
+Both solo and MAS see **comparably growing context** as the story accumulates — the rolling `narrative_memory` travels to Tolkien, Attenborough, Spock, and solo alike, and grows with the run. Neither configuration has a hard token cap. The difference between solo and MAS is not the **size of what each agent reads** but **the shape of what each has to produce**. Solo reads the growing context and must emit `Beat + Shot + Commentary + MemoryUpdate` in one structured response, juggling every concern at once. Each MAS agent reads a comparably growing slice for its role but only has to write one thing. Spock's `context_brief` is a coordination artifact across the one-turn delay — it directs Tolkien's attention, it does not replace the narrative memory he also reads directly. The central bet is that **task specialization holds up as context strains the model**, where monolithic single-pass handling drops setups and loses threads.
 
 ## Configuration
 

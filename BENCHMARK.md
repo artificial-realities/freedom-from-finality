@@ -4,7 +4,7 @@
 
 > Does decomposing interactive storytelling into specialized agents (beat writer, shot composer, voice-over commentator, memory curator) produce more coherent long-horizon narratives than a single well-briefed LLM handling all tasks?
 
-Both configurations do the **same work**: every turn produces a beat, a shot prompt, a voice-over line, and a state update. The only difference is decomposition — solo emits all four in one structured response; the MAS splits them across four specialists with explicit communication. The expectation is that solo holds up early but degrades in the late game as context accumulates: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips, commentary that contradicts what's on screen. The MAS should degrade more gracefully because Spock's `context_brief` keeps Tolkien's input roughly constant in size, and each specialist has a narrow, stable workload.
+Both configurations do the **same work** and see **comparably growing context** — the rolling narrative memory, expanding world state, and accumulating history land in both setups. The only difference is decomposition: solo emits `Beat + Shot + Commentary + MemoryUpdate` in one structured response, juggling every concern at once; the MAS splits the same story across four specialists who each write one thing. The expectation is that solo holds up early but degrades in the late game as context strains the model: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips, commentary that contradicts what's on screen. The MAS should degrade more gracefully because each specialist has a narrow, stable workload — even as total context grows, each agent only has to produce one focused output.
 
 ## Experiment Matrix
 
@@ -85,10 +85,10 @@ Break each run into phases:
 
 ### Expected Hypothesis
 
-- Solo performs competently early but degrades in late-game coherence as context grows — dropped setups, forgotten props, inventory drift, visual descriptors that shift across clips, commentary that starts contradicting the scene.
-- MAS grows more slowly in context thanks to Spock's `context_brief` and rolling `narrative_memory`, and each specialist stays focused on one narrow job, so late-game quality stays closer to early-game quality.
-- MAS pays a latency cost per turn (four sequential agent calls instead of one), but Spock's shorter-input effect on Tolkien and Attenborough partially offsets it.
-- If MAS does *not* beat solo on long horizons, the interesting question is whether the loss comes from cross-agent communication overhead or from Spock's filtering being too aggressive — both diagnosable from the logs.
+- Solo performs competently early but degrades in late-game coherence as the growing context strains its ability to juggle all four concerns at once — dropped setups, forgotten props, inventory drift, visual descriptors that shift across clips, commentary that starts contradicting the scene.
+- MAS sees comparably growing context, but each specialist has one narrow job. Cognitive load per agent stays stable even as total context grows, so late-game quality stays closer to early-game quality.
+- MAS pays a latency cost per turn (four sequential agent calls instead of one). This is the main tradeoff; the bet is that coherence gains from specialization justify the extra calls.
+- If MAS does *not* beat solo on long horizons, the interesting question is whether the loss comes from cross-agent communication overhead (details slipping across the forward pass) or from specialization not buying enough under stress — both diagnosable from the logs.
 
 ## Running
 
