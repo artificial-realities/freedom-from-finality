@@ -1,22 +1,23 @@
-# interactive-mas
+# ClankerStudios
 
-A multi-agent system (MAS) for interactive storytelling, built with LangGraph. Three specialized agents collaborate to produce a continuous stream of short video clips chained via image-to-video (i2v), while the user optionally steers the story with natural-language commands between clips.
+A multi-agent system (MAS) for interactive storytelling, built with LangGraph. Four specialized agents collaborate to produce a continuous stream of short video clips chained via image-to-video (i2v), layered with live voice-over commentary, while the user optionally steers the story with natural-language commands between clips.
 
 ## Overview
 
-The story plays as a flowing sequence of ~5-second clips. Each clip's final frame is the next clip's input image, giving the story a continuous visual feel. The user types guidance between clips — but the story keeps flowing even when they don't.
+The story plays as a flowing sequence of ~5-second clips. Each clip's final frame is the next clip's input image, giving the story a continuous visual feel. A voice-over commentator speaks over the clips in the register the blueprint asks for. The user types guidance between clips — but the story keeps flowing even when they don't.
 
-The test story is deliberately minimal: a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind — props come and go, bits get tried, callbacks build up. No dialogue, no locations, no other characters. The setting strips away every variable except long-horizon memory, which is exactly the dimension the benchmark is built to test.
+The test story is deliberately minimal: a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind — props come and go, bits get tried, callbacks build up. No protagonist dialogue, no locations, no other characters. The setting strips away every variable except long-horizon memory, which is exactly the dimension the benchmark is built to test.
 
-Three agents collaborate behind the scenes:
+Four agents collaborate behind the scenes:
 
-- **Tolkien** (narrator) — writes what happens in the next clip: action, dialogue, outcome.
+- **Tolkien** (narrator) — writes what happens in the next clip: a prose narration, the mechanical action, and the outcome.
 - **Spielberg** (shot composer) — translates the beat into an image-to-video prompt: camera, composition, motion, continuity from the previous last frame.
-- **Supervisor** (memory + context curator) — after each turn, updates structured world state and a rolling narrative memory, and hands Tolkien a filtered context brief for the next turn.
+- **Attenborough** (voice-over commentator) — reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Optionally routed through ElevenLabs TTS when audio is enabled; otherwise logged as text.
+- **Spock** (memory + context curator) — after each turn, updates structured world state and a rolling narrative memory, and hands Tolkien a filtered context brief — including the currently-relevant characters and locations — for the next turn.
 
-A benchmark compares this MAS against a single well-briefed LLM baseline using a predefined 100-turn scenario. Full session logs are evaluated post-hoc — no automated scoring, just structured logs that a human or an LLM can review.
+A benchmark compares this MAS against a single well-briefed LLM baseline using a predefined 100-turn scenario. Both configurations do the same work — produce a beat, a shot, commentary, and a memory update each turn; the MAS just splits the responsibility across four agents. Full session logs are evaluated post-hoc — no automated scoring, just structured logs that a human or an LLM can review.
 
-Video generation is opt-out. The system is designed so the MAS always behaves as if video rendering were live — every agent produces complete, usable output — but actual clip generation can be skipped at runtime, which is the default for benchmark runs.
+Video and audio generation are both opt-out. The system is designed so the MAS always behaves as if rendering were live — every agent produces complete, usable output — but actual clip and TTS generation can be skipped at runtime, which is the default for benchmark runs.
 
 ## Architecture
 
@@ -29,13 +30,13 @@ See [BENCHMARK.md](BENCHMARK.md) for the research question, experiment matrix, a
 ## Project Structure
 
 ```
-interactive-mas/
+ClankerStudios/
 ├── README.md
 ├── ARCHITECTURE.md
 ├── BENCHMARK.md
 ├── CLAUDE.md                        # Claude Code working instructions
 ├── CLAUDE_CODE_PROMPT.md            # Build-time prompt for Claude Code
-├── story.json                       # Story blueprint (visual_style, locations, characters, rules, premise, directions)
+├── story.json                       # Story blueprint (visual_style, tone_guidelines, locations, characters, rules, premise, directions)
 ├── test_scenario.json               # 100-turn benchmark scenario
 ├── reference/                       # Reference implementations and prior art
 │   ├── json_sanitizer.py
@@ -51,7 +52,8 @@ interactive-mas/
 │   │   ├── __init__.py
 │   │   ├── narrator.py              # "Tolkien" — beat writer, updates narrative direction
 │   │   ├── director.py              # "Spielberg" — shot composer, i2v prompts
-│   │   └── supervisor.py            # "Supervisor" — world_state, narrative_memory, context_brief
+│   │   ├── commentator.py           # "Attenborough" — voice-over commentary
+│   │   └── spock.py                 # "Spock" — world_state, narrative_memory, context_brief
 │   ├── state/
 │   │   ├── __init__.py
 │   │   └── story_state.py           # StoryState and related Pydantic models
@@ -59,23 +61,28 @@ interactive-mas/
 │   │   ├── __init__.py
 │   │   ├── config.py                # Config model loaded from YAML
 │   │   ├── story.py                 # Story blueprint model loaded from JSON
-│   │   └── responses.py             # Beat, Shot, MemoryUpdate, WorldStateDelta
+│   │   └── responses.py             # Beat, Shot, Commentary, MemoryUpdate, WorldStateDelta
 │   ├── graph/
 │   │   ├── __init__.py
-│   │   ├── solo_graph.py            # Single LLM (fully briefed)
-│   │   └── mas_graph.py             # Tolkien → Spielberg → Supervisor
+│   │   ├── solo_graph.py            # Single LLM (fully briefed, emits all four shapes)
+│   │   └── mas_graph.py             # Tolkien → Spielberg → Attenborough → Spock
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py
 │   │   ├── gemma.py
 │   │   └── openai_backend.py
+│   ├── tts/
+│   │   ├── __init__.py
+│   │   └── elevenlabs.py            # ElevenLabs TTS adapter — called only when audio_enabled: true
 │   ├── prompts/
 │   │   ├── narrator.system.md
 │   │   ├── narrator.user.md
 │   │   ├── director.system.md
 │   │   ├── director.user.md
-│   │   ├── supervisor.system.md
-│   │   ├── supervisor.user.md
+│   │   ├── commentator.system.md
+│   │   ├── commentator.user.md
+│   │   ├── spock.system.md
+│   │   ├── spock.user.md
 │   │   ├── single_llm.system.md
 │   │   └── single_llm.user.md
 │   ├── util/
@@ -92,7 +99,7 @@ interactive-mas/
 ├── configs/
 │   ├── solo.yaml
 │   └── mas.yaml
-├── logs/                            # LLM interaction logs per session
+├── logs/                            # LLM interaction logs per session (and logs/audio/ when audio_enabled)
 ├── requirements.txt
 └── main.py
 ```
@@ -105,12 +112,13 @@ interactive-mas/
 - GPU with sufficient VRAM for Gemma 4 31B (H100 recommended) when running locally
 - (Optional) OpenAI API key for GPT-4o comparison
 - (Optional) i2v model for live video generation — skipped by default
+- (Optional) ElevenLabs API key for live voice-over — skipped by default
 
 ### Installation
 
 ```bash
 git clone <repo-url>
-cd interactive-mas
+cd ClankerStudios
 pip install -r requirements.txt
 ```
 
@@ -128,7 +136,7 @@ vllm serve google/gemma-4-31b-it \
 ### Running
 
 ```bash
-# Interactive play (MAS, video disabled)
+# Interactive play (MAS, video + audio disabled)
 python main.py play --config configs/mas.yaml
 
 # Run the benchmark scenario against one config
@@ -144,5 +152,6 @@ python main.py benchmark --scenario test_scenario.json
 - **Pydantic v2** — validated models for state, config, story, and all LLM response schemas
 - **Gemma 4 31B** — served locally via vLLM (OpenAI-compatible endpoint)
 - **OpenAI GPT-4o** — optional alternative backend
+- **ElevenLabs** — optional TTS for Attenborough's commentary
 - **Rich** — terminal UI
 - **vLLM** — high-throughput local LLM serving

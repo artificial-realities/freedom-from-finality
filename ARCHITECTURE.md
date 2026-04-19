@@ -2,23 +2,22 @@
 
 ## Design Philosophy
 
-The system tells an interactive story as a stream of short (~5s) video clips chained together via image-to-video (i2v). The user types natural-language guidance between clips; the story keeps flowing whether or not the user speaks.
+The system tells an interactive story as a stream of short (~5s) video clips chained together via image-to-video (i2v), layered with live voice-over commentary on top. The user types natural-language guidance between clips; the story keeps flowing whether or not the user speaks.
 
 A single well-briefed LLM can in principle do every job this system does. The hypothesis we are testing is that **a single LLM does not hold up over long horizons** — context balloons, facts drift, setups get dropped. Splitting the work across specialized agents with clear responsibilities and explicit communication should produce more coherent long-horizon storytelling at a tolerable latency cost.
 
-The roster is deliberately lean: **three agents**, each owning exactly one job, with no overlap.
+The roster is **four agents**, each owning exactly one job, with no overlap.
 
-- **Tolkien** — the beat writer. Decides what happens in the next ~5s (action, dialogue, outcome) and keeps the narrative direction current.
+- **Tolkien** — the beat writer. Decides what happens in the next ~5s (prose narration, mechanical action, outcome) and keeps the narrative direction current.
 - **Spielberg** — the shot composer. Translates Tolkien's beat into a concrete image-to-video prompt: camera, composition, motion, on-screen elements, continuity from the previous clip's last frame.
-- **Supervisor** — the memory and context curator. After each turn, updates the structured world state and the rolling narrative memory. Before the next turn, hands Tolkien a filtered context brief — only what he needs to know right now.
+- **Attenborough** — the voice-over commentator. Reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Always emits text; optionally fires ElevenLabs TTS when audio is enabled.
+- **Spock** — the memory and context curator. After each turn, updates the structured world state and the rolling narrative memory. Before the next turn, hands Tolkien a filtered context brief — only what he needs to know right now, including the currently-relevant characters and locations.
 
-We intentionally leave out agents that were in earlier drafts (Wilde for prose polish, Chekhov for thread tracking). Prose polish is no longer relevant — the output medium is video, not prose. Thread tracking is folded into the single `short_term_narrative` direction, which the user implicitly reshapes with every command.
-
-All three agents emit **structured output** via Pydantic schemas. The `json_sanitizer` pipeline repairs malformed JSON from the local model before parsing.
+All four agents emit **structured output** via Pydantic schemas. The `json_sanitizer` pipeline repairs malformed JSON from the local model before parsing.
 
 ## One-Turn-Delayed Feedback Loop
 
-Supervisor's updates from turn N are available to Tolkien at turn N+1. Tolkien does not see his own turn's state update within the same turn — he sees it on the next one. If Tolkien references something slightly wrong this turn, it gets corrected on the next. Over ~5s clips, this is imperceptible.
+Spock's updates from turn N are available to Tolkien at turn N+1. Tolkien does not see his own turn's state update within the same turn — he sees it on the next one. If Tolkien references something slightly wrong this turn, it gets corrected on the next. Over ~5s clips, this is imperceptible.
 
 This is a load-bearing design choice. It means:
 
@@ -30,7 +29,7 @@ Every `.md` prompt template and every agent spec in this document assumes this l
 
 ## Pipeline Buffer (Delay-as-Feature)
 
-When video generation is live, the MAS runs **ahead of the viewer** by roughly 6 clips (~30s). At boot, the pipeline pre-generates ~30s of video before playback starts. After that, every user command is queued and lands on the next *unrendered* clip, not the currently-playing one.
+When video generation is live, the MAS runs **ahead of the viewer** by roughly 6 clips (~30s). At boot, the pipeline pre-generates ~30s of video (and its matching commentary audio, if enabled) before playback starts. After that, every user command is queued and lands on the next *unrendered* clip, not the currently-playing one.
 
 This is not a technical wart — it is narrative smoothing:
 
@@ -44,7 +43,7 @@ Architectural consequences:
 2. **User input enters a queue.** It is applied to the next unrendered clip at the time Tolkien composes that clip's beat. Earlier queued clips play out unmodified.
 3. **Two clocks.** The MAS's internal clock (one turn = one clip in the build queue) and the viewer's subjective clock (~6 clips behind). The one-turn-delayed feedback loop refers to the internal clock.
 
-For the benchmark we **bypass the buffer** and run synchronously turn-by-turn, logging prompts only — no actual clips are generated. The buffer is a runtime concern, not an evaluation concern.
+For the benchmark we **bypass the buffer** and run synchronously turn-by-turn, logging prompts and Attenborough's commentary text only — no actual clips or audio are generated. The buffer is a runtime concern, not an evaluation concern.
 
 ## Story Blueprint
 
@@ -63,6 +62,7 @@ class Story(BaseModel):
     title: str
     synopsis: str
     visual_style: str
+    tone_guidelines: str                  # voice/register anchor for Attenborough's commentary
     locations: list[Location]
     characters: list[Character]           # includes protagonist as the first entry
     world_constraints: list[str]
@@ -81,8 +81,9 @@ Each field has a primary audience:
 |---|---|
 | `title`, `synopsis` | All agents (context framing) |
 | `visual_style` | Spielberg |
-| `locations` | Spielberg (full); Tolkien (names only) |
-| `characters` | Spielberg (full); Tolkien (names + one-line summary) |
+| `tone_guidelines` | Attenborough |
+| `locations` | Spielberg (full); Spock (full, for use in `context_brief`) |
+| `characters` | Spielberg (full); Spock (full, for use in `context_brief`); Tolkien (protagonist entry only — always visible) |
 | `world_constraints` | Tolkien (upfront self-check instruction) |
 | `narrative_premise` | Tolkien, solo baseline |
 | `long_term_narrative` | Tolkien (read + rarely updates) |
@@ -90,7 +91,7 @@ Each field has a primary audience:
 
 We keep **exactly one** `long_term_narrative` and **exactly one** `short_term_narrative`. Experience from a prior project (Comic Chaos) showed that plural directions cluster and dilute focus. A single short-term direction is easily reshaped by the user's next command; a single long-term direction is sticky and only changes when the story fundamentally pivots.
 
-There is no `tone_guidelines` field. Mood and feel are carried by `narrative_premise` (for Tolkien) and `visual_style` (for Spielberg). Spielberg infers visual tone from Tolkien's beat in combination with the static `visual_style` anchor.
+`tone_guidelines` is Attenborough's exclusive anchor — it shapes his voice, cadence, and register (dry, earnest, deadpan, nature-documentary, etc.) without needing a re-brief every turn. Spielberg and Tolkien stay unaware of it; their tonal signals come from `visual_style` and `narrative_premise` respectively. Coordination between Spielberg and Attenborough happens implicitly through `Beat.narration` — both agents read the same prose source, so the visual and the voice land together without the agents talking to each other.
 
 ## Scenario
 
@@ -119,8 +120,9 @@ from pydantic import BaseModel, Field
 
 class Beat(BaseModel):
     """Tolkien's structured output per turn."""
-    action: str                              # physical events in this ~5s
-    outcome: str                             # what has changed after this clip
+    narration: str                           # 2–4 sentence prose paragraph telling what happens in this ~5s
+    action: str                              # physical events, mechanical (for Spielberg)
+    outcome: str                             # what has changed after this clip (hint for Spock)
     short_term_narrative: str                # updated direction for next turn
     long_term_narrative: str | None = None   # only set when the arc genuinely shifts
 
@@ -134,24 +136,30 @@ class Shot(BaseModel):
     continuity: str                          # how this clip starts from the previous last frame
     end_frame_description: str               # what the final frame of this clip depicts
 
+class Commentary(BaseModel):
+    """Attenborough's structured output per turn."""
+    voiceover: str                           # spoken text — ~1–3 short sentences, paced for ~5s of audio
+    tone_note: str                           # one-line self-note on the chosen register (dry, hushed, etc.)
+
 class WorldStateDelta(BaseModel):
-    """Supervisor's structured state update, merged into StoryState.world_state."""
+    """Spock's structured state update, merged into StoryState.world_state."""
     characters: dict[str, dict] = Field(default_factory=dict)  # partial updates
     protagonist_location: str = ""                             # empty = unchanged
     inventory: list[str] | None = None                         # None = unchanged; list = replace
     notes: list[str] = Field(default_factory=list)             # freeform notable state
 
 class MemoryUpdate(BaseModel):
-    """Supervisor's structured output per turn."""
+    """Spock's structured output per turn."""
     world_state_delta: WorldStateDelta
     narrative_memory: str                    # rolling compressed prose, updated every turn
-    context_brief: str                       # filtered context for Tolkien's next turn
+    context_brief: str                       # filtered context for Tolkien's next turn (incl. relevant chars/locs)
 
 class HistoryEntry(BaseModel):
     turn: int
     user_input: str
     beat: Beat
     shot: Shot
+    commentary: Commentary
 
 class StoryState(BaseModel):
     """Shared state for an interactive storytelling session."""
@@ -160,11 +168,12 @@ class StoryState(BaseModel):
     user_input: str = ""
     current_beat: Beat | None = None
     current_shot: Shot | None = None
+    current_commentary: Commentary | None = None
 
-    # Persistent memory — maintained by Supervisor
+    # Persistent memory — maintained by Spock
     world_state: dict = Field(default_factory=dict)   # merged WorldStateDelta history
     narrative_memory: str = ""                        # rolling prose, updated every turn
-    context_brief: str = ""                           # Supervisor's brief for Tolkien's next turn
+    context_brief: str = ""                           # Spock's brief for Tolkien's next turn
 
     # Narrative direction — maintained by Tolkien
     long_term_narrative: str = ""
@@ -180,6 +189,7 @@ class StoryState(BaseModel):
     title: str = ""
     synopsis: str = ""
     visual_style: str = ""
+    tone_guidelines: str = ""
     locations: list[Location] = Field(default_factory=list)
     characters: list[Character] = Field(default_factory=list)
     world_constraints: list[str] = Field(default_factory=list)
@@ -194,6 +204,7 @@ class StoryState(BaseModel):
             title=story.title,
             synopsis=story.synopsis,
             visual_style=story.visual_style,
+            tone_guidelines=story.tone_guidelines,
             locations=list(story.locations),
             characters=list(story.characters),
             world_constraints=list(story.world_constraints),
@@ -204,7 +215,7 @@ class StoryState(BaseModel):
         )
 ```
 
-`narrative_memory` grows every turn but stays bounded: Supervisor compresses older content into higher-level strokes while recent events stay detailed. The prompt explicitly instructs rolling compression.
+`narrative_memory` grows every turn, but the growth is smart: Spock compresses older content into higher-level strokes while recent events stay detailed. The prompt explicitly instructs rolling compression. There is no hard token cap — the prompt carries a soft target (`narrative_memory_target_tokens` from config) that Spock is told to drift toward, not enforce.
 
 `world_state` accumulates by merging `WorldStateDelta`s. Fields left blank in a delta mean "unchanged." `inventory` is `None` for unchanged, a concrete list for replacement (simpler than computing add/remove sets inside the model).
 
@@ -225,18 +236,19 @@ The creative core. Writes the beat for this turn and keeps the narrative directi
 **Receives (via prompt):**
 - `narrative_premise`, `world_constraints`
 - `long_term_narrative`, `short_term_narrative`
-- Supervisor's `context_brief` (filtered slice — relevant characters, recent events, current location, relevant inventory)
-- Location names (not full descriptions)
-- Character names with one-line summaries (not full visual descriptions)
+- The protagonist entry from `characters[0]` (name + description) — always visible, since he writes about this character every turn
+- Spock's `context_brief` (filtered slice — any OTHER currently-relevant characters and locations with names + one-line summaries, current location, inventory highlights, recent commitments)
 - `user_input` (possibly empty if the user is silent)
 
-**Writes:** `current_beat` (`Beat`) which carries the action, the outcome, and updated `short_term_narrative`. Occasionally updates `long_term_narrative`. The protagonist does not speak, so there is no dialogue field — all expression is physical.
+**Writes:** `current_beat` (`Beat`) carrying `narration` (2–4 sentence prose paragraph — the richest downstream source), `action` (mechanical events for Spielberg), `outcome` (state-delta hint for Spock), and the updated `short_term_narrative`. Occasionally updates `long_term_narrative`.
 
-**Does NOT receive:** `visual_style`, full location or character descriptions, raw world_state. These are Spielberg's and Supervisor's domains.
+**Does NOT receive:** `visual_style`, `tone_guidelines`, full non-protagonist character or location descriptions, raw `world_state`. These are other agents' domains.
 
-Tolkien's prompt includes an explicit self-check: respect `world_constraints`, do not contradict `context_brief`. There is no reactive consistency gate — prevention is cheaper than cure, and Supervisor's one-turn-delayed corrections keep drift bounded.
+Tolkien's prompt includes an explicit self-check: respect `world_constraints`, do not contradict `context_brief`. There is no reactive consistency gate — prevention is cheaper than cure, and Spock's one-turn-delayed corrections keep drift bounded.
 
 On silent turns (empty `user_input`), Tolkien advances on `short_term_narrative` without stalling. Silence is normal.
+
+**Turn 1 bootstrap.** At turn 1 there is no prior Spock output, so `context_brief` is empty. Tolkien opens the story himself using the blueprint material he already has (premise, constraints, narrative directions, protagonist entry, user_input). This is deliberate: Tolkien is the creative lead and is in control of how the story starts.
 
 ### Spielberg — Shot Composer
 
@@ -245,76 +257,91 @@ The visual director. Turns Tolkien's beat into a concrete image-to-video prompt.
 **Receives (via prompt):**
 - `visual_style` (the permanent visual anchor)
 - Full `locations` and `characters` from the blueprint
-- `current_beat` (Tolkien's just-written output)
+- `current_beat` (Tolkien's just-written output — especially the prose `narration`)
 - The previous clip's `end_frame_description` (for continuity)
-- Current `protagonist_location` (from `world_state`)
+- Current `protagonist_location` (from `world_state`; defaults to `locations[0].name` when unset)
 
 **Writes:** `current_shot` (`Shot`) with the i2v prompt, camera, composition, motion, on-screen roster, continuity note, and end-frame description.
 
-Spielberg always re-anchors on the locked visual descriptors from the blueprint. The character looks the way the blueprint says; the background is the blueprint's white void. This is how visual consistency survives across 100 chained clips — not via a separate continuity agent, but via Spielberg's discipline of re-reading the source of truth every turn.
+Spielberg always re-anchors on the locked visual descriptors from the blueprint every turn. The character looks the way the blueprint says; the setting is described as the blueprint specifies. This is how visual consistency survives across 100 chained clips — not via a separate continuity agent, but via Spielberg's discipline of re-reading the source of truth every turn.
 
-**Prop entry patterns.** When a new prop enters the scene, Spielberg picks one of two modes and reflects it in the `i2v_prompt`:
+How props enter, scenes transition, and characters arrive is left to Spielberg's judgment, guided by `visual_style` and `narrative_premise`. A studio-white-void story calls for one set of entrance conventions; a gritty cyberpunk story calls for another. Spielberg is the director — he figures it out from the blueprint. The architecture does not hardcode entrance patterns.
 
-1. **Summon** — the prop simply appears in frame (a soft pop-in, or already present when the clip opens).
-2. **Walk-in** — the minifigure walks a few steps out of frame and returns carrying the prop.
+### Attenborough — Voice-Over Commentator
 
-Mix both for visual variety. Which mode fits this turn is a judgment call based on the beat's pace and what's already on screen.
-
-The scene never changes location — there is only the white void — so continuity between clips is always about what has changed in the character's pose, what props are present, and what's happening. The `end_frame_description` captures that so the next clip can pick up cleanly.
-
-### Supervisor — Memory and Context Curator
-
-Memory is Supervisor's whole identity. Two output shapes (structured state + prose memory), one cognitive act: *know what's true, surface what's relevant*.
+The narrator-in-the-mix. Writes the spoken line that plays over the clip — in whatever register `tone_guidelines` asks for.
 
 **Receives (via prompt):**
-- `current_beat` and `current_shot` (this turn's outputs)
+- `tone_guidelines` (the voice anchor)
+- `current_beat` (especially the prose `narration`)
+- `current_shot` (camera + motion + end-frame, so the commentary lands on visible action)
+- Recent `HistoryEntry.commentary` from the last ~5 turns (so he doesn't repeat himself and his rhythm carries over)
+
+**Writes:** `current_commentary` (`Commentary`) with a short spoken line (~1–3 sentences, paced for ~5s of audio) and a one-line `tone_note` recording the chosen register.
+
+Coordination with Spielberg happens implicitly: both read the same `Beat.narration`. The visual and the voice land together because they come from the same prose source.
+
+**Audio side effect.** After Attenborough produces text, the runtime optionally sends `voiceover` to ElevenLabs TTS when `audio_enabled: true`. When `audio_enabled: false` (the default, and always true in benchmark mode), the text is logged and nothing else happens. This mirrors the video toggle — the agent's structured output is the benchmark-relevant artifact; audio and video generation are runtime niceties. TTS failures are caught and logged — they never break the turn.
+
+### Spock — Memory and Context Curator
+
+Memory is Spock's whole identity. Two output shapes (structured state + prose memory + a filtered brief), one cognitive act: *know what's true, surface what's relevant*.
+
+**Receives (via prompt):**
+- `current_beat`, `current_shot`, `current_commentary` (this turn's outputs)
 - Current `world_state` (accumulated dict)
 - Current `narrative_memory` (rolling prose)
+- Full blueprint `locations` and `characters` (so Spock can pull relevant names + one-line summaries into `context_brief` on demand)
 - Recent history (last ~5 entries)
 
 **Writes:** `MemoryUpdate` containing:
 1. `world_state_delta` — structured merge applied to `world_state`. Partial updates only; unmentioned fields preserved.
-2. `narrative_memory` — full replacement of the rolling prose memory. Supervisor is instructed to compress older events into high-level strokes while keeping recent events detailed. Targets a bounded length (configurable, default ~800 tokens).
-3. `context_brief` — a filtered prose brief for Tolkien's next turn. Deliberately lean. Pulls from world_state and narrative_memory to surface only what Tolkien needs: who is present, where he is, what's in his hands, what direction the story is heading, any recent commitments that should influence the next beat.
+2. `narrative_memory` — full replacement of the rolling prose memory. Spock is instructed to compress older events into high-level strokes while keeping recent events detailed. Drifts toward `narrative_memory_target_tokens` from config (soft target, not a hard cap).
+3. `context_brief` — a filtered prose brief for Tolkien's next turn. Deliberately lean. Pulls from `world_state`, `narrative_memory`, and the blueprint's character/location entries to surface only what Tolkien needs: which OTHER characters are currently in scene (names + one-line summaries), where he is (location name + one-line summary), what's in his hands, what direction the story is heading, and any recent commitments that should influence the next beat.
 
-The `context_brief` is the load-bearing mechanism for long-horizon coherence. A monolithic LLM at turn 80 has all context in one wall of tokens; solo degrades as that wall grows. Supervisor's brief stays roughly constant in size because it filters rather than accumulates.
+The `context_brief` is the load-bearing mechanism for long-horizon coherence. A monolithic LLM at turn 80 has all context in one wall of tokens; solo degrades as that wall grows. Spock's brief grows only with current story complexity, not with run length — one-line summaries of currently-active props and characters, not the entire cast.
 
 ## Turn Execution Order
 
 Per turn, in order:
 
 1. **Read user input** (may be empty).
-2. **Tolkien** reads `context_brief` (from last turn's Supervisor), `short_term_narrative`, `long_term_narrative`, and user input. Writes `current_beat` + updated narrative direction.
+2. **Tolkien** reads `context_brief` (from last turn's Spock), `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
 3. **Spielberg** reads `current_beat`, `visual_style`, full blueprint `locations` + `characters`, previous `end_frame_description`. Writes `current_shot`.
-4. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped in benchmark mode and when `video_enabled=false`.
-5. **Supervisor** reads `current_beat`, `current_shot`, current `world_state`, current `narrative_memory`, recent history. Writes `world_state_delta`, new `narrative_memory`, new `context_brief`.
-6. **Commit** the history entry (`turn`, `user_input`, `beat`, `shot`).
+4. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped in benchmark mode and when `video_enabled: false`.
+5. **Attenborough** reads `tone_guidelines`, `current_beat`, `current_shot`, recent commentary history. Writes `current_commentary`.
+6. **(Optional)** ElevenLabs TTS renders `current_commentary.voiceover`. Skipped in benchmark mode and when `audio_enabled: false`.
+7. **Spock** reads `current_beat`, `current_shot`, `current_commentary`, current `world_state`, current `narrative_memory`, full blueprint chars/locs, recent history. Writes `world_state_delta`, new `narrative_memory`, new `context_brief`.
+8. **Commit** the history entry (`turn`, `user_input`, `beat`, `shot`, `commentary`).
 
-The context Supervisor writes in step 5 is the context Tolkien reads in step 2 of the *next* turn. That delay is the one-turn-delayed feedback loop.
+The context Spock writes in step 7 is the context Tolkien reads in step 2 of the *next* turn. That delay is the one-turn-delayed feedback loop.
 
 ## Graph Topology
 
 ### Solo (`solo_graph.py`)
 
-One LLM handles everything. It receives the **entire blueprint** — including full `locations` and `characters` descriptions, the premise, constraints, both narrative directions — and emits a single structured response containing `Beat`, `Shot`, and `MemoryUpdate` in one call. The question solo answers is "can a well-briefed single LLM match a decomposed pipeline?", not "can an unbriefed LLM?".
+One LLM handles everything. It receives the **entire blueprint** — including full `locations` and `characters`, `visual_style`, `tone_guidelines`, premise, constraints, both narrative directions — and emits a single structured response containing `Beat`, `Shot`, `Commentary`, and `MemoryUpdate` in one call. The question solo answers is "can a well-briefed single LLM match a decomposed pipeline?", not "can an unbriefed LLM?".
 
 ```
-User Input → Solo (single structured response: beat + shot + memory update) → Output
+User Input → Solo (single structured response: Beat + Shot + Commentary + MemoryUpdate) → Output
 ```
+
+Solo does the same work as the MAS — just without the split. Both configurations produce all four shapes every turn.
 
 ### MAS (`mas_graph.py`)
 
-Three specialized agents.
+Four specialized agents.
 
 ```
 User Input
-    → Tolkien (beat + short/long-term direction)
-    → Spielberg (shot / i2v prompt)
-    → Supervisor (world_state, narrative_memory, context_brief)
+    → Tolkien       (beat: narration + action + outcome + short/long-term direction)
+    → Spielberg     (shot / i2v prompt)
+    → Attenborough  (voice-over commentary)
+    → Spock         (world_state, narrative_memory, context_brief)
     → Output
 ```
 
-Strictly sequential. Spielberg depends on Tolkien's beat; Supervisor depends on both. There is no retry loop — Tolkien respects rules upfront, Supervisor catches drift on the next turn.
+Strictly sequential. Spielberg depends on Tolkien's beat; Attenborough depends on both; Spock depends on all three. There is no retry loop — Tolkien respects rules upfront, Spock catches drift on the next turn.
 
 ## Prompt Templates
 
@@ -340,7 +367,7 @@ Each prompt ends with a schema block that describes the structured output the ag
 
 ## JSON Sanitizer
 
-Local models (Gemma 4) will occasionally produce malformed JSON. The `json_sanitizer.py` module provides repair functions shared by all three agents and solo.
+Local models (Gemma 4) will occasionally produce malformed JSON. The `json_sanitizer.py` module provides repair functions shared by all four agents and solo.
 
 Reference implementation is in `reference/json_sanitizer.py`. Study it and adapt — keep only what this project needs.
 
@@ -366,7 +393,7 @@ A logged interaction captures everything needed to reconstruct a run:
   "session_id": "20260418_143022",
   "config": "mas",
   "scenario": "test_scenario",
-  "story": "LEGO Mars",
+  "story": "Lego Man in the White Void",
   "interactions": [
     {
       "agent": "tolkien",
@@ -375,7 +402,7 @@ A logged interaction captures everything needed to reconstruct a run:
       "model": "google/gemma-4-31b-it",
       "parameters": {"temperature": 0.7, "max_tokens": 1024},
       "prompt": {"system": "...", "user": "..."},
-      "response": {"raw": "...", "parsed": {"action": "...", "dialogue": [], "outcome": "...", "short_term_narrative": "..."}},
+      "response": {"raw": "...", "parsed": {"narration": "...", "action": "...", "outcome": "...", "short_term_narrative": "..."}},
       "token_usage": {"prompt": 2100, "completion": 450},
       "latency_ms": 1230
     }
@@ -400,12 +427,13 @@ class LLMBackend(ABC):
 
 Agents are stateless between calls. Context is reconstructed each turn as prose.
 
-- **Tolkien** — receives premise + constraints + long/short narrative + Supervisor's filtered `context_brief` + location names + character summaries + user input. Target ~2–4K tokens.
-- **Spielberg** — receives `visual_style` + full blueprint locations/characters + Tolkien's beat + previous `end_frame_description` + current location. Target ~2–4K tokens.
-- **Supervisor** — receives beat + shot + current world_state + current narrative_memory + recent history. Target ~3–6K tokens.
-- **Solo** — receives the full blueprint + full rolling state + recent history + user input in one call. Target ~6–10K tokens and growing with run length.
+- **Tolkien** — receives premise + constraints + long/short narrative + protagonist entry + Spock's filtered `context_brief` + `user_input`. On turn 1 the `context_brief` is empty; Tolkien opens from the blueprint alone.
+- **Spielberg** — receives `visual_style` + full blueprint locations/characters + Tolkien's beat (including `narration`) + previous `end_frame_description` + current location.
+- **Attenborough** — receives `tone_guidelines` + `current_beat` (especially `narration`) + `current_shot` + recent commentary history.
+- **Spock** — receives beat + shot + commentary + current `world_state` + current `narrative_memory` + full blueprint chars/locs + recent history.
+- **Solo** — receives the full blueprint (including `tone_guidelines`) + full rolling state + recent history + user input in one call, and emits `Beat + Shot + Commentary + MemoryUpdate` as a single structured response.
 
-Solo's context grows monotonically; the MAS agents' contexts stay bounded because Supervisor's `context_brief` filters rather than accumulates. This is the central bet of the architecture.
+Both solo and MAS contexts grow as the run progresses — there is no hard token cap on either side. The MAS grows **slower and smarter**: Spock's `context_brief` and `narrative_memory` compress older material into higher-level strokes while keeping recent events detailed, so what Tolkien and Attenborough see each turn stays lean and focused on what matters now. Solo accumulates linearly — every character, location, rule, and full rolling state payload lands in its prompt every turn, and the prompt grows monotonically with history. That delta is the central bet of the architecture.
 
 ## Configuration
 
@@ -413,7 +441,7 @@ Configs are YAML files loaded into Pydantic models:
 
 ```yaml
 name: "mas"
-description: "Tolkien → Spielberg → Supervisor"
+description: "Tolkien → Spielberg → Attenborough → Spock"
 graph: "mas_graph"
 llm_backend: "gemma"
 model: "google/gemma-4-31b-it"
@@ -423,6 +451,8 @@ context_window_history: 5
 narrative_memory_target_tokens: 800
 video_enabled: false
 video_buffer_clips: 6
+audio_enabled: false
+elevenlabs_voice_id: ""          # required when audio_enabled: true
 ```
 
-`video_enabled: false` is the default for benchmark runs. When set `true`, `video_buffer_clips` controls how many clips are pre-generated before playback starts.
+`video_enabled: false` and `audio_enabled: false` are the defaults for benchmark runs. When `audio_enabled: true`, Attenborough's `voiceover` is sent to ElevenLabs and audio files are written to `logs/audio/`; when `false`, the text is still produced, still logged, and simply not spoken — keeping benchmarks cheap and reproducible.

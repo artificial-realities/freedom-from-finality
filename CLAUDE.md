@@ -1,4 +1,4 @@
-# CLAUDE.md — interactive-mas (IKT469)
+# CLAUDE.md — ClankerStudios (IKT469)
 
 ## Workflow
 
@@ -11,4 +11,5 @@
 - Prompts: **.md template files** in `src/prompts/`, loaded via `prompt_loader.py`
 - Agents: **async functions**, not classes
 - LLM: local **vLLM** (OpenAI-compatible) — model via config YAML
+- TTS: **ElevenLabs** — only fires when `audio_enabled: true`; Attenborough always produces text
 - Reference implementations in `reference/` — study and adapt critically, don't copy blindly

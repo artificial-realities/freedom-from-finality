@@ -2,9 +2,9 @@
 
 ## Research Question
 
-> Does decomposing interactive storytelling into specialized agents (beat writer, shot composer, memory curator) produce more coherent long-horizon narratives than a single well-briefed LLM handling all tasks?
+> Does decomposing interactive storytelling into specialized agents (beat writer, shot composer, voice-over commentator, memory curator) produce more coherent long-horizon narratives than a single well-briefed LLM handling all tasks?
 
-A single LLM *can* emit a beat, a shot prompt, and a state update in one structured response — we test exactly that baseline. The expectation is that solo holds up early but degrades in the late game as context accumulates: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips. The MAS should degrade more gracefully because Supervisor's `context_brief` keeps Tolkien's input roughly constant in size, regardless of run length.
+Both configurations do the **same work**: every turn produces a beat, a shot prompt, a voice-over line, and a state update. The only difference is decomposition — solo emits all four in one structured response; the MAS splits them across four specialists with explicit communication. The expectation is that solo holds up early but degrades in the late game as context accumulates: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips, commentary that contradicts what's on screen. The MAS should degrade more gracefully because Spock's `context_brief` keeps Tolkien's input roughly constant in size, and each specialist has a narrow, stable workload.
 
 ## Experiment Matrix
 
@@ -12,16 +12,16 @@ A single LLM *can* emit a beat, a shot prompt, and a state update in one structu
 
 | ID | Name | Agents | Pipeline |
 |----|------|--------|----------|
-| C1 | `solo` | 1 | Single LLM emits `Beat` + `Shot` + `MemoryUpdate` in one structured response, fully briefed |
-| C2 | `mas` | 3 | Tolkien → Spielberg → Supervisor |
+| C1 | `solo` | 1 | Single LLM emits `Beat` + `Shot` + `Commentary` + `MemoryUpdate` in one structured response, fully briefed |
+| C2 | `mas` | 4 | Tolkien → Spielberg → Attenborough → Spock |
 
-The spread (1 vs 3) is intentional. Every intermediate agent we considered (prose polisher, thread tracker, intent interpreter, consistency gate) either didn't earn its keep or folded naturally into one of the three existing roles. The comparison is decomposition-vs-monolith, not "more agents are better."
+The spread (1 vs 4) is intentional. Every intermediate agent we considered either didn't earn its keep or folded naturally into one of the four existing roles. The comparison is decomposition-vs-monolith, not "more agents are better."
 
-**Solo receives the full blueprint** — synopsis, `visual_style`, full `locations`, full `characters`, `world_constraints`, `narrative_premise`, both narrative directions. This is a fair-comparison baseline, not a strawman.
+**Solo receives the full blueprint** — synopsis, `visual_style`, `tone_guidelines`, full `locations`, full `characters`, `world_constraints`, `narrative_premise`, both narrative directions. This is a fair-comparison baseline, not a strawman.
 
 ### Story
 
-All runs use the same blueprint in `story.json` — a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind. The setting is deliberately stripped down: one character, one featureless background, no dialogue, no locations to navigate. What's left is pure test surface for long-horizon memory: props that come and go, bits that get called back, gags that should not repeat.
+All runs use the same blueprint in `story.json` — a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind. The setting is deliberately stripped down: one character, one featureless background, no protagonist dialogue, no locations to navigate. What's left is pure test surface for long-horizon memory: props that come and go, bits that get called back, gags that should not repeat.
 
 This trivializes visual consistency (one character, locked background) and removes location/character tracking as dimensions — which is the point. Any drift we see in the benchmark is memory drift, not scene drift.
 
@@ -31,17 +31,18 @@ One predefined 100-turn playthrough that deliberately exercises long-range memor
 
 | Capability | What it tests | Where it should show up |
 |---|---|---|
-| Prop persistence | Props introduced in early turns still exist / are referenced later; consumed props stay gone | Supervisor's `world_state` (active props) |
+| Prop persistence | Props introduced in early turns still exist / are referenced later; consumed props stay gone | Spock's `world_state` (active props) |
 | Callback quality | Late-game clips reference early-game props, bits, and running gags naturally | `narrative_memory` → `context_brief` → Tolkien's `Beat` |
 | Bit variety | The system does not repeat the same gag unless the user explicitly asks for a callback | `narrative_memory` of past bits |
 | Authorship under silence | On silent turns, the system advances purposefully rather than producing filler | Tolkien's `Beat` when `user_input` is empty |
 | Long-horizon coherence | Late-game story stays self-consistent with everything that came before | `narrative_memory` fidelity + `context_brief` quality |
-| LEGO-anatomy consistency | Physical constraints respected (no knee bends, no speech, parts can pop off and click back on) | Tolkien's `Beat`; Spielberg's `Shot` |
+| LEGO-anatomy consistency | Physical constraints respected (no knee bends, no protagonist speech, parts can pop off and click back on) | Tolkien's `Beat`; Spielberg's `Shot` |
 | Visual anchor stability | The character and void remain on-model across all 100 clips | Spielberg's `Shot` — spot-checked across turns |
+| Commentary coherence | Attenborough's voice-over lands on visible action, stays in the tone the blueprint asks for, doesn't recycle phrasings | `Commentary.voiceover` text across turns |
 
 ### Total: 2 configs × 1 scenario × 100 turns = 200 turns
 
-No actual video is generated during benchmark runs. Spielberg's `Shot.i2v_prompt` is logged and evaluated as text. This keeps the benchmark reproducible and cheap.
+No actual video or audio is generated during benchmark runs. Spielberg's `Shot.i2v_prompt` and Attenborough's `Commentary.voiceover` are logged and evaluated as text. This keeps the benchmark reproducible and cheap.
 
 ## Evaluation
 
@@ -66,9 +67,11 @@ This keeps the codebase simple and avoids self-preference bias from using the sa
 
 **User Intent Fidelity** — Did the system do what the user asked? How did silent turns get filled — with genuine forward motion or with filler?
 
-**LEGO-Anatomy Compliance** — Claw hands, stiff legs, pop-off parts, no speech. Any violation is a rule-compliance failure.
+**LEGO-Anatomy Compliance** — Claw hands, stiff legs, pop-off parts, no protagonist speech. Any violation is a rule-compliance failure.
 
 **Visual Anchor Stability** (from Spielberg's prompts) — The minifigure's description stays on-model across all 100 clips. The white void stays featureless (no accidental backgrounds, floors, skies).
+
+**Commentary Coherence** — Attenborough's voice-over lands on what's visible, holds its register per `tone_guidelines`, and doesn't recycle the same observations. Commentary that contradicts `Beat.narration` or the shot is a coordination failure between agents.
 
 **Long-Horizon Coherence** — The central test. Late-game narration should behave as if it has read the early game, not as if it woke up at turn 70. This is the dimension where MAS is most expected to outperform solo.
 
@@ -82,10 +85,10 @@ Break each run into phases:
 
 ### Expected Hypothesis
 
-- Solo performs competently early but degrades in late-game coherence as context grows — dropped setups, forgotten NPCs, inventory drift, visual descriptors that shift across clips.
-- MAS keeps a roughly constant per-agent context thanks to Supervisor's `context_brief`, so late-game quality stays closer to early-game quality.
-- MAS pays a latency cost per turn (three sequential agent calls instead of one), but Supervisor's shorter-input effect partially offsets it.
-- If MAS does *not* beat solo on long horizons, the interesting question is whether the loss comes from cross-agent communication overhead or from Supervisor's filtering being too aggressive — both diagnosable from the logs.
+- Solo performs competently early but degrades in late-game coherence as context grows — dropped setups, forgotten props, inventory drift, visual descriptors that shift across clips, commentary that starts contradicting the scene.
+- MAS grows more slowly in context thanks to Spock's `context_brief` and rolling `narrative_memory`, and each specialist stays focused on one narrow job, so late-game quality stays closer to early-game quality.
+- MAS pays a latency cost per turn (four sequential agent calls instead of one), but Spock's shorter-input effect on Tolkien and Attenborough partially offsets it.
+- If MAS does *not* beat solo on long horizons, the interesting question is whether the loss comes from cross-agent communication overhead or from Spock's filtering being too aggressive — both diagnosable from the logs.
 
 ## Running
 
