@@ -4,7 +4,13 @@
 
 > Does decomposing interactive storytelling into specialized agents (beat writer, shot composer, voice-over commentator, memory curator) produce more coherent long-horizon narratives than a single well-briefed LLM handling all tasks?
 
-Both configurations do the **same work** and see **comparably growing context** — the rolling narrative memory, expanding world state, and accumulating history land in both setups. The only difference is decomposition: solo emits `Beat + Shot + Commentary + MemoryUpdate` in one structured response, juggling every concern at once; the MAS splits the same story across four specialists who each write one thing. The expectation is that solo holds up early but degrades in the late game as context strains the model: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips, commentary that contradicts what's on screen. The MAS should degrade more gracefully because each specialist has a narrow, stable workload — even as total context grows, each agent only has to produce one focused output.
+Solo and MAS do the **same work** over the same growing story. The asymmetry is in how each faces the problem.
+
+**Solo has coherence for free.** It sees the whole story in one context window and can cross-reference any part of it in a single pass, so consistency between beat, shot, commentary, and memory comes almost automatically. Its hard job is **juggling** — emitting `Beat + Shot + Commentary + MemoryUpdate` in one structured response, all at once, while context grows.
+
+**The MAS has specialization for free.** Each agent writes one thing and never has to juggle. Its hard job is **coherence** — because context is sliced by role, each agent sees only a fraction of the whole, and long-horizon consistency has to emerge from coordination (shared state, forward-passing between specialists, Spock's one-turn-delayed context brief) rather than from a holistic view.
+
+The expectation is that solo holds up early but degrades in the late game as juggling strains: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips, commentary that contradicts what's on screen. The MAS should degrade more gracefully because each specialist has a narrow, stable workload — **but only if the coordination machinery holds**. If Spock's brief misses something, or a detail slips across the forward pass between agents, the MAS loses the coherence solo gets for free.
 
 ## Experiment Matrix
 
@@ -85,8 +91,9 @@ Break each run into phases:
 
 ### Expected Hypothesis
 
-- Solo performs competently early but degrades in late-game coherence as the growing context strains its ability to juggle all four concerns at once — dropped setups, forgotten props, inventory drift, visual descriptors that shift across clips, commentary that starts contradicting the scene.
-- MAS sees comparably growing context, but each specialist has one narrow job. Cognitive load per agent stays stable even as total context grows, so late-game quality stays closer to early-game quality.
+- Solo performs competently early — its holistic view keeps every element of the story consistent for free. It degrades in the late game as the growing context strains its ability to juggle all four concerns at once: dropped setups, forgotten props, inventory drift, visual descriptors that shift across clips, commentary that starts contradicting the scene.
+- MAS pays a coherence cost upfront because each agent sees only a role-specific fraction of the story. If Spock's brief, the shared state, and the forward-pass communication carry enough signal, the MAS recovers that cost; if not, it loses coherence solo had for free.
+- If the MAS's coordination holds, each specialist's narrow workload keeps late-game quality closer to early-game quality than solo's does — specialization starts paying off as soon as juggling begins to hurt solo.
 - MAS pays a latency cost per turn (four sequential agent calls instead of one). This is the main tradeoff; the bet is that coherence gains from specialization justify the extra calls.
 - If MAS does *not* beat solo on long horizons, the interesting question is whether the loss comes from cross-agent communication overhead (details slipping across the forward pass) or from specialization not buying enough under stress — both diagnosable from the logs.
 

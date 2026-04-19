@@ -4,7 +4,9 @@
 
 The system tells an interactive story as a stream of short (~5s) video clips chained together via image-to-video (i2v), layered with live voice-over commentary on top. The user types natural-language guidance between clips; the story keeps flowing whether or not the user speaks.
 
-A single well-briefed LLM can in principle do every job this system does. The hypothesis we are testing is that **monolithic single-pass handling does not hold up over long horizons** — as the story accumulates, a model asked to produce beat + shot + commentary + memory in one structured response starts to drop setups, drift on facts, and lose threads. Splitting the work across specialized agents, each focused on one narrow job, should produce more coherent long-horizon storytelling at a tolerable latency cost. Both solo and the MAS see comparably growing context; the MAS's advantage (if any) comes from task specialization and explicit forward-passing between specialists, not from seeing less per call.
+A single well-briefed LLM can in principle do every job this system does. Solo's strength is **holistic coherence** — it sees the whole story in one context window and can cross-reference any part of it in a single pass, so consistency between beat, shot, commentary, and memory comes almost for free. Solo's weakness is **juggling** — producing all four outputs in one structured response strains the model as context accumulates, and setups get dropped, facts drift, threads are lost.
+
+The MAS inverts this. Specialization trivializes juggling: each agent writes one thing. But each agent sees only a role-specific **fraction** of the total context, so coherence has to emerge from coordination — shared state, forward-passing between specialists, and Spock's one-turn-delayed brief — rather than from a single holistic view. **The research question is whether the MAS's coordination can hold the coherence solo gets for free, while also benefiting from specialization.** The bet is that it can, and that the long-horizon payoff from specialization outweighs the coordination cost.
 
 The roster is **four agents**, each owning exactly one job, with no overlap.
 
