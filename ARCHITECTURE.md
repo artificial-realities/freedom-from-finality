@@ -133,24 +133,20 @@ class Beat(BaseModel):
 class Shot(BaseModel):
     """Spielberg's structured output per turn."""
     i2v_prompt: str                          # the full prompt fed to the i2v model
-    location_name: str                       # one of the blueprint locations
     on_screen: list[str]                     # names of characters visible
     camera: str                              # shot type, angle, lens feel
     motion: str                              # what is moving in frame
-    continuity: str                          # how this clip starts from the previous last frame
     end_frame_description: str               # what the final frame of this clip depicts
 
 class Commentary(BaseModel):
     """Attenborough's structured output per turn."""
     voiceover: str                           # spoken text — ~1–3 short sentences, paced for ~5s of audio
-    tone_note: str                           # one-line self-note on the chosen register (dry, hushed, etc.)
 
 class WorldStateDelta(BaseModel):
     """Spock's structured state update, merged into StoryState.world_state."""
     characters: dict[str, dict] = Field(default_factory=dict)  # partial updates
     protagonist_location: str = ""                             # empty = unchanged
     inventory: list[str] | None = None                         # None = unchanged; list = replace
-    notes: list[str] = Field(default_factory=list)             # freeform notable state
 
 class MemoryUpdate(BaseModel):
     """Spock's structured output per turn."""
@@ -243,6 +239,7 @@ The creative core. Writes the beat for this turn and keeps the narrative directi
 - The protagonist entry from `characters[0]` (name + description) — always visible, since he writes about this character every turn
 - Current `world_state` (what's true right now: location, inventory, character states) — read directly, not via Spock's digest
 - Current `narrative_memory` (rolling prose of what has happened across the whole run — grows with the story, compressed older / detailed recent per Spock's discipline)
+- Recent `Beat.narration` from the last ~3 history entries (raw prose — for local detail and phrasing variety, so recent setups and exact language aren't lost in `narrative_memory`'s compression; symmetric with Attenborough's recent-commentary read)
 - Spock's `context_brief` (a narrow attention pointer across the one-turn delay — surfaces which OTHER characters from the blueprint are currently in scene with one-line summaries, plus any recent commitments worth honoring. Does not rebuild the world; Tolkien reads `world_state` directly)
 - `user_input` (possibly empty if the user is silent)
 
@@ -267,7 +264,7 @@ The visual director. Turns Tolkien's beat into a concrete image-to-video prompt.
 - The previous clip's `end_frame_description` (for continuity)
 - Current `world_state` — especially `protagonist_location` (defaults to `locations[0].name` when unset) and `inventory`, so worn and carried props stay in frame even when Tolkien's current beat doesn't re-mention them
 
-**Writes:** `current_shot` (`Shot`) with the i2v prompt, camera, composition, motion, on-screen roster, continuity note, and end-frame description.
+**Writes:** `current_shot` (`Shot`) with the i2v prompt, camera, motion, on-screen roster, and end-frame description.
 
 Spielberg always re-anchors on the locked visual descriptors from the blueprint every turn. The character looks the way the blueprint says; the setting is described as the blueprint specifies. This is how visual consistency survives across 100 chained clips — not via a separate continuity agent, but via Spielberg's discipline of re-reading the source of truth every turn.
 
@@ -284,7 +281,7 @@ The narrator-in-the-mix. Writes the spoken line that plays over the clip — in 
 - Current `narrative_memory` (rolling prose — so he can spot callbacks and pace his voice against the arc, not just the current clip)
 - Recent `HistoryEntry.commentary` from the last ~5 turns (so he doesn't repeat himself and his rhythm carries over)
 
-**Writes:** `current_commentary` (`Commentary`) with a short spoken line (~1–3 sentences, paced for ~5s of audio) and a one-line `tone_note` recording the chosen register.
+**Writes:** `current_commentary` (`Commentary`) with a short spoken line (~1–3 sentences, paced for ~5s of audio).
 
 Coordination with Spielberg happens implicitly: both read the same `Beat.narration`. The visual and the voice land together because they come from the same prose source.
 
@@ -313,7 +310,7 @@ The `context_brief` is the coordination artifact across the one-turn delay. Its 
 Per turn, in order:
 
 1. **Read user input** (may be empty).
-2. **Tolkien** reads `context_brief` (from last turn's Spock), current `world_state`, `narrative_memory`, `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
+2. **Tolkien** reads `context_brief` (from last turn's Spock), current `world_state`, `narrative_memory`, recent `Beat.narration` from the last ~3 history entries, `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
 3. **Spielberg** reads `current_beat`, `visual_style`, full blueprint `locations` + `characters`, current `world_state` (esp. `protagonist_location`, `inventory`), previous `end_frame_description`. Writes `current_shot`.
 4. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped in benchmark mode and when `video_enabled: false`.
 5. **Attenborough** reads `tone_guidelines`, `current_beat`, `current_shot`, `narrative_memory`, recent commentary history. Writes `current_commentary`.
@@ -434,7 +431,7 @@ class LLMBackend(ABC):
 
 Agents are stateless between calls. Context is reconstructed each turn as prose.
 
-- **Tolkien** — receives premise + constraints + long/short narrative + protagonist entry + current `world_state` + `narrative_memory` + Spock's `context_brief` + `user_input`. On turn 1 the `context_brief` and `narrative_memory` are empty and `world_state` is default; Tolkien opens from the blueprint alone.
+- **Tolkien** — receives premise + constraints + long/short narrative + protagonist entry + current `world_state` + `narrative_memory` + recent `Beat.narration` from last ~3 history entries + Spock's `context_brief` + `user_input`. On turn 1 the `context_brief`, `narrative_memory`, and history are empty and `world_state` is default; Tolkien opens from the blueprint alone.
 - **Spielberg** — receives `visual_style` + full blueprint locations/characters + Tolkien's beat (including `narration`) + previous `end_frame_description` + current `world_state` (esp. `protagonist_location` and `inventory`).
 - **Attenborough** — receives `tone_guidelines` + `current_beat` (especially `narration`) + `current_shot` + `narrative_memory` + recent commentary history.
 - **Spock** — receives beat + shot + commentary + current `world_state` + current `narrative_memory` + full blueprint chars/locs + recent history.

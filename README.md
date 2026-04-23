@@ -13,7 +13,7 @@ The test story is deliberately minimal: a single LEGO minifigure alone in an inf
 Four agents collaborate behind the scenes:
 
 - **Tolkien** (narrator) — writes what happens in the next clip: a prose narration, the mechanical action, and the outcome.
-- **Spielberg** (shot composer) — translates the beat into an image-to-video prompt: camera, composition, motion, continuity from the previous last frame.
+- **Spielberg** (shot composer) — translates the beat into an image-to-video prompt: camera, composition, motion, and an end-frame description that becomes the next clip's starting image.
 - **Attenborough** (voice-over commentator) — reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Optionally routed through ElevenLabs TTS when audio is enabled; otherwise logged as text.
 - **Spock** (memory + context curator) — after each turn, updates structured world state and a rolling narrative memory, and hands Tolkien a filtered context brief — including the currently-relevant characters and locations — for the next turn.
 
