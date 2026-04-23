@@ -1,15 +1,8 @@
-# CLAUDE.md — ClankerStudios (IKT469)
+# CLAUDE.md
 
-## Workflow
+ClankerStudios — a four-role LLM workflow for interactive storytelling, benchmarked against a monolithic single-LLM baseline. Academic project for IKT469 at the University of Agder.
 
-- When uncertain mid-task, stop and ask — never assume
-- For non-trivial changes, pause and ask "is there a more elegant way?" — skip for simple fixes.
+## Conventions
 
-## Project Notes
-
-- State models: **Pydantic BaseModel** — not TypedDict, not raw dicts
-- Prompts: **.md template files** in `src/prompts/`, loaded via `prompt_loader.py`
-- Agents: **async functions**, not classes
-- LLM: local **vLLM** (OpenAI-compatible) — model via config YAML
-- TTS: **ElevenLabs** — only fires when `audio_enabled: true`; Attenborough always produces text
-- Reference implementations in `reference/` — study and adapt critically, don't copy blindly
+- **State & responses**: Pydantic v2 `BaseModel`. Not `TypedDict`, not raw dicts.
+- **Agents**: async functions, not classes.
