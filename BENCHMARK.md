@@ -2,15 +2,17 @@
 
 ## Research Question
 
-> Does decomposing interactive storytelling into specialized agents (beat writer, shot composer, voice-over commentator, memory curator) produce more coherent long-horizon narratives than a single well-briefed LLM handling all tasks?
+> Does a four-role decomposed workflow (beat writer, shot composer, voice-over commentator, memory curator) **match a single well-briefed LLM on the early game and outperform it on the late game**, where juggling strains the monolithic prompt?
 
-Solo and MAS do the **same work** over the same growing story. The asymmetry is in how each faces the problem.
+**Vocabulary note.** In Anthropic's agents-vs-workflows terminology this is a workflow, not an agent system — a fixed, deterministic pipeline with no tool use and no LLM-directed control flow. The comparison is therefore **decomposed prompting** vs **monolithic prompting**, not "agents vs non-agents." We still use "MAS" and "solo" as shorthand for the two configurations.
 
-**Solo has coherence for free.** It sees the whole story in one context window and can cross-reference any part of it in a single pass, so consistency between beat, shot, commentary, and memory comes almost automatically. Its hard job is **juggling** — emitting `Beat + Shot + Commentary + MemoryUpdate` in one structured response, all at once, while context grows.
+Both configs do the **same work** over the same growing story — each turn produces a `Beat`, `Shot`, `Commentary`, and `MemoryUpdate`. The asymmetry is in how each faces the problem.
 
-**The MAS has specialization for free.** Each agent writes one thing and never has to juggle. Its hard job is **coherence** — because context is sliced by role, each agent sees only a fraction of the whole, and long-horizon consistency has to emerge from coordination (shared state, forward-passing between specialists, Spock's one-turn-delayed context brief) rather than from a holistic view.
+**Monolithic prompting (solo) has coherence for free.** One LLM sees the whole story in one context window and can cross-reference any part of it in a single pass, so consistency between beat, shot, commentary, and memory comes almost automatically. Its hard job is **juggling** — emitting `Beat + Shot + Commentary + MemoryUpdate` in one structured response, all at once, while context grows.
 
-The expectation is that solo holds up early but degrades in the late game as juggling strains: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips, commentary that contradicts what's on screen. The MAS should degrade more gracefully because each specialist has a narrow, stable workload — **but only if the coordination machinery holds**. If Spock's brief misses something, or a detail slips across the forward pass between agents, the MAS loses the coherence solo gets for free.
+**Decomposed prompting (the four-agent workflow) has specialization for free.** Each agent writes one thing and never has to juggle. Its hard job is **coherence** — because context is sliced by role, each agent sees only a fraction of the whole, and long-horizon consistency has to emerge from coordination (shared state, forward-passing between specialists, Spock's one-turn-delayed context brief) rather than from a holistic view.
+
+The expectation is that solo holds up early but degrades in the late game as juggling strains: dropped setups, forgotten rules, drifting inventory, visual inconsistencies across clips, commentary that contradicts what's on screen. The decomposed workflow should degrade more gracefully because each specialist has a narrow, stable workload — **but only if the coordination machinery holds**. If Spock's brief misses something, or a detail slips across the forward pass between agents, the workflow loses the coherence solo gets for free.
 
 ## Experiment Matrix
 

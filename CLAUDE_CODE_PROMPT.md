@@ -6,12 +6,14 @@ Copy everything below the line as your Claude Code prompt.
 
 ## Project Context
 
-You are building **ClankerStudios** — a multi-agent system (MAS) for interactive storytelling, built with LangGraph. The story plays as a flowing sequence of ~5-second video clips chained via image-to-video (i2v), layered with live voice-over commentary, with the user optionally steering the story between clips through natural-language commands.
+You are building **ClankerStudios** — a four-role workflow for interactive storytelling, built with LangGraph. The story plays as a flowing sequence of ~5-second video clips chained via image-to-video (i2v), layered with live voice-over commentary, with the user optionally steering the story between clips through natural-language commands.
+
+In Anthropic's agents-vs-workflows terminology this is a workflow, not an agent system — four role-specialized LLMs coordinating over a fixed, deterministic pipeline, with no tool use and no LLM-directed control flow. "MAS" remains in use as academic shorthand (see `ARCHITECTURE.md` and `BENCHMARK.md` for the vocabulary note); internal identifiers like `mas_graph.py` and `mas.yaml` keep that label.
 
 This is an academic project for IKT469 (Deep Neural Networks) at the University of Agder. It has two purposes:
 
 1. A working interactive storytelling system with a terminal UI.
-2. A benchmark comparing a single well-briefed LLM against a 4-agent MAS, evaluated post-hoc from session logs.
+2. A benchmark comparing **monolithic prompting** (one LLM emits all four outputs in a single structured response) against **decomposed prompting** (four role-specialized LLM calls over the fixed pipeline), evaluated post-hoc from session logs. The hypothesis: the decomposed workflow matches monolithic prompting on the early game and outperforms it on the late game as juggling strains the single LLM.
 
 ## Read These First
 
@@ -107,8 +109,8 @@ Create all templates in `src/prompts/`. Each agent gets a `system.md` and `user.
 
 **Critical: blueprint fields are split by audience.** See ARCHITECTURE.md for the full table. Briefly:
 
-- **Tolkien** gets `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, the **protagonist entry only** (name + description from `characters[0]`), the current rolling `narrative_memory` (so the story's accumulated context reaches him just like it reaches solo), Spock's `context_brief` (coordination pointer — surfaces other currently-relevant characters/locations with names + one-line summaries, plus inventory highlights and recent commitments), and `user_input`. Does NOT get `visual_style`, `tone_guidelines`, full non-protagonist character or location descriptions, or the raw `world_state` dict.
-- **Spielberg** gets `visual_style`, full `locations[]`, full `characters[]`, Tolkien's `Beat` (especially `narration`), previous clip's `end_frame_description`, current `protagonist_location` (defaults to `locations[0].name` when unset).
+- **Tolkien** gets `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, the **protagonist entry only** (name + description from `characters[0]`), the current `world_state` (so he sees location, inventory, and character states directly), the current rolling `narrative_memory`, Spock's `context_brief` (a narrow attention pointer — surfaces which other characters from the blueprint are currently in scene with one-line summaries, plus recent commitments worth honoring), and `user_input`. Does NOT get `visual_style`, `tone_guidelines`, or full non-protagonist character or location descriptions — these would cause bleed-through into other agents' domains (role-discipline slicing). State slicing has been relaxed: `world_state` and `narrative_memory` are shared with every agent that benefits.
+- **Spielberg** gets `visual_style`, full `locations[]`, full `characters[]`, Tolkien's `Beat` (especially `narration`), previous clip's `end_frame_description`, current `world_state` — especially `protagonist_location` (defaults to `locations[0].name` when unset) and `inventory` (so worn and carried props stay in frame even when the beat doesn't re-mention them).
 - **Attenborough** gets `tone_guidelines`, `current_beat` (especially `narration`), `current_shot` (camera + motion + end-frame), the current rolling `narrative_memory` (for callback-aware commentary), and recent commentary history (last ~5 entries' `Commentary.voiceover`).
 - **Spock** gets `current_beat`, `current_shot`, `current_commentary`, current `world_state`, current `narrative_memory`, full blueprint `locations[]` + `characters[]` (so he can surface relevant ones in the brief), and recent history.
 - **Solo** gets the entire blueprint (including `tone_guidelines`) plus the full rolling state and recent history — in one structured call that emits all four response shapes.
@@ -118,7 +120,7 @@ Prompt file list:
 - `narrator.system.md` / `narrator.user.md` — Tolkien. Creative beat writing: emit a prose `narration` (2–4 sentences — this is the richest downstream source), a mechanical `action`, an `outcome`, and the updated `short_term_narrative`. Include the self-check: respect `world_constraints`, do not contradict `context_brief`. Instruct Tolkien to advance on `short_term_narrative` when `user_input` is empty, and to actively look for callback opportunities when props or bits from earlier in the run surface in the brief. On turn 1 there is no `context_brief` — Tolkien opens the story himself from the blueprint material.
 - `director.system.md` / `director.user.md` — Spielberg. i2v shot composition. Instruct Spielberg to re-anchor on the locked blueprint descriptors every turn (this is how visual consistency survives long runs). Must describe continuity from the previous `end_frame_description` and produce a new `end_frame_description` for the next turn. How props enter and scenes transition is Spielberg's judgment call, guided by `visual_style` and the beat — do NOT hardcode entrance patterns (summon / walk-in / etc.) in the prompt.
 - `commentator.system.md` / `commentator.user.md` — Attenborough. Writes `Commentary.voiceover` (~1–3 short sentences, paced for ~5s of audio) plus a one-line `tone_note`. Anchored on `tone_guidelines`. Must land on what's visible in `current_shot`, build off `Beat.narration`, and avoid recycling phrasings from recent commentary history.
-- `spock.system.md` / `spock.user.md` — Spock. Structured `MemoryUpdate`. Emphasize: `world_state_delta` MERGES (unmentioned fields preserved). `narrative_memory` is rolling prose, compressed older / detailed recent, drifts toward `narrative_memory_target_tokens` as a soft target (not a hard cap). `context_brief` is the filtered slice for Tolkien's next turn — deliberately lean; surfaces relevant characters/locations with names + one-line summaries pulled from the blueprint, plus inventory highlights, current direction, and recent commitments.
+- `spock.system.md` / `spock.user.md` — Spock. Structured `MemoryUpdate`. Emphasize: `world_state_delta` MERGES (unmentioned fields preserved). `narrative_memory` is rolling prose, compressed older / detailed recent, drifts toward `narrative_memory_target_tokens` as a soft target (not a hard cap). `context_brief` is a narrow attention pointer for Tolkien's next turn — **not a world rebuild**: surfaces which other characters from the blueprint are currently in scene (names + one-line summaries pulled from the blueprint, because `world_state` carries names but not descriptions) and any recent commitments worth honoring. Location, inventory, and narrative direction Tolkien reads directly from `world_state` — the brief does not repeat them.
 - `single_llm.system.md` / `single_llm.user.md` — one agent produces `Beat` + `Shot` + `Commentary` + `MemoryUpdate` in a single structured response. Fully briefed with the entire blueprint including `tone_guidelines`.
 
 Each prompt ends with a plain-text description of the structured output fields the agent must produce (not a raw JSON schema dump).
@@ -135,16 +137,17 @@ Returns a partial state dict that the graph merges.
 
 **Tolkien — Narrator** (`src/agents/narrator.py`):
 
-- Reads from `state`: `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, `characters[0]` (protagonist), `narrative_memory`, `context_brief`, `user_input`.
+- Reads from `state`: `narrative_premise`, `world_constraints`, `long_term_narrative`, `short_term_narrative`, `characters[0]` (protagonist), `world_state`, `narrative_memory`, `context_brief`, `user_input`.
 - Writes: `current_beat` (`Beat`), updates `short_term_narrative`, optionally `long_term_narrative`.
 - Advances on `short_term_narrative` when `user_input` is empty — never stalls.
-- Turn 1 has empty `context_brief` and empty `narrative_memory`; Tolkien opens from blueprint material alone.
+- Turn 1 has empty `context_brief`, empty `narrative_memory`, and default `world_state`; Tolkien opens from blueprint material alone.
 
 **Spielberg — Director** (`src/agents/director.py`):
 
-- Reads from `state`: `visual_style`, full `locations`, full `characters`, `current_beat`, previous `Shot.end_frame_description` (from `history[-1].shot` if present), `world_state.protagonist_location` (defaults to `locations[0].name` when unset).
+- Reads from `state`: `visual_style`, full `locations`, full `characters`, `current_beat`, previous `Shot.end_frame_description` (from `history[-1].shot` if present), current `world_state` — especially `protagonist_location` (defaults to `locations[0].name` when unset) and `inventory`.
 - Writes: `current_shot` (`Shot`).
 - Re-anchors on blueprint descriptors every turn for visual consistency.
+- Reads `world_state.inventory` so worn and carried props stay in frame even when Tolkien's current beat doesn't re-mention them.
 
 **Attenborough — Commentator** (`src/agents/commentator.py`):
 
@@ -157,7 +160,7 @@ Returns a partial state dict that the graph merges.
 - Reads from `state`: `current_beat`, `current_shot`, `current_commentary`, `world_state`, `narrative_memory`, full blueprint `locations` + `characters`, recent history.
 - Writes: merged `world_state`, new `narrative_memory`, new `context_brief`.
 - MERGES `world_state_delta` into `world_state` — unmentioned fields preserved. `inventory` is `None` for unchanged, list for replacement.
-- `context_brief` surfaces currently-relevant characters and locations with names + one-line summaries (drawn from the blueprint), plus inventory highlights, current direction, and recent commitments.
+- `context_brief` is a narrow attention pointer, NOT a world rebuild: surfaces which other characters from the blueprint are currently in scene (names + one-line summaries pulled from the blueprint) and any recent commitments worth honoring. Tolkien reads `world_state` and `narrative_memory` directly — the brief does not repeat location, inventory, or narrative direction.
 
 **All agents:**
 

@@ -1,6 +1,8 @@
 # ClankerStudios
 
-A multi-agent system (MAS) for interactive storytelling, built with LangGraph. Four specialized agents collaborate to produce a continuous stream of short video clips chained via image-to-video (i2v), layered with live voice-over commentary, while the user optionally steers the story with natural-language commands between clips.
+A four-role workflow for interactive storytelling, built with LangGraph. Four specialized LLMs — a beat writer, a shot composer, a voice-over commentator, and a memory curator — coordinate over a fixed, deterministic pipeline to produce a continuous stream of short video clips chained via image-to-video (i2v), layered with live voice-over commentary, while the user optionally steers the story with natural-language commands between clips.
+
+In Anthropic's agents-vs-workflows terminology this is a workflow, not an agent system — no tool use, no LLM-directed control flow. We also use "MAS" as academic shorthand for the same four-role decomposition.
 
 ## Overview
 
