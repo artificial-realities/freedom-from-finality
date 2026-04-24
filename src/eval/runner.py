@@ -9,10 +9,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
-
+import shutil
+import subprocess
 import sys
 import threading
+from pathlib import Path
 
 from src.graph import build_graph
 from src.i2v import build_i2v_backend, extract_last_frame
@@ -23,7 +24,6 @@ from src.models.story import Story
 from src.playback import (
     concat_videos_and_mux_audio,
     mux_audio_into_video,
-    play_clip,
 )
 from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
@@ -233,6 +233,74 @@ def _commit_history(state: StoryState) -> None:
     ))
 
 
+async def _launch_persistent_ffplay(
+    clip_path: str,
+) -> asyncio.subprocess.Process | None:
+    """Launch ffplay *without* ``-autoexit`` so it holds the last frame."""
+    if not shutil.which("ffplay"):
+        return None
+    try:
+        return await asyncio.create_subprocess_exec(
+            "ffplay",
+            "-noborder",
+            "-loglevel", "quiet",
+            "-window_title", "ClankerStudios",
+            clip_path,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        logger.debug("Could not launch ffplay for %s", clip_path)
+        return None
+
+
+async def _get_clip_duration(clip_path: str, fallback: float = 5.0) -> float:
+    if not shutil.which("ffprobe"):
+        return fallback
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            clip_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+        return float(stdout.strip())
+    except Exception:
+        return fallback
+
+
+async def _save_full_session(
+    clips: list[str], output_path: Path,
+) -> str | None:
+    """Concat all played clips into one video via ffmpeg concat demuxer."""
+    if not clips or not shutil.which("ffmpeg"):
+        return None
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    filelist = output_path.with_suffix(".txt")
+    filelist.write_text(
+        "\n".join(f"file '{Path(c).resolve()}'" for c in clips),
+        encoding="utf-8",
+    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(filelist), "-c", "copy", str(output_path),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        code = await proc.wait()
+        filelist.unlink(missing_ok=True)
+        if code == 0:
+            return str(output_path)
+        logger.warning("ffmpeg concat exited %s", code)
+        return None
+    except Exception:
+        logger.exception("Failed to save full session video")
+        return None
+
+
 async def run_play(
     *,
     config: Config,
@@ -364,6 +432,7 @@ async def run_live(
     clip_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=max(1, config.video_buffer_clips))
 
     stop_event = asyncio.Event()
+    played_clips: list[str] = []
 
     def _stdin_loop() -> None:
         """Blocking stdin reader running on a daemon thread."""
@@ -504,22 +573,70 @@ async def run_live(
             stop_event.set()
 
     async def consumer() -> None:
+        gate = max(1, config.prebuffer_clips)
         try:
+            # Pre-buffer gate: wait until N clips are queued.
+            while clip_queue.qsize() < gate and not stop_event.is_set():
+                await asyncio.sleep(0.5)
+            if stop_event.is_set():
+                return
+            ui.console.print(
+                f"[dim]Pre-buffer ready ({clip_queue.qsize()} clips). Starting playback.[/dim]"
+            )
+
+            current_proc: asyncio.subprocess.Process | None = None
+
             while not stop_event.is_set():
-                clip_path = await clip_queue.get()
+                try:
+                    clip_path = clip_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    # Queue empty — current ffplay holds last frame.
+                    if current_proc is not None:
+                        ui.console.print(
+                            "[dim italic]Type to steer the story ↵[/dim italic]"
+                        )
+                    clip_path = await clip_queue.get()
+
+                # Launch new window BEFORE killing old → no flicker.
+                new_proc = await _launch_persistent_ffplay(clip_path)
+                # Give the new window time to render its first frame
+                # before tearing down the old one.
+                await asyncio.sleep(0.5)
+
+                if current_proc is not None and current_proc.returncode is None:
+                    try:
+                        current_proc.kill()
+                        await current_proc.wait()
+                    except Exception:
+                        pass
+
+                current_proc = new_proc
+                played_clips.append(clip_path)
                 interaction_logger.log_event(
-                    "playback_start", state.turn_number, {"clip_path": clip_path},
+                    "playback_start", state.turn_number,
+                    {"clip_path": clip_path},
                 )
-                exit_code = await play_clip(clip_path)
+
+                duration = await _get_clip_duration(clip_path)
+                await asyncio.sleep(duration)
+
                 interaction_logger.log_event(
                     "playback_end", state.turn_number,
-                    {"clip_path": clip_path, "exit_code": exit_code},
+                    {"clip_path": clip_path},
                 )
+                # After sleep, ffplay is showing frozen last frame.
+                # Loop back — if next clip is ready, swap immediately.
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Live consumer crashed")
             stop_event.set()
+        finally:
+            if current_proc is not None and current_proc.returncode is None:
+                try:
+                    current_proc.kill()
+                except Exception:
+                    pass
 
     producer_task = asyncio.create_task(producer())
     consumer_task = asyncio.create_task(consumer())
@@ -542,4 +659,13 @@ async def run_live(
             "session_end", state.turn_number,
             {"turns_completed": state.turn_number},
         )
+
+        if played_clips:
+            out = video_dir / "full_session.mp4"
+            ui.console.print("[dim]Saving full session video…[/dim]")
+            saved = await _save_full_session(played_clips, out)
+            if saved:
+                ui.console.print(f"[bold green]Saved:[/bold green] {saved}")
+            else:
+                ui.console.print("[yellow]Could not save session video.[/yellow]")
     return state

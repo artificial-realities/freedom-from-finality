@@ -25,6 +25,7 @@ class Config(BaseModel):
 
     video_enabled: bool = False
     video_buffer_clips: int = 6
+    prebuffer_clips: int = 3
     i2v_backend: str = "dashscope"
     i2v_model: str = "wan2.2-i2v-flash"
     i2v_resolution: str = "480P"
