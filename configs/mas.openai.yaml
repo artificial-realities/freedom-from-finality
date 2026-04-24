@@ -11,5 +11,5 @@ narrative_memory_target_tokens: 800
 video_enabled: false
 video_buffer_clips: 6
 
-audio_enabled: false
-elevenlabs_voice_id: ""
+audio_enabled: true
+elevenlabs_voice_id: "WdZjiN0nNcik2LBjOHiv"  # David
