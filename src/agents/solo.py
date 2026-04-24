@@ -24,7 +24,7 @@ from src.agents._common import (
 from src.agents.spock import _apply_delta
 from src.llm.base import LLMBackend
 from src.models.config import Config
-from src.models.responses import SoloResponse
+from src.models.responses import Commentary, SoloResponse
 from src.state.story_state import StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.util.interaction_logger import InteractionLogger
@@ -88,13 +88,31 @@ async def run(
         logger.warning("Solo response validation failed on turn %s: %s", state.turn_number, exc)
         return {}
 
+    # Honor Attenborough's span counter even in the monolithic config —
+    # keeps the benchmark comparable. While held, commentary is forced
+    # empty and the counter decrements; otherwise span_clips dictates
+    # the new hold.
+    if state.commentary_hold_remaining > 0:
+        effective_commentary = Commentary(voiceover="", span_clips=1)
+        new_hold = state.commentary_hold_remaining - 1
+        interaction_logger.log_event(
+            "solo_commentary_hold",
+            state.turn_number,
+            {"hold_remaining_before": state.commentary_hold_remaining,
+             "hold_remaining_after": new_hold,
+             "suppressed_voiceover": solo.commentary.voiceover},
+        )
+    else:
+        effective_commentary = solo.commentary
+        new_hold = max(0, solo.commentary.span_clips - 1)
+
     # TTS side effect — identical to Attenborough's, since solo owns commentary too.
-    if config.audio_enabled and tts is not None and solo.commentary.voiceover:
-        audio_path = await tts.synthesize(solo.commentary.voiceover, turn=state.turn_number)
+    if config.audio_enabled and tts is not None and effective_commentary.voiceover:
+        audio_path = await tts.synthesize(effective_commentary.voiceover, turn=state.turn_number)
         interaction_logger.log_tts(
             turn=state.turn_number,
             voice_id=tts.voice_id,
-            text=solo.commentary.voiceover,
+            text=effective_commentary.voiceover,
             audio_path=audio_path,
             success=audio_path is not None,
         )
@@ -104,11 +122,12 @@ async def run(
     update: dict = {
         "current_beat": solo.beat,
         "current_shot": solo.shot,
-        "current_commentary": solo.commentary,
+        "current_commentary": effective_commentary,
         "short_term_narrative": solo.beat.short_term_narrative or state.short_term_narrative,
         "world_state": new_world_state,
         "narrative_memory": solo.memory_update.narrative_memory,
         "context_brief": solo.memory_update.context_brief,
+        "commentary_hold_remaining": new_hold,
     }
     if solo.beat.long_term_narrative:
         update["long_term_narrative"] = solo.beat.long_term_narrative

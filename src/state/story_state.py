@@ -34,6 +34,10 @@ class StoryState(BaseModel):
     narrative_memory: str = ""
     context_brief: str = ""
 
+    # Commentary pacing — Attenborough's span counter.
+    # > 0 means a previous voiceover is still playing; skip the next call.
+    commentary_hold_remaining: int = 0
+
     # Narrative direction — maintained by Tolkien
     long_term_narrative: str = ""
     short_term_narrative: str = ""

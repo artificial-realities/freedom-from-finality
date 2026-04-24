@@ -1,8 +1,15 @@
 """Attenborough — the voice-over commentator.
 
-Always produces structured text. If `audio_enabled: true`, the runtime
-pipes `voiceover` through ElevenLabs TTS — but TTS is a side effect
-and never blocks the turn.
+Always emits structured text. Pacing is Attenborough's to decide: on
+any turn he can either speak or stay silent, and when he speaks he
+picks `span_clips` (1–4) to mark how many clips the line should play
+over. While spanning, the state's `commentary_hold_remaining` counter
+holds the next N-1 turns silent — this module never calls the LLM on
+those held turns, it just returns an empty `Commentary` and decrements
+the counter.
+
+If `audio_enabled: true`, the runtime pipes `voiceover` through
+ElevenLabs TTS — a side effect that never blocks the turn.
 """
 
 from __future__ import annotations
@@ -44,6 +51,21 @@ async def run(
         )
         return {}
 
+    # Hold from a previous span is still counting down — stay silent,
+    # decrement, and don't burn an LLM call.
+    if state.commentary_hold_remaining > 0:
+        new_hold = state.commentary_hold_remaining - 1
+        interaction_logger.log_event(
+            "attenborough_hold",
+            state.turn_number,
+            {"hold_remaining_before": state.commentary_hold_remaining,
+             "hold_remaining_after": new_hold},
+        )
+        return {
+            "current_commentary": Commentary(voiceover="", span_clips=1),
+            "commentary_hold_remaining": new_hold,
+        }
+
     system_prompt = load_prompt(
         SYSTEM_PATH,
         tone_guidelines=state.tone_guidelines,
@@ -54,6 +76,7 @@ async def run(
         beat_narration=state.current_beat.narration,
         beat_action=state.current_beat.action,
         beat_outcome=state.current_beat.outcome,
+        short_term_narrative=state.short_term_narrative or "(not yet set)",
         shot_camera=state.current_shot.camera,
         shot_motion=state.current_shot.motion,
         shot_end_frame_description=state.current_shot.end_frame_description,
@@ -94,4 +117,7 @@ async def run(
             success=audio_path is not None,
         )
 
-    return {"current_commentary": commentary}
+    return {
+        "current_commentary": commentary,
+        "commentary_hold_remaining": max(0, commentary.span_clips - 1),
+    }

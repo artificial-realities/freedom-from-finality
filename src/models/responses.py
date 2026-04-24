@@ -31,9 +31,15 @@ class Shot(BaseModel):
 
 
 class Commentary(BaseModel):
-    """Attenborough's output per turn — the spoken voiceover line."""
+    """Attenborough's output per turn — the spoken voiceover line.
+
+    `span_clips` controls whether a single voiceover plays over more
+    than one ~5s clip. When > 1, Attenborough holds silent on the
+    following `span_clips - 1` turns while this line finishes playing.
+    """
 
     voiceover: str
+    span_clips: int = Field(default=1, ge=1, le=4)
 
 
 class WorldStateDelta(BaseModel):

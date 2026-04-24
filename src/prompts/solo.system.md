@@ -50,9 +50,12 @@ Honor the visual style in every clip. Re-anchor on character and location descri
 - `end_frame_description`: a crisp image description of the final frame — this becomes the next clip's starting image.
 
 ## commentary
-Hold the tone guidelines. Land on what is visible in the shot. Do not recycle phrasings from recent commentary. Short.
+Hold the tone guidelines. Land on what is visible in the shot. Use silence deliberately — good documentary narration is selective, most clips should not have a voiceover at all.
 
-- `voiceover`: 1–3 short sentences, paced for ~5 seconds of audio. No protagonist dialogue, no fourth-wall breaks.
+- `voiceover`: string. Either an empty string (stay silent — often the right call), a short line paced for ~5s (at most one sentence, ~10–12 words), or a longer observation spanning multiple clips.
+- `span_clips`: integer, 1 to 4. How many ~5s clips the voiceover plays over. Default 1. Use 2–3 when your line is a continuous thought (setup-then-punchline, a two-beat comparison) AND `short_term_narrative` tells you the next clip continues the thread rather than cutting hard. Target roughly 10–12 words per clip of span. When you set `span_clips > 1`, the system holds commentary silent for the following `span_clips - 1` turns while your line finishes playing.
+
+If you just spoke a long line (`span_clips > 1`) on a recent turn, stay silent now — check `recent_history` to see what you've just said.
 
 ## memory_update
 - `world_state_delta`:

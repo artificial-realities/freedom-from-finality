@@ -272,16 +272,26 @@ How props enter, scenes transition, and characters arrive is left to Spielberg's
 
 ### Attenborough — Voice-Over Commentator
 
-The narrator-in-the-mix. Writes the spoken line that plays over the clip — in whatever register `tone_guidelines` asks for.
+The narrator-in-the-mix. Writes the spoken line that plays over one or more clips — in whatever register `tone_guidelines` asks for. Pacing is his to decide: silence, a short line, or a longer observation that spans several clips.
 
 **Receives (via prompt):**
 - `tone_guidelines` (the voice anchor)
 - `current_beat` (especially the prose `narration`)
 - `current_shot` (camera + motion + end-frame, so the commentary lands on visible action)
+- `short_term_narrative` (Tolkien's direction for the NEXT beat — the look-ahead that tells Attenborough whether it is safe to span)
 - Current `narrative_memory` (rolling prose — so he can spot callbacks and pace his voice against the arc, not just the current clip)
-- Recent `HistoryEntry.commentary` from the last ~5 turns (so he doesn't repeat himself and his rhythm carries over)
+- Recent `HistoryEntry.commentary` from the last ~5 turns (empty entries mean silence; used to avoid repeating himself and to feel the rhythm)
 
-**Writes:** `current_commentary` (`Commentary`) with a short spoken line (~1–3 sentences, paced for ~5s of audio).
+**Writes:** `current_commentary` (`Commentary`) with:
+- `voiceover` — a string, possibly empty. Empty is a first-class choice.
+- `span_clips` — integer 1–4. How many ~5s clips this line plays over. The target is roughly 10–12 words per clip of span (so `span_clips: 3` ≈ 30 words, enough audio to fill ~15s).
+
+**The span / hold mechanism.** When Attenborough sets `span_clips > 1`, the runtime sets `StoryState.commentary_hold_remaining = span_clips - 1`. On each following turn while the counter is positive, Attenborough's node skips the LLM call entirely, emits an empty `Commentary(voiceover="", span_clips=1)`, and decrements the counter. This means:
+- A long observation spoken once plays over multiple clips naturally (in live TTS) and reads as one continuous thought in the log.
+- The LLM is not re-asked to decide silence on held turns — the decision was already made when the span was committed.
+- Solo honors the same counter so both configurations produce comparable commentary streams.
+
+On a held turn Attenborough never reaches his prompt; the empty `Commentary` is logged as an `attenborough_hold` event instead.
 
 Coordination with Spielberg happens implicitly: both read the same `Beat.narration`. The visual and the voice land together because they come from the same prose source.
 
