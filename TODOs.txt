@@ -3,3 +3,5 @@ TODO: Decide whether Spock's context_brief should be a single prose block or lig
 TODO: Pick an i2v model and wire it in behind video_enabled=true. Confirm the end_frame_description → last-frame-as-image handoff works for the chosen model.
 
 TODO: Pick an ElevenLabs voice for Attenborough and set elevenlabs_voice_id in configs. Confirm ~5s of audio lands cleanly for a ~1–3 sentence voiceover; tune max sentence length in the prompt if clips run long.
+
+TODO: Refine the data/test_scenario.json. Should be properly written so that it accuractely can test the two worklows. Should for example be much longer.
