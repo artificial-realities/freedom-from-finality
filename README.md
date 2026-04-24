@@ -37,13 +37,9 @@ ClankerStudios/
 ├── ARCHITECTURE.md
 ├── BENCHMARK.md
 ├── CLAUDE.md                        # Claude Code working instructions
-├── CLAUDE_CODE_PROMPT.md            # Build-time prompt for Claude Code
 ├── story.json                       # Story blueprint (visual_style, tone_guidelines, locations, characters, rules, premise, directions)
 ├── test_scenario.json               # 100-turn benchmark scenario
-├── reference/                       # Reference implementations and prior art
-│   ├── json_sanitizer.py
-│   ├── interaction_logger.py
-│   ├── prompt_loader.py
+├── notebooks/                       # Prior-project inspiration and i2v experiments
 │   ├── blueprint.json               # Comic Chaos blueprint (inspiration)
 │   ├── narratron.system.md          # Comic Chaos narrator prompt (inspiration)
 │   ├── i2v_chaining_test.ipynb      # i2v chaining experiment

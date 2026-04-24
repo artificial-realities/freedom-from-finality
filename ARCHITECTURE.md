@@ -371,9 +371,7 @@ Each prompt ends with a schema block that describes the structured output the ag
 
 ## JSON Sanitizer
 
-Local models (Gemma 4) will occasionally produce malformed JSON. The `json_sanitizer.py` module provides repair functions shared by all four agents and solo.
-
-Reference implementation is in `reference/json_sanitizer.py`. Study it and adapt — keep only what this project needs.
+Local models (Gemma 4) will occasionally produce malformed JSON. `src/util/json_sanitizer.py` provides the repair functions shared by all four agents and solo.
 
 Parse strategy for structured responses:
 
@@ -386,9 +384,7 @@ Skipped updates mean the state stays unchanged for that turn. This is safer than
 
 ## Interaction Logger
 
-Every LLM call is logged to `logs/` as structured JSON. Each session gets its own log file. This is the primary output for benchmark evaluation — logs are reviewed post-hoc by a human or an LLM, not scored by an automated pipeline.
-
-Reference implementation is in `reference/interaction_logger.py`. Study and adapt.
+Every LLM call is logged to `logs/` as structured JSON. Each session gets its own log file. This is the primary output for benchmark evaluation — logs are reviewed post-hoc by a human or an LLM, not scored by an automated pipeline. Implementation lives in `src/util/interaction_logger.py`.
 
 A logged interaction captures everything needed to reconstruct a run:
 
