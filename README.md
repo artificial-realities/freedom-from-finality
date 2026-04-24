@@ -45,10 +45,11 @@ ClankerStudios/
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py
-│   │   ├── narrator.py              # "Tolkien" — beat writer, updates narrative direction
-│   │   ├── director.py              # "Spielberg" — shot composer, i2v prompts
-│   │   ├── commentator.py           # "Attenborough" — voice-over commentary
-│   │   └── spock.py                 # "Spock" — world_state, narrative_memory, context_brief
+│   │   ├── tolkien.py               # Beat writer; updates narrative direction
+│   │   ├── spielberg.py             # Shot composer; i2v prompts
+│   │   ├── attenborough.py          # Voice-over commentary; pacing + spans
+│   │   ├── spock.py                 # world_state, narrative_memory, context_brief
+│   │   └── solo.py                  # Monolithic baseline emitting all four shapes
 │   ├── state/
 │   │   ├── __init__.py
 │   │   └── story_state.py           # StoryState and related Pydantic models
