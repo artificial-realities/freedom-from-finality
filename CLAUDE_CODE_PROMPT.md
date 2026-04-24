@@ -1,9 +1,3 @@
-# CLAUDE_CODE_PROMPT.md
-
-Copy everything below the line as your Claude Code prompt.
-
----
-
 ## Project Context
 
 You are building **ClankerStudios** — a four-role workflow for interactive storytelling, built with LangGraph. The story plays as a flowing sequence of ~5-second video clips chained via image-to-video (i2v), layered with live voice-over commentary, with the user optionally steering the story between clips through natural-language commands.
