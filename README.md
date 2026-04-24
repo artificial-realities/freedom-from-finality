@@ -39,12 +39,6 @@ ClankerStudios/
 ├── CLAUDE.md                        # Claude Code working instructions
 ├── story.json                       # Story blueprint (visual_style, tone_guidelines, locations, characters, rules, premise, directions)
 ├── test_scenario.json               # 100-turn benchmark scenario
-├── notebooks/                       # Prior-project inspiration and i2v experiments
-│   ├── blueprint.json               # Comic Chaos blueprint (inspiration)
-│   ├── narratron.system.md          # Comic Chaos narrator prompt (inspiration)
-│   ├── i2v_chaining_test.ipynb      # i2v chaining experiment
-│   ├── wan_test.ipynb               # wan experiment
-│   └── wan2.2_i2v_local_test.ipynb  # wan2.2 local i2v
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py

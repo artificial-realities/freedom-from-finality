@@ -1,5 +1,0 @@
-Konseptet er ikke et open world-spill i tradisjonell forstand — ikke à la Ready Player One — men en interaktiv videoopplevelse. Mekanikken bygger på samme prinsipp som Comic Chaos: en LLM orkestrerer narrativet i bakgrunnen. Forskjellen er at den stakkato, panel-for-panel-opplevelsen erstattes av en kontinuerlig og flytende strøm av korte videosekvenser.
-
-Arkitekturen krever et multi-agent system (MAS) med spesialiserte roller — en narrator som driver historien, en movie director som styrer visuell komposisjon og scenografi, og potensielt flere agenter for dialog, pacing og verdensbygging.
-
-Brukerinteraksjonen er designet som guiding, ikke prompting. Brukeren får ikke eksplisitte spørsmål eller oppfordringer om å svare — historien ruller videre av seg selv. Men brukeren kan når som helst gripe inn og styre retningen: "gå videre inn i hulen", "spør om veien", "si hei". Ting skjer relativt automatisk, og brukerens input fungerer som løpende kurskorreksjoner i en verden som lever på egen hånd.

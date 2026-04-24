@@ -27,6 +27,9 @@ ENV/
 logs/
 *.log
 
+# Prior-project notebooks and inspiration — kept on disk, not in git
+notebooks/
+
 # IDE
 .vscode/
 .idea/
@@ -37,5 +40,5 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Claude Code local state
-.claude/
+# Claude Code local per-dev state (shared agents/commands/settings stay tracked)
+.claude/settings.local.json
