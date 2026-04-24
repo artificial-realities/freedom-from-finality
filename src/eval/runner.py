@@ -20,7 +20,11 @@ from src.i2v.base import I2VBackend
 from src.llm import build_backend
 from src.models.config import Config
 from src.models.story import Story
-from src.playback import mux_audio_into_video, play_clip
+from src.playback import (
+    concat_videos_and_mux_audio,
+    mux_audio_into_video,
+    play_clip,
+)
 from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.terminal import TerminalUI
@@ -87,7 +91,7 @@ async def run_scenario(
         state = _coerce_state(result)
 
         if i2v is not None and state.current_shot is not None:
-            seed_image, _playable_path = await _render_turn(
+            seed_image, _silent, _playable = await _render_turn(
                 state=state,
                 i2v=i2v,
                 seed_image=seed_image,
@@ -140,23 +144,26 @@ async def _render_turn(
     frames_dir: Path,
     video_dir: Path,
     interaction_logger: InteractionLogger,
-) -> tuple[str, str | None]:
-    """Render one clip, optionally mux audio onto it, return:
-        (next_seed_image_path, playable_path_or_None)
+    mux_inline: bool = True,
+) -> tuple[str, str | None, str | None]:
+    """Render one clip, threading the seed image forward.
 
-    `playable_path` is the muxed mp4 if Attenborough's TTS produced
-    audio AND ffmpeg muxed it cleanly; otherwise the silent DashScope
-    mp4; otherwise None when nothing rendered.
+    Returns `(next_seed_image, silent_video_path, playable_path)` where:
+    - `next_seed_image` always set (falls back to current seed on failure)
+    - `silent_video_path` is the raw DashScope mp4 (or None if render failed)
+    - `playable_path` is the muxed mp4 when `mux_inline=True` AND audio
+      was produced this turn; otherwise the silent path; or None on
+      complete render failure.
 
-    On any i2v failure we fall back to reusing the current seed — the
-    next turn re-renders against the same anchor rather than crashing.
+    `mux_inline=False` is for the live loop, which handles muxing
+    itself so it can defer single-audio-over-multiple-clips spans.
     """
     if not Path(seed_image).exists():
         logger.warning("Seed image missing for turn %s: %s — skipping render",
                        state.turn_number, seed_image)
         interaction_logger.log_event("i2v_skip", state.turn_number,
                                      {"reason": "missing_seed", "seed_image": seed_image})
-        return seed_image, None
+        return seed_image, None, None
 
     prompt = state.current_shot.i2v_prompt
     video_path = await i2v.synthesize(
@@ -167,15 +174,14 @@ async def _render_turn(
     if not video_path:
         interaction_logger.log_event("i2v_render_failed", state.turn_number,
                                      {"seed_image": seed_image})
-        return seed_image, None
+        return seed_image, None, None
 
     next_seed = frames_dir / f"turn_{state.turn_number:04d}_last.png"
     extracted = await asyncio.to_thread(extract_last_frame, video_path, next_seed)
 
-    # Optional audio mux — only if Attenborough produced TTS this turn.
-    playable_path = video_path
+    playable_path: str | None = video_path
     muxed_path: str | None = None
-    if state.current_audio_path:
+    if mux_inline and state.current_audio_path:
         out = video_dir / f"turn_{state.turn_number:04d}_muxed.mp4"
         muxed_path = await mux_audio_into_video(
             video_path=video_path,
@@ -193,7 +199,7 @@ async def _render_turn(
         "playable_path": playable_path,
         "next_seed_image": extracted or seed_image,
     })
-    return extracted or seed_image, playable_path
+    return extracted or seed_image, video_path, playable_path
 
 
 def _coerce_state(result) -> StoryState:
@@ -377,6 +383,11 @@ async def run_live(
         nonlocal state
         seed_image = config.i2v_seed_image
         turn = 0
+        # Span-pending: collects silent clips until a multi-clip
+        # voiceover finishes its run, then concat+mux+enqueue once.
+        # Shape: {"clips": [paths], "audio": str, "remaining": int,
+        #         "span": int, "start_turn": int}
+        pending_span: dict | None = None
         try:
             while not stop_event.is_set():
                 turn += 1
@@ -396,27 +407,96 @@ async def run_live(
                 result = await graph.ainvoke(state)
                 state = _coerce_state(result)
 
-                playable: str | None = None
+                silent: str | None = None
+                playable_single: str | None = None
                 if state.current_shot is not None:
-                    seed_image, playable = await _render_turn(
+                    seed_image, silent, playable_single = await _render_turn(
                         state=state,
                         i2v=i2v,
                         seed_image=seed_image,
                         frames_dir=frames_dir,
                         video_dir=video_dir,
                         interaction_logger=interaction_logger,
+                        mux_inline=False,  # live loop owns muxing
                     )
 
                 _commit_history(state)
                 ui.render_turn(state)
 
-                if playable:
-                    await clip_queue.put(playable)  # blocks if buffer is full
-                else:
+                # Pacing logic — three cases.
+                if silent is None:
+                    # Render failed or skipped — nothing to enqueue. If a
+                    # span was pending, abort it (the audio would no
+                    # longer line up with the visual continuity anyway).
+                    if pending_span is not None:
+                        interaction_logger.log_event(
+                            "playback_span_abort", turn,
+                            {"start_turn": pending_span["start_turn"],
+                             "reason": "render_failed_mid_span"},
+                        )
+                        pending_span = None
                     interaction_logger.log_event(
                         "live_no_playable", turn,
                         {"reason": "render_failed_or_skipped"},
                     )
+                    continue
+
+                if pending_span is not None:
+                    # Mid-span: collect the silent clip, decrement.
+                    pending_span["clips"].append(silent)
+                    pending_span["remaining"] -= 1
+                    if pending_span["remaining"] == 0:
+                        out = video_dir / f"turn_{pending_span['start_turn']:04d}_span.mp4"
+                        combined = await concat_videos_and_mux_audio(
+                            video_paths=pending_span["clips"],
+                            audio_path=pending_span["audio"],
+                            output_path=out,
+                        )
+                        chosen = combined or pending_span["clips"][0]
+                        interaction_logger.log_event(
+                            "playback_span_complete", turn, {
+                                "start_turn": pending_span["start_turn"],
+                                "span_clips": pending_span["span"],
+                                "video_paths": pending_span["clips"],
+                                "audio_path": pending_span["audio"],
+                                "playable": chosen,
+                                "concat_succeeded": combined is not None,
+                            },
+                        )
+                        pending_span = None
+                        await clip_queue.put(chosen)
+                    continue
+
+                span = (state.current_commentary.span_clips
+                        if state.current_commentary else 1)
+                audio = state.current_audio_path
+
+                if span > 1 and audio:
+                    # Open a new span — hold this clip; concat after N more.
+                    pending_span = {
+                        "clips": [silent],
+                        "audio": audio,
+                        "remaining": span - 1,
+                        "span": span,
+                        "start_turn": turn,
+                    }
+                    interaction_logger.log_event(
+                        "playback_span_open", turn,
+                        {"span_clips": span, "audio_path": audio},
+                    )
+                    continue
+
+                # Single-clip turn: mux audio if any, else play silent.
+                if audio:
+                    out = video_dir / f"turn_{turn:04d}_muxed.mp4"
+                    muxed = await mux_audio_into_video(
+                        video_path=silent,
+                        audio_path=audio,
+                        output_path=out,
+                    )
+                    await clip_queue.put(muxed or silent)
+                else:
+                    await clip_queue.put(silent)
         except asyncio.CancelledError:
             raise
         except Exception:
