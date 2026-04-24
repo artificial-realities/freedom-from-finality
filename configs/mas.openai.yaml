@@ -1,0 +1,15 @@
+name: "mas"
+description: "Decomposed workflow: Tolkien → Spielberg → Attenborough → Spock"
+graph: "mas_graph"
+llm_backend: "openai"
+model: "gpt-4o"
+temperature: 0.7
+max_tokens_per_agent: 1024
+context_window_history: 5
+narrative_memory_target_tokens: 800
+
+video_enabled: false
+video_buffer_clips: 6
+
+audio_enabled: false
+elevenlabs_voice_id: ""
