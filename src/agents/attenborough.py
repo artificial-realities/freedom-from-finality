@@ -64,6 +64,7 @@ async def run(
         return {
             "current_commentary": Commentary(voiceover="", span_clips=1),
             "commentary_hold_remaining": new_hold,
+            "current_audio_path": "",
         }
 
     system_prompt = load_prompt(
@@ -107,17 +108,20 @@ async def run(
         return {}
 
     # Opt-in TTS side effect — never blocks on failure.
+    audio_path = ""
     if config.audio_enabled and tts is not None and commentary.voiceover:
-        audio_path = await tts.synthesize(commentary.voiceover, turn=state.turn_number)
+        result_path = await tts.synthesize(commentary.voiceover, turn=state.turn_number)
         interaction_logger.log_tts(
             turn=state.turn_number,
             voice_id=tts.voice_id,
             text=commentary.voiceover,
-            audio_path=audio_path,
-            success=audio_path is not None,
+            audio_path=result_path,
+            success=result_path is not None,
         )
+        audio_path = result_path or ""
 
     return {
         "current_commentary": commentary,
         "commentary_hold_remaining": max(0, commentary.span_clips - 1),
+        "current_audio_path": audio_path,
     }

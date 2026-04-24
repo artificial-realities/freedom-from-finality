@@ -28,6 +28,7 @@ class StoryState(BaseModel):
     current_beat: Beat | None = None
     current_shot: Shot | None = None
     current_commentary: Commentary | None = None
+    current_audio_path: str = ""  # Set by Attenborough/Solo when TTS produced audio
 
     # Persistent memory — maintained by Spock
     world_state: dict = Field(default_factory=dict)

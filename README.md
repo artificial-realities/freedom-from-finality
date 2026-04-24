@@ -107,8 +107,9 @@ ClankerStudios/
 - Python 3.10+
 - GPU with sufficient VRAM for Gemma 4 31B (H100 recommended) when running locally
 - (Optional) OpenAI API key for GPT-4o comparison
-- (Optional) i2v model for live video generation — skipped by default
+- (Optional) DashScope API key for live video (Alibaba Wan2.x i2v) — only when `video_enabled: true`
 - (Optional) ElevenLabs API key for live voice-over — skipped by default
+- (Optional) `ffmpeg` on PATH for muxing TTS audio onto video clips — fails soft if missing
 
 ### Installation
 

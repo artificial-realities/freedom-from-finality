@@ -17,6 +17,7 @@ from src.i2v.base import I2VBackend
 from src.llm import build_backend
 from src.models.config import Config
 from src.models.story import Story
+from src.playback import mux_audio_into_video
 from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.terminal import TerminalUI
@@ -70,7 +71,8 @@ async def run_scenario(
         ui.render_opening(state)
 
     seed_image: str = config.i2v_seed_image
-    frames_dir = Path(log_dir) / "video" / "frames"
+    video_dir = Path(log_dir) / "video"
+    frames_dir = video_dir / "frames"
 
     for turn_number, user_input in enumerate(turns, start=1):
         state.turn_number = turn_number
@@ -82,11 +84,12 @@ async def run_scenario(
         state = _coerce_state(result)
 
         if i2v is not None and state.current_shot is not None:
-            seed_image = await _render_turn(
+            seed_image, _playable_path = await _render_turn(
                 state=state,
                 i2v=i2v,
                 seed_image=seed_image,
                 frames_dir=frames_dir,
+                video_dir=video_dir,
                 interaction_logger=interaction_logger,
             )
 
@@ -132,20 +135,25 @@ async def _render_turn(
     i2v: I2VBackend,
     seed_image: str,
     frames_dir: Path,
+    video_dir: Path,
     interaction_logger: InteractionLogger,
-) -> str:
-    """Render one clip and return the seed image path for the next turn.
+) -> tuple[str, str | None]:
+    """Render one clip, optionally mux audio onto it, return:
+        (next_seed_image_path, playable_path_or_None)
 
-    On any failure (missing seed, render error, frame extract error) we
-    fall back to reusing the current seed — the next turn re-renders
-    against the same anchor rather than crashing the loop.
+    `playable_path` is the muxed mp4 if Attenborough's TTS produced
+    audio AND ffmpeg muxed it cleanly; otherwise the silent DashScope
+    mp4; otherwise None when nothing rendered.
+
+    On any i2v failure we fall back to reusing the current seed — the
+    next turn re-renders against the same anchor rather than crashing.
     """
     if not Path(seed_image).exists():
         logger.warning("Seed image missing for turn %s: %s — skipping render",
                        state.turn_number, seed_image)
         interaction_logger.log_event("i2v_skip", state.turn_number,
                                      {"reason": "missing_seed", "seed_image": seed_image})
-        return seed_image
+        return seed_image, None
 
     prompt = state.current_shot.i2v_prompt
     video_path = await i2v.synthesize(
@@ -156,16 +164,33 @@ async def _render_turn(
     if not video_path:
         interaction_logger.log_event("i2v_render_failed", state.turn_number,
                                      {"seed_image": seed_image})
-        return seed_image
+        return seed_image, None
 
     next_seed = frames_dir / f"turn_{state.turn_number:04d}_last.png"
     extracted = await asyncio.to_thread(extract_last_frame, video_path, next_seed)
+
+    # Optional audio mux — only if Attenborough produced TTS this turn.
+    playable_path = video_path
+    muxed_path: str | None = None
+    if state.current_audio_path:
+        out = video_dir / f"turn_{state.turn_number:04d}_muxed.mp4"
+        muxed_path = await mux_audio_into_video(
+            video_path=video_path,
+            audio_path=state.current_audio_path,
+            output_path=out,
+        )
+        if muxed_path:
+            playable_path = muxed_path
+
     interaction_logger.log_event("i2v_render", state.turn_number, {
         "seed_image": seed_image,
         "video_path": video_path,
+        "audio_path": state.current_audio_path or None,
+        "muxed_path": muxed_path,
+        "playable_path": playable_path,
         "next_seed_image": extracted or seed_image,
     })
-    return extracted or seed_image
+    return extracted or seed_image, playable_path
 
 
 def _coerce_state(result) -> StoryState:
@@ -232,7 +257,8 @@ async def run_play(
     ui.render_opening(state)
 
     seed_image: str = config.i2v_seed_image
-    frames_dir = Path(log_dir) / "video" / "frames"
+    video_dir = Path(log_dir) / "video"
+    frames_dir = video_dir / "frames"
 
     turn_number = 0
     try:
@@ -248,11 +274,12 @@ async def run_play(
             state = _coerce_state(result)
 
             if i2v is not None and state.current_shot is not None:
-                seed_image = await _render_turn(
+                seed_image, _playable_path = await _render_turn(
                     state=state,
                     i2v=i2v,
                     seed_image=seed_image,
                     frames_dir=frames_dir,
+                    video_dir=video_dir,
                     interaction_logger=interaction_logger,
                 )
 

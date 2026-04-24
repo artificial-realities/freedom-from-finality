@@ -107,15 +107,17 @@ async def run(
         new_hold = max(0, solo.commentary.span_clips - 1)
 
     # TTS side effect — identical to Attenborough's, since solo owns commentary too.
+    audio_path = ""
     if config.audio_enabled and tts is not None and effective_commentary.voiceover:
-        audio_path = await tts.synthesize(effective_commentary.voiceover, turn=state.turn_number)
+        result_path = await tts.synthesize(effective_commentary.voiceover, turn=state.turn_number)
         interaction_logger.log_tts(
             turn=state.turn_number,
             voice_id=tts.voice_id,
             text=effective_commentary.voiceover,
-            audio_path=audio_path,
-            success=audio_path is not None,
+            audio_path=result_path,
+            success=result_path is not None,
         )
+        audio_path = result_path or ""
 
     new_world_state = _apply_delta(state.world_state, solo.memory_update.world_state_delta)
 
@@ -123,6 +125,7 @@ async def run(
         "current_beat": solo.beat,
         "current_shot": solo.shot,
         "current_commentary": effective_commentary,
+        "current_audio_path": audio_path,
         "short_term_narrative": solo.beat.short_term_narrative or state.short_term_narrative,
         "world_state": new_world_state,
         "narrative_memory": solo.memory_update.narrative_memory,
