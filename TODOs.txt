@@ -7,3 +7,5 @@ TODO: Pick an ElevenLabs voice for Attenborough and set elevenlabs_voice_id in c
 TODO: Refine the data/test_scenario.json. Should be properly written so that it accuractely can test the two worklows. Should for example be much longer.
 
 TODO: When clips are generated in advance (and in general) at what time does this happen? Like is there a heartbeat every 5 seconds or just when the state graph has been run throug? Also since it can generate clips of varying sizes the 30 s buffer might converge to 0s. This could be a problem... How and when it generates is important to think about since it should just run autononomosly without user interaction, but adapt when user interacts.
+
+TODO: Clean up the terminal UI so it only functions as an input field by removing all existing text clutter, and add a separate log that records only agent responses. This log should be structured to allow easy review of story flow and evaluation, and must include all relevant evaluation content while excluding prompts and unnecessary data from other logs.
