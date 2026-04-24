@@ -13,10 +13,16 @@ import asyncio
 import logging
 from pathlib import Path
 
-from src.eval.runner import run_play, run_scenario
-from src.models.config import Config
-from src.models.story import Story
-from src.ui.terminal import TerminalUI
+from dotenv import load_dotenv
+
+# Populate os.environ from .env before any backend is instantiated.
+# Shell-exported values already in the environment win — override=False.
+load_dotenv(override=False)
+
+from src.eval.runner import run_play, run_scenario  # noqa: E402
+from src.models.config import Config  # noqa: E402
+from src.models.story import Story  # noqa: E402
+from src.ui.terminal import TerminalUI  # noqa: E402
 
 DEFAULT_STORY = Path("data/story.json")
 DEFAULT_SCENARIO = Path("data/test_scenario.json")
