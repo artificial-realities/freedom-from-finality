@@ -11,13 +11,16 @@ import json
 import logging
 from pathlib import Path
 
+import sys
+import threading
+
 from src.graph import build_graph
 from src.i2v import build_i2v_backend, extract_last_frame
 from src.i2v.base import I2VBackend
 from src.llm import build_backend
 from src.models.config import Config
 from src.models.story import Story
-from src.playback import mux_audio_into_video
+from src.playback import mux_audio_into_video, play_clip
 from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.terminal import TerminalUI
@@ -291,6 +294,172 @@ async def run_play(
         interaction_logger.log_event(
             "session_end",
             state.turn_number,
+            {"turns_completed": state.turn_number},
+        )
+    return state
+
+
+async def run_live(
+    *,
+    config: Config,
+    story: Story,
+    log_dir: Path | str = "logs",
+    ui: TerminalUI | None = None,
+) -> StoryState:
+    """Live demo loop — concurrent producer + player + stdin reader.
+
+    The producer keeps generating turns and pushing playable clips
+    onto a bounded queue (size = config.video_buffer_clips). The
+    player pulls clips and pops a video window via ffplay. A
+    background stdin thread reads user input and posts it to a
+    queue; the producer drains that queue at the start of each
+    turn and applies whatever's there as `user_input`. If the queue
+    is empty the story advances on `short_term_narrative` — silent
+    turns are normal.
+
+    Pre-buffer behavior: the player blocks on the first clip's
+    `queue.get()`, so playback only starts once the first render
+    completes (~30s with DashScope).
+    """
+    state = StoryState.initialize(story, config_name=config.name)
+    interaction_logger = InteractionLogger(
+        session_label=f"{config.name}_live",
+        config_name=config.name,
+        scenario="live",
+        story_title=story.title,
+        log_dir=log_dir,
+    )
+
+    llm = build_backend(config.llm_backend, config.model)
+    tts = _maybe_tts(config, log_dir)
+    i2v = _maybe_i2v(config, log_dir)
+    if i2v is None:
+        raise RuntimeError(
+            "run_live requires video_enabled: true in the config; otherwise use run_play."
+        )
+
+    graph = build_graph(
+        config.graph, llm=llm, config=config,
+        interaction_logger=interaction_logger, tts=tts,
+    )
+
+    ui = ui or TerminalUI()
+    ui.render_opening(state)
+    ui.console.print(
+        f"[dim]Pre-buffering up to {config.video_buffer_clips} clip(s); "
+        f"first render takes ~30s on DashScope. Type to steer; Ctrl+C to quit.[/dim]"
+    )
+
+    video_dir = Path(log_dir) / "video"
+    frames_dir = video_dir / "frames"
+
+    loop = asyncio.get_running_loop()
+    user_input_queue: asyncio.Queue[str] = asyncio.Queue()
+    clip_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=max(1, config.video_buffer_clips))
+
+    stop_event = asyncio.Event()
+
+    def _stdin_loop() -> None:
+        """Blocking stdin reader running on a daemon thread."""
+        while not stop_event.is_set():
+            try:
+                line = sys.stdin.readline()
+            except Exception:
+                return
+            if not line:  # EOF
+                return
+            line = line.strip()
+            asyncio.run_coroutine_threadsafe(user_input_queue.put(line), loop)
+
+    threading.Thread(target=_stdin_loop, daemon=True).start()
+
+    async def producer() -> None:
+        nonlocal state
+        seed_image = config.i2v_seed_image
+        turn = 0
+        try:
+            while not stop_event.is_set():
+                turn += 1
+                # Drain pending input — keep the most recent non-empty entry.
+                user_input = ""
+                while not user_input_queue.empty():
+                    candidate = await user_input_queue.get()
+                    if candidate:
+                        user_input = candidate
+
+                state.turn_number = turn
+                state.user_input = user_input
+                interaction_logger.log_event(
+                    "turn_start", turn, {"user_input": user_input},
+                )
+
+                result = await graph.ainvoke(state)
+                state = _coerce_state(result)
+
+                playable: str | None = None
+                if state.current_shot is not None:
+                    seed_image, playable = await _render_turn(
+                        state=state,
+                        i2v=i2v,
+                        seed_image=seed_image,
+                        frames_dir=frames_dir,
+                        video_dir=video_dir,
+                        interaction_logger=interaction_logger,
+                    )
+
+                _commit_history(state)
+                ui.render_turn(state)
+
+                if playable:
+                    await clip_queue.put(playable)  # blocks if buffer is full
+                else:
+                    interaction_logger.log_event(
+                        "live_no_playable", turn,
+                        {"reason": "render_failed_or_skipped"},
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Live producer crashed on turn %s", turn)
+            stop_event.set()
+
+    async def consumer() -> None:
+        try:
+            while not stop_event.is_set():
+                clip_path = await clip_queue.get()
+                interaction_logger.log_event(
+                    "playback_start", state.turn_number, {"clip_path": clip_path},
+                )
+                exit_code = await play_clip(clip_path)
+                interaction_logger.log_event(
+                    "playback_end", state.turn_number,
+                    {"clip_path": clip_path, "exit_code": exit_code},
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Live consumer crashed")
+            stop_event.set()
+
+    producer_task = asyncio.create_task(producer())
+    consumer_task = asyncio.create_task(consumer())
+
+    try:
+        await asyncio.gather(producer_task, consumer_task)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        ui.render_error("\n(quit)")
+    finally:
+        stop_event.set()
+        for task in (producer_task, consumer_task):
+            if not task.done():
+                task.cancel()
+        for task in (producer_task, consumer_task):
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        interaction_logger.log_event(
+            "session_end", state.turn_number,
             {"turns_completed": state.turn_number},
         )
     return state

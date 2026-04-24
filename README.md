@@ -142,6 +142,11 @@ python main.py play --config configs/solo.yaml --scenario data/test_scenario.jso
 
 # Benchmark both configs against the scenario
 python main.py benchmark --scenario data/test_scenario.json
+
+# Live demo (interactive, video + audio): requires video_enabled: true
+# in the config plus DASHSCOPE_API_KEY (and optionally ELEVENLABS_API_KEY).
+# `play` automatically switches to live mode when video_enabled is true.
+python main.py play --config configs/mas.yaml
 ```
 
 ## Tech Stack
