@@ -29,7 +29,7 @@ The spread (1 vs 4) is intentional. Every intermediate agent we considered eithe
 
 ### Story
 
-All runs use the same blueprint in `story.json` — a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind. The setting is deliberately stripped down: one character, one featureless background, no protagonist dialogue, no locations to navigate. What's left is pure test surface for long-horizon memory: props that come and go, bits that get called back, gags that should not repeat.
+All runs use the same blueprint in `data/story.json` — a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind. The setting is deliberately stripped down: one character, one featureless background, no protagonist dialogue, no locations to navigate. What's left is pure test surface for long-horizon memory: props that come and go, bits that get called back, gags that should not repeat.
 
 This trivializes visual consistency (one character, locked background) and removes location/character tracking as dimensions — which is the point. Any drift we see in the benchmark is memory drift, not scene drift.
 
@@ -103,11 +103,11 @@ Break each run into phases:
 
 ```bash
 # Benchmark both configs against the scenario
-python main.py benchmark --scenario test_scenario.json
+python main.py benchmark --scenario data/test_scenario.json
 
 # Or run one config at a time
-python main.py play --config configs/mas.yaml --scenario test_scenario.json
-python main.py play --config configs/solo.yaml --scenario test_scenario.json
+python main.py play --config configs/mas.yaml --scenario data/test_scenario.json
+python main.py play --config configs/solo.yaml --scenario data/test_scenario.json
 
 # Logs are written to logs/ — evaluate them afterwards.
 ```

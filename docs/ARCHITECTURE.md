@@ -51,7 +51,7 @@ For the benchmark we **bypass the buffer** and run synchronously turn-by-turn, l
 
 ## Story Blueprint
 
-The story world is defined once in `story.json` — a blueprint that establishes everything the agents need before the first turn. All fields are static and read-only during a run.
+The story world is defined once in `data/story.json` — a blueprint that establishes everything the agents need before the first turn. All fields are static and read-only during a run.
 
 ```python
 class Location(BaseModel):
@@ -108,7 +108,7 @@ The scenario is separate from the story. It is a bare JSON list of user command 
 Loaded directly in the runner:
 
 ```python
-turns = json.loads(Path("test_scenario.json").read_text())
+turns = json.loads(Path("data/test_scenario.json").read_text())
 for turn_number, user_input in enumerate(turns, start=1):
     ...
 ```

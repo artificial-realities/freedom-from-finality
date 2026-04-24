@@ -23,22 +23,25 @@ Video and audio generation are both opt-out. The system is designed so the MAS a
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the MAS design, state schema, agent specs, turn execution order, pipeline buffer, and the one-turn-delayed feedback loop.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the MAS design, state schema, agent specs, turn execution order, pipeline buffer, and the one-turn-delayed feedback loop.
 
 ## Benchmark
 
-See [BENCHMARK.md](BENCHMARK.md) for the research question, experiment matrix, and evaluation methodology.
+See [docs/BENCHMARK.md](docs/BENCHMARK.md) for the research question, experiment matrix, and evaluation methodology.
 
 ## Project Structure
 
 ```
 ClankerStudios/
 ├── README.md
-├── ARCHITECTURE.md
-├── BENCHMARK.md
 ├── CLAUDE.md                        # Claude Code working instructions
-├── story.json                       # Story blueprint (visual_style, tone_guidelines, locations, characters, rules, premise, directions)
-├── test_scenario.json               # 100-turn benchmark scenario
+├── docs/
+│   ├── ARCHITECTURE.md              # Design philosophy, agent specs, state schema, turn order
+│   └── BENCHMARK.md                 # Research question, experiment matrix, evaluation
+├── data/
+│   ├── story.json                   # Story blueprint (visual_style, tone_guidelines, locations, characters, rules, premise, directions)
+│   ├── test_scenario.json           # 100-turn benchmark scenario
+│   └── legoman.png                  # Reference image for the LEGO minifigure
 ├── src/
 │   ├── agents/
 │   │   ├── __init__.py
@@ -132,10 +135,10 @@ vllm serve google/gemma-4-31b-it \
 python main.py play --config configs/mas.yaml
 
 # Run the benchmark scenario against one config
-python main.py play --config configs/solo.yaml --scenario test_scenario.json
+python main.py play --config configs/solo.yaml --scenario data/test_scenario.json
 
 # Benchmark both configs against the scenario
-python main.py benchmark --scenario test_scenario.json
+python main.py benchmark --scenario data/test_scenario.json
 ```
 
 ## Tech Stack

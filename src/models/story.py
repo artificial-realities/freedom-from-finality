@@ -1,6 +1,6 @@
-"""Story blueprint models — loaded once per session from story.json.
+"""Story blueprint models — loaded once per session from data/story.json.
 
-All fields are static and read-only during a run. See ARCHITECTURE.md
+All fields are static and read-only during a run. See docs/ARCHITECTURE.md
 for the per-field audience table.
 """
 

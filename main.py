@@ -2,8 +2,8 @@
 
 Usage:
     python main.py play --config configs/mas.yaml
-    python main.py play --config configs/solo.yaml --scenario test_scenario.json
-    python main.py benchmark --scenario test_scenario.json
+    python main.py play --config configs/solo.yaml --scenario data/test_scenario.json
+    python main.py benchmark --scenario data/test_scenario.json
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from src.models.config import Config
 from src.models.story import Story
 from src.ui.terminal import TerminalUI
 
-DEFAULT_STORY = Path("story.json")
-DEFAULT_SCENARIO = Path("test_scenario.json")
+DEFAULT_STORY = Path("data/story.json")
+DEFAULT_SCENARIO = Path("data/test_scenario.json")
 DEFAULT_LOG_DIR = Path("logs")
 BENCHMARK_CONFIGS = [Path("configs/solo.yaml"), Path("configs/mas.yaml")]
 

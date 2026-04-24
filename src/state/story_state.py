@@ -62,7 +62,7 @@ class StoryState(BaseModel):
     def apply_world_delta(self, delta: WorldStateDelta) -> None:
         """Merge a `WorldStateDelta` into `world_state` in place.
 
-        Partial semantics per ARCHITECTURE.md:
+        Partial semantics per docs/ARCHITECTURE.md:
         - `protagonist_location`: empty = unchanged.
         - `inventory`: None = unchanged; list = replacement.
         - `characters`: per-name partial merge.
