@@ -115,6 +115,7 @@ ClankerStudios/
 git clone <repo-url>
 cd ClankerStudios
 pip install -r requirements.txt
+cp .env.example .env   # fill in only the keys you actually need
 ```
 
 ### Serving Gemma 4 locally
