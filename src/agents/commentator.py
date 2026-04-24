@@ -26,8 +26,8 @@ from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PATH: Path = prompt_path("commentator.system.md")
-USER_PATH: Path = prompt_path("commentator.user.md")
+SYSTEM_PATH: Path = prompt_path("attenborough.system.md")
+USER_PATH: Path = prompt_path("attenborough.user.md")
 
 
 async def run(

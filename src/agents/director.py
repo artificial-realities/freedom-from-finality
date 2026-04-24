@@ -29,8 +29,8 @@ from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PATH: Path = prompt_path("director.system.md")
-USER_PATH: Path = prompt_path("director.user.md")
+SYSTEM_PATH: Path = prompt_path("spielberg.system.md")
+USER_PATH: Path = prompt_path("spielberg.user.md")
 
 
 def _default_location(state: StoryState) -> str:

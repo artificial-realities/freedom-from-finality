@@ -69,17 +69,17 @@ ClankerStudios/
 │   ├── tts/
 │   │   ├── __init__.py
 │   │   └── elevenlabs.py            # ElevenLabs TTS adapter — called only when audio_enabled: true
-│   ├── prompts/
-│   │   ├── narrator.system.md
-│   │   ├── narrator.user.md
-│   │   ├── director.system.md
-│   │   ├── director.user.md
-│   │   ├── commentator.system.md
-│   │   ├── commentator.user.md
+│   ├── prompts/                     # One system + user template per agent
+│   │   ├── tolkien.system.md
+│   │   ├── tolkien.user.md
+│   │   ├── spielberg.system.md
+│   │   ├── spielberg.user.md
+│   │   ├── attenborough.system.md
+│   │   ├── attenborough.user.md
 │   │   ├── spock.system.md
 │   │   ├── spock.user.md
-│   │   ├── single_llm.system.md
-│   │   └── single_llm.user.md
+│   │   ├── solo.system.md
+│   │   └── solo.user.md
 │   ├── util/
 │   │   ├── __init__.py
 │   │   ├── json_sanitizer.py

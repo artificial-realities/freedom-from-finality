@@ -32,8 +32,8 @@ from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PATH: Path = prompt_path("narrator.system.md")
-USER_PATH: Path = prompt_path("narrator.user.md")
+SYSTEM_PATH: Path = prompt_path("tolkien.system.md")
+USER_PATH: Path = prompt_path("tolkien.user.md")
 
 
 async def run(
