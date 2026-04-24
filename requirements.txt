@@ -8,3 +8,6 @@ rich>=13.0.0
 pyyaml>=6.0
 python-dotenv>=1.0.0
 elevenlabs>=1.0.0
+dashscope>=1.20.0
+opencv-python-headless>=4.10.0
+requests>=2.31.0
