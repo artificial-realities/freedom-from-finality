@@ -27,9 +27,10 @@ class Config(BaseModel):
     video_buffer_clips: int = 6
     prebuffer_clips: int = 3
     i2v_backend: str = "dashscope"
-    i2v_model: str = "wan2.2-i2v-flash"
-    i2v_resolution: str = "480P"
+    i2v_model: str = "wan2.6-i2v-flash"
+    i2v_resolution: str = "720P"
     i2v_duration: int = 5
+    i2v_audio: bool = False
     i2v_seed_image: str = "data/legoman.png"
 
     audio_enabled: bool = False

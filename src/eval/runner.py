@@ -134,6 +134,7 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         resolution=config.i2v_resolution,
         duration=config.i2v_duration,
         output_dir=video_dir,
+        audio=config.i2v_audio,
     )
 
 
@@ -171,6 +172,7 @@ async def _render_turn(
         image_path=seed_image,
         prompt=prompt,
         turn=state.turn_number,
+        duration=state.current_shot.duration_seconds,
     )
     if not video_path:
         interaction_logger.log_event("i2v_render_failed", state.turn_number,

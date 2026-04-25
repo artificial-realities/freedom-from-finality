@@ -9,9 +9,10 @@ def build_i2v_backend(
     name: str,
     *,
     model: str,
-    resolution: str = "480P",
+    resolution: str = "720P",
     duration: int = 5,
     output_dir=None,
+    audio: bool | None = None,
 ) -> I2VBackend:
     """Construct an I2V backend from a config's `i2v_backend` string."""
     key = name.lower()
@@ -21,5 +22,6 @@ def build_i2v_backend(
             resolution=resolution,
             duration=duration,
             output_dir=output_dir or "logs/video",
+            audio=audio,
         )
     raise ValueError(f"Unknown i2v_backend: {name!r}")

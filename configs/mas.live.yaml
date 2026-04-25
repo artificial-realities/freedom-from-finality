@@ -11,6 +11,9 @@ narrative_memory_target_tokens: 800
 video_enabled: true
 video_buffer_clips: 6
 prebuffer_clips: 3
+i2v_model: "wan2.6-i2v-flash"
+i2v_resolution: "720P"
+i2v_audio: false
 
 audio_enabled: true
 elevenlabs_voice_id: "WdZjiN0nNcik2LBjOHiv"  # David

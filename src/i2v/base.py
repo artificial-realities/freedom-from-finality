@@ -24,6 +24,11 @@ class I2VBackend(ABC):
         image_path: Path | str,
         prompt: str,
         turn: int,
+        duration: int | None = None,
     ) -> str | None:
-        """Render a clip from `image_path` + `prompt`. Return MP4 path or None."""
+        """Render a clip from `image_path` + `prompt`. Return MP4 path or None.
+
+        `duration` overrides the backend's default for this call. None = use
+        the backend's configured default.
+        """
         ...

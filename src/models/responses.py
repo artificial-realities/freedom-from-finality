@@ -28,6 +28,7 @@ class Shot(BaseModel):
     camera: str
     motion: str
     end_frame_description: str
+    duration_seconds: int = Field(default=5, ge=3, le=15)
 
 
 class Commentary(BaseModel):

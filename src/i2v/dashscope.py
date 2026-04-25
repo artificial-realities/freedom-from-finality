@@ -28,20 +28,21 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_ENDPOINT = "https://dashscope-intl.aliyuncs.com/api/v1"
 POLL_INTERVAL_S = 5
-POLL_TIMEOUT_S = 300  # 5 min hard cap per render
+POLL_TIMEOUT_S = 600  # 10 min hard cap; wan2.6 10s renders ~55s, leaves ample headroom
 
 
 class DashScopeI2V(I2VBackend):
     def __init__(
         self,
-        model: str = "wan2.2-i2v-flash",
-        resolution: str = "480P",
+        model: str = "wan2.6-i2v-flash",
+        resolution: str = "720P",
         duration: int = 5,
         output_dir: Path | str = "logs/video",
         api_key: str | None = None,
         endpoint_url: str | None = None,
         prompt_extend: bool = False,
         watermark: bool = False,
+        audio: bool | None = None,
     ) -> None:
         self.model = model
         self.resolution = resolution
@@ -52,6 +53,9 @@ class DashScopeI2V(I2VBackend):
         self.endpoint_url = endpoint_url or os.getenv("DASHSCOPE_ENDPOINT_URL", DEFAULT_ENDPOINT)
         self.prompt_extend = prompt_extend
         self.watermark = watermark
+        # Only wan2.6 family accepts `audio`. Pass through only when explicitly set
+        # so older models (wan2.2/2.1) don't see an unknown kwarg.
+        self.audio = audio
         self._configured = False
 
     def _configure_sdk(self) -> bool:
@@ -76,29 +80,36 @@ class DashScopeI2V(I2VBackend):
         image_path: Path | str,
         prompt: str,
         turn: int,
+        duration: int | None = None,
     ) -> str | None:
         if not self._configure_sdk():
             return None
         try:
-            return await asyncio.to_thread(self._synthesize_sync, image_path, prompt, turn)
+            return await asyncio.to_thread(self._synthesize_sync, image_path, prompt, turn, duration)
         except Exception as exc:
             logger.exception("DashScope render failed on turn %s: %s", turn, exc)
             return None
 
-    def _synthesize_sync(self, image_path: Path | str, prompt: str, turn: int) -> str | None:
+    def _synthesize_sync(
+        self, image_path: Path | str, prompt: str, turn: int, duration: int | None = None,
+    ) -> str | None:
         from dashscope import VideoSynthesis  # noqa: WPS433
 
+        effective_duration = duration if duration is not None else self.duration
         img_url = _encode_image_to_data_url(image_path)
-        rsp = VideoSynthesis.async_call(
+        call_kwargs = dict(
             api_key=self.api_key,
             model=self.model,
             img_url=img_url,
             prompt=prompt,
             resolution=self.resolution,
-            duration=self.duration,
+            duration=effective_duration,
             prompt_extend=self.prompt_extend,
             watermark=self.watermark,
         )
+        if self.audio is not None:
+            call_kwargs["audio"] = self.audio
+        rsp = VideoSynthesis.async_call(**call_kwargs)
         if rsp.status_code != HTTPStatus.OK:
             logger.warning("DashScope submit failed (turn %s): %s — %s",
                            turn, rsp.code, rsp.message)

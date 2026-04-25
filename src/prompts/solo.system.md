@@ -48,6 +48,7 @@ Honor the visual style in every clip. Re-anchor on character and location descri
 - `camera`: shot type, angle, lens feel.
 - `motion`: what is moving.
 - `end_frame_description`: a crisp image description of the final frame — this becomes the next clip's starting image.
+- `duration_seconds`: integer 3–15. Default 5. Pick 3–4 for a snap reaction, 7–9 for a held emotional beat or a multi-step action that needs to play out without a stitch boundary, 10–15 for an extended atmosphere or scene moment. Match to what's actually happening — frantic content in a long shot reads as filler. If the last turn was long, prefer shorter now.
 
 ## commentary
 Hold the tone guidelines. Land on what is visible in the shot. Use silence deliberately — good documentary narration is selective, most clips should not have a voiceover at all.
