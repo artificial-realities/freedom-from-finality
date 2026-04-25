@@ -35,9 +35,20 @@ class StoryState(BaseModel):
     narrative_memory: str = ""
     context_brief: str = ""
 
-    # Commentary pacing — Attenborough's span counter.
-    # > 0 means a previous voiceover is still playing; skip the next call.
-    commentary_hold_remaining: int = 0
+    # Commentary pacing — measured by the live producer post-render.
+    # `audio_seconds_owed`: unplayed seconds of the most recent voiceover that
+    # still need to play across upcoming clips. While > 0, Attenborough stays
+    # silent (the producer concatenates silent clips behind the audio).
+    # `silence_seconds`: continuous silence since the last voiceover finished.
+    # Used to enforce a minimum cinematic pause between lines.
+    # `last_clip_duration`: measured length of the most recently rendered clip.
+    # `pacing_managed`: True only when the live producer is updating these
+    # fields; benchmark/play loops leave them untouched and the agent does
+    # not gate on them.
+    audio_seconds_owed: float = 0.0
+    silence_seconds: float = 0.0
+    last_clip_duration: float = 0.0
+    pacing_managed: bool = False
 
     # Narrative direction — maintained by Tolkien
     long_term_narrative: str = ""

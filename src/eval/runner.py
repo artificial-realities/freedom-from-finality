@@ -29,6 +29,7 @@ from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.terminal import TerminalUI
 from src.util.interaction_logger import InteractionLogger
+from src.util.media import probe_duration
 
 logger = logging.getLogger(__name__)
 
@@ -255,21 +256,8 @@ async def _launch_persistent_ffplay(
 
 
 async def _get_clip_duration(clip_path: str, fallback: float = 5.0) -> float:
-    if not shutil.which("ffprobe"):
-        return fallback
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            clip_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-        stdout, _ = await proc.communicate()
-        return float(stdout.strip())
-    except Exception:
-        return fallback
+    dur = await probe_duration(clip_path)
+    return dur if dur is not None else fallback
 
 
 async def _save_full_session(
@@ -448,14 +436,22 @@ async def run_live(
 
     threading.Thread(target=_stdin_loop, daemon=True).start()
 
+    # The producer mutates these state fields directly so the next turn's
+    # Attenborough call sees up-to-date pacing. Mark the loop as managing
+    # pacing and open the gate for turn 1 by setting silence at the floor.
+    state.pacing_managed = True
+    state.silence_seconds = config.min_pause_seconds
+    state.audio_seconds_owed = 0.0
+
     async def producer() -> None:
         nonlocal state
         seed_image = config.i2v_seed_image
         turn = 0
-        # Span-pending: collects silent clips until a multi-clip
-        # voiceover finishes its run, then concat+mux+enqueue once.
-        # Shape: {"clips": [paths], "audio": str, "remaining": int,
-        #         "span": int, "start_turn": int}
+        # Span-pending: collects silent clips behind a voiceover whose audio
+        # spills past one clip. Closed (concat+mux+enqueue) once the
+        # accumulated clip duration covers the audio.
+        # Shape: {"clips": [paths], "audio": str, "owed": float,
+        #         "audio_dur": float, "start_turn": int}
         pending_span: dict | None = None
         try:
             while not stop_event.is_set():
@@ -475,11 +471,13 @@ async def run_live(
 
                 result = await graph.ainvoke(state)
                 state = _coerce_state(result)
+                # graph.ainvoke rebuilt state from a dict — re-arm the
+                # pacing flag so the next turn's gating still applies.
+                state.pacing_managed = True
 
                 silent: str | None = None
-                playable_single: str | None = None
                 if state.current_shot is not None:
-                    seed_image, silent, playable_single = await _render_turn(
+                    seed_image, silent, _ = await _render_turn(
                         state=state,
                         i2v=i2v,
                         seed_image=seed_image,
@@ -492,11 +490,11 @@ async def run_live(
                 _commit_history(state)
                 ui.render_turn(state)
 
-                # Pacing logic — three cases.
                 if silent is None:
-                    # Render failed or skipped — nothing to enqueue. If a
-                    # span was pending, abort it (the audio would no
-                    # longer line up with the visual continuity anyway).
+                    # Render failed or skipped — nothing to enqueue. Abort any
+                    # pending span (the audio would no longer line up with the
+                    # visual continuity anyway) and reset owed so the next
+                    # turn's Attenborough is not artificially held.
                     if pending_span is not None:
                         interaction_logger.log_event(
                             "playback_span_abort", turn,
@@ -504,17 +502,24 @@ async def run_live(
                              "reason": "render_failed_mid_span"},
                         )
                         pending_span = None
+                    state.audio_seconds_owed = 0.0
                     interaction_logger.log_event(
                         "live_no_playable", turn,
                         {"reason": "render_failed_or_skipped"},
                     )
                     continue
 
+                clip_dur = await _get_clip_duration(silent, fallback=float(config.i2v_duration))
+                state.last_clip_duration = clip_dur
+
+                # Mid-span: this turn's Attenborough was held silent because
+                # the previous voiceover still owes audio. Add the silent
+                # clip to the span and pay it down.
                 if pending_span is not None:
-                    # Mid-span: collect the silent clip, decrement.
                     pending_span["clips"].append(silent)
-                    pending_span["remaining"] -= 1
-                    if pending_span["remaining"] == 0:
+                    pending_span["owed"] -= clip_dur
+                    state.audio_seconds_owed = max(0.0, pending_span["owed"])
+                    if pending_span["owed"] <= 0.001:
                         out = video_dir / f"turn_{pending_span['start_turn']:04d}_span.mp4"
                         combined = await concat_videos_and_mux_audio(
                             video_paths=pending_span["clips"],
@@ -525,7 +530,8 @@ async def run_live(
                         interaction_logger.log_event(
                             "playback_span_complete", turn, {
                                 "start_turn": pending_span["start_turn"],
-                                "span_clips": pending_span["span"],
+                                "clip_count": len(pending_span["clips"]),
+                                "audio_dur": pending_span["audio_dur"],
                                 "video_paths": pending_span["clips"],
                                 "audio_path": pending_span["audio"],
                                 "playable": chosen,
@@ -533,38 +539,52 @@ async def run_live(
                             },
                         )
                         pending_span = None
+                        # Span finished: reset silence to start counting again.
+                        state.silence_seconds = 0.0
                         await clip_queue.put(chosen)
                     continue
 
-                span = (state.current_commentary.span_clips
-                        if state.current_commentary else 1)
                 audio = state.current_audio_path
 
-                if span > 1 and audio:
-                    # Open a new span — hold this clip; concat after N more.
-                    pending_span = {
-                        "clips": [silent],
-                        "audio": audio,
-                        "remaining": span - 1,
-                        "span": span,
-                        "start_turn": turn,
-                    }
-                    interaction_logger.log_event(
-                        "playback_span_open", turn,
-                        {"span_clips": span, "audio_path": audio},
-                    )
-                    continue
-
-                # Single-clip turn: mux audio if any, else play silent.
                 if audio:
+                    audio_dur = await probe_duration(audio)
+                    if audio_dur is None:
+                        # Probe failed — assume audio fits in one clip and
+                        # let the single-clip mux clamp via -shortest.
+                        audio_dur = clip_dur
+                    if audio_dur > clip_dur + 0.05:
+                        # Voiceover spills past this clip — open a span.
+                        owed = audio_dur - clip_dur
+                        pending_span = {
+                            "clips": [silent],
+                            "audio": audio,
+                            "owed": owed,
+                            "audio_dur": audio_dur,
+                            "start_turn": turn,
+                        }
+                        state.audio_seconds_owed = owed
+                        state.silence_seconds = 0.0
+                        interaction_logger.log_event(
+                            "playback_span_open", turn,
+                            {"audio_dur": audio_dur, "clip_dur": clip_dur,
+                             "owed": owed, "audio_path": audio},
+                        )
+                        continue
+
+                    # Audio fits in one clip — mux and enqueue.
                     out = video_dir / f"turn_{turn:04d}_muxed.mp4"
                     muxed = await mux_audio_into_video(
                         video_path=silent,
                         audio_path=audio,
                         output_path=out,
                     )
+                    state.audio_seconds_owed = 0.0
+                    state.silence_seconds = 0.0
                     await clip_queue.put(muxed or silent)
                 else:
+                    # Pure silence — accumulate the floor.
+                    state.audio_seconds_owed = 0.0
+                    state.silence_seconds += clip_dur
                     await clip_queue.put(silent)
         except asyncio.CancelledError:
             raise

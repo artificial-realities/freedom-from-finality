@@ -19,4 +19,6 @@ Narrative memory (rolling):
 Recent commentary (last ~5 turns, newest last — empty entries mean silence):
 {recent_commentary}
 
-Decide now: silence, a short line over this clip, or a longer observation spanning up to 4 clips. Return a single JSON object.
+Silence so far: {silence_label}
+
+Decide now: silence, a short line over this clip, or a longer continuous thought the system will play across as many clips as needed. Return a single JSON object with `voiceover`.

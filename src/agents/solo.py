@@ -88,23 +88,25 @@ async def run(
         logger.warning("Solo response validation failed on turn %s: %s", state.turn_number, exc)
         return {}
 
-    # Honor Attenborough's span counter even in the monolithic config —
-    # keeps the benchmark comparable. While held, commentary is forced
-    # empty and the counter decrements; otherwise span_clips dictates
-    # the new hold.
-    if state.commentary_hold_remaining > 0:
-        effective_commentary = Commentary(voiceover="", span_clips=1)
-        new_hold = state.commentary_hold_remaining - 1
+    # Honor the same pacing gates as Attenborough so both configurations
+    # produce comparable commentary streams. Only enforced when the live
+    # producer is bookkeeping; benchmark/play loops always pass through
+    # the model's commentary verbatim.
+    if config.audio_enabled and state.pacing_managed and (
+        state.audio_seconds_owed > 0.001
+        or state.silence_seconds < config.min_pause_seconds
+    ):
+        effective_commentary = Commentary(voiceover="")
         interaction_logger.log_event(
             "solo_commentary_hold",
             state.turn_number,
-            {"hold_remaining_before": state.commentary_hold_remaining,
-             "hold_remaining_after": new_hold,
+            {"reason": "audio_owed" if state.audio_seconds_owed > 0.001 else "min_pause",
+             "audio_seconds_owed": state.audio_seconds_owed,
+             "silence_seconds": state.silence_seconds,
              "suppressed_voiceover": solo.commentary.voiceover},
         )
     else:
         effective_commentary = solo.commentary
-        new_hold = max(0, solo.commentary.span_clips - 1)
 
     # TTS side effect — identical to Attenborough's, since solo owns commentary too.
     audio_path = ""
@@ -130,7 +132,6 @@ async def run(
         "world_state": new_world_state,
         "narrative_memory": solo.memory_update.narrative_memory,
         "context_brief": solo.memory_update.context_brief,
-        "commentary_hold_remaining": new_hold,
     }
     if solo.beat.long_term_narrative:
         update["long_term_narrative"] = solo.beat.long_term_narrative

@@ -52,10 +52,9 @@ Honor the visual style in every clip. Re-anchor on character and location descri
 ## commentary
 Hold the tone guidelines. Land on what is visible in the shot. Use silence deliberately — good documentary narration is selective, most clips should not have a voiceover at all.
 
-- `voiceover`: string. Either an empty string (stay silent — often the right call), a short line paced for ~5s (at most one sentence, ~10–12 words), or a longer observation spanning multiple clips.
-- `span_clips`: integer, 1 to 4. How many ~5s clips the voiceover plays over. Default 1. Use 2–3 when your line is a continuous thought (setup-then-punchline, a two-beat comparison) AND `short_term_narrative` tells you the next clip continues the thread rather than cutting hard. Target roughly 10–12 words per clip of span. When you set `span_clips > 1`, the system holds commentary silent for the following `span_clips - 1` turns while your line finishes playing.
+- `voiceover`: string. Either an empty string (stay silent — often the right call), a short line paced for ~5s (one sentence, ~10–15 words), or a longer continuous thought (~25–40 words) when you have a setup-and-punchline or a two-beat comparison AND `short_term_narrative` tells you the next clip continues the thread rather than cutting hard.
 
-If you just spoke a long line (`span_clips > 1`) on a recent turn, stay silent now — check `recent_history` to see what you've just said.
+The system measures the voiceover's audio length and lets it play across as many clips as needed; while it finishes the system holds commentary silent automatically. If you just spoke on a recent turn, prefer silence now — check `recent_history` to see what you've just said.
 
 ## memory_update
 - `world_state_delta`:
@@ -75,6 +74,6 @@ If you just spoke a long line (`span_clips > 1`) on a recent turn, stay silent n
 
 # Output format
 
-Return a single JSON object with these top-level fields: `beat`, `shot`, `commentary`, `memory_update`. Each is itself an object with the fields described above.
+Return a single JSON object with these top-level fields: `beat`, `shot`, `commentary`, `memory_update`. Each is itself an object with the fields described above. `commentary` has a single field, `voiceover`.
 
 Return JSON only. No prose outside the object, no code fences.

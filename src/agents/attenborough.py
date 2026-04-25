@@ -1,12 +1,15 @@
 """Attenborough — the voice-over commentator.
 
-Always emits structured text. Pacing is Attenborough's to decide: on
-any turn he can either speak or stay silent, and when he speaks he
-picks `span_clips` (1–4) to mark how many clips the line should play
-over. While spanning, the state's `commentary_hold_remaining` counter
-holds the next N-1 turns silent — this module never calls the LLM on
-those held turns, it just returns an empty `Commentary` and decrements
-the counter.
+Always emits structured text. He decides whether to speak; the live
+producer measures his audio post-TTS and concatenates as many silent
+clips behind it as the duration warrants, holding him silent on those
+turns by leaving `audio_seconds_owed > 0`. The producer also enforces
+a minimum cinematic pause between lines via `silence_seconds`.
+
+Both gates are only applied when the live producer is actively
+managing pacing (`pacing_managed=True` and `audio_enabled=True`).
+Benchmark and interactive loops always reach the LLM so commentary
+text is produced for every turn.
 
 If `audio_enabled: true`, the runtime pipes `voiceover` through
 ElevenLabs TTS — a side effect that never blocks the turn.
@@ -37,6 +40,15 @@ SYSTEM_PATH: Path = prompt_path("attenborough.system.md")
 USER_PATH: Path = prompt_path("attenborough.user.md")
 
 
+def _silent_label(state: StoryState, config: Config) -> str:
+    """Render `silence_seconds` as a hint for the prompt."""
+    if not (config.audio_enabled and state.pacing_managed):
+        return "(silence not tracked in this mode)"
+    if not any(h.commentary.voiceover for h in state.history):
+        return "(no voiceover yet — opening line is welcome)"
+    return f"~{state.silence_seconds:.0f}s of silence since the last voiceover"
+
+
 async def run(
     state: StoryState,
     llm: LLMBackend,
@@ -51,21 +63,31 @@ async def run(
         )
         return {}
 
-    # Hold from a previous span is still counting down — stay silent,
-    # decrement, and don't burn an LLM call.
-    if state.commentary_hold_remaining > 0:
-        new_hold = state.commentary_hold_remaining - 1
-        interaction_logger.log_event(
-            "attenborough_hold",
-            state.turn_number,
-            {"hold_remaining_before": state.commentary_hold_remaining,
-             "hold_remaining_after": new_hold},
-        )
-        return {
-            "current_commentary": Commentary(voiceover="", span_clips=1),
-            "commentary_hold_remaining": new_hold,
-            "current_audio_path": "",
-        }
+    # Pacing gates — only enforced when the live producer is bookkeeping.
+    if config.audio_enabled and state.pacing_managed:
+        if state.audio_seconds_owed > 0.001:
+            interaction_logger.log_event(
+                "attenborough_hold",
+                state.turn_number,
+                {"reason": "audio_owed",
+                 "audio_seconds_owed": state.audio_seconds_owed},
+            )
+            return {
+                "current_commentary": Commentary(voiceover=""),
+                "current_audio_path": "",
+            }
+        if state.silence_seconds < config.min_pause_seconds:
+            interaction_logger.log_event(
+                "attenborough_hold",
+                state.turn_number,
+                {"reason": "min_pause",
+                 "silence_seconds": state.silence_seconds,
+                 "min_pause_seconds": config.min_pause_seconds},
+            )
+            return {
+                "current_commentary": Commentary(voiceover=""),
+                "current_audio_path": "",
+            }
 
     system_prompt = load_prompt(
         SYSTEM_PATH,
@@ -83,6 +105,7 @@ async def run(
         shot_end_frame_description=state.current_shot.end_frame_description,
         narrative_memory=state.narrative_memory or "(no memory yet)",
         recent_commentary=format_recent_commentary(state, count=config.context_window_history),
+        silence_label=_silent_label(state, config),
     )
 
     parsed = await call_llm_structured(
@@ -122,6 +145,5 @@ async def run(
 
     return {
         "current_commentary": commentary,
-        "commentary_hold_remaining": max(0, commentary.span_clips - 1),
         "current_audio_path": audio_path,
     }

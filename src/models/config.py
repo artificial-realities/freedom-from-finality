@@ -34,6 +34,11 @@ class Config(BaseModel):
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""
+    # Minimum continuous silence required between voiceovers in the live
+    # loop. The producer enforces this by gating Attenborough until
+    # `silence_seconds` reaches this floor. Only meaningful when
+    # `audio_enabled` is true; ignored in benchmark/play loops.
+    min_pause_seconds: float = 5.0
 
     extra: dict = Field(default_factory=dict)
 
