@@ -9,6 +9,7 @@ Current shot:
 camera: {shot_camera}
 motion: {shot_motion}
 end_frame_description: {shot_end_frame_description}
+clip_duration: {clip_duration_seconds}s
 
 Short-term narrative (Tolkien's direction for the NEXT beat — your look-ahead):
 {short_term_narrative}

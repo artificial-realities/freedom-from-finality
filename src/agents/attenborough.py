@@ -103,6 +103,7 @@ async def run(
         shot_camera=state.current_shot.camera,
         shot_motion=state.current_shot.motion,
         shot_end_frame_description=state.current_shot.end_frame_description,
+        clip_duration_seconds=state.current_shot.duration_seconds,
         narrative_memory=state.narrative_memory or "(no memory yet)",
         recent_commentary=format_recent_commentary(state, count=config.context_window_history),
         silence_label=_silent_label(state, config),
