@@ -42,3 +42,6 @@ Thumbs.db
 
 # Claude Code local per-dev state (shared agents/commands/settings stay tracked)
 .claude/settings.local.json
+
+# Personal command cheat sheet
+COMMANDS.md
