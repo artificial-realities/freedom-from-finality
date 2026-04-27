@@ -65,7 +65,6 @@ ClankerStudios/
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   ├── base.py
-│   │   ├── gemma.py
 │   │   └── openai_backend.py
 │   ├── tts/
 │   │   ├── __init__.py
@@ -105,8 +104,7 @@ ClankerStudios/
 ### Prerequisites
 
 - Python 3.10+
-- GPU with sufficient VRAM for Gemma 4 31B (H100 recommended) when running locally
-- (Optional) OpenAI API key for GPT-4o comparison
+- OpenAI API key — every config calls the OpenAI API
 - (Optional) DashScope API key for live video (Alibaba Wan2.x i2v) — only when `video_enabled: true`
 - (Optional) ElevenLabs API key for live voice-over — skipped by default
 - (Optional) `ffmpeg` on PATH for muxing TTS audio onto video clips — fails soft if missing
@@ -118,17 +116,6 @@ git clone <repo-url>
 cd ClankerStudios
 pip install -r requirements.txt
 cp .env.example .env   # fill in only the keys you actually need
-```
-
-### Serving Gemma 4 locally
-
-Start vLLM before running the project:
-
-```bash
-vllm serve google/gemma-4-31b-it \
-  --dtype bfloat16 \
-  --max-model-len 32768 \
-  --port 8000
 ```
 
 ### Running
@@ -153,8 +140,6 @@ python main.py play --config configs/mas.yaml
 
 - **LangGraph** — multi-agent orchestration with typed shared state
 - **Pydantic v2** — validated models for state, config, story, and all LLM response schemas
-- **Gemma 4 31B** — served locally via vLLM (OpenAI-compatible endpoint)
-- **OpenAI GPT-4o** — optional alternative backend
+- **OpenAI GPT-4.1** — backbone model for every agent (configurable per run)
 - **ElevenLabs** — optional TTS for Attenborough's commentary
 - **Rich** — terminal UI
-- **vLLM** — high-throughput local LLM serving

@@ -1,4 +1,4 @@
-"""Abstract LLM backend — Gemma (vLLM) and OpenAI share this interface."""
+"""Abstract LLM backend interface."""
 
 from __future__ import annotations
 

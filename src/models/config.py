@@ -16,7 +16,7 @@ class Config(BaseModel):
     name: str
     description: str = ""
     graph: str  # "mas_graph" | "solo_graph"
-    llm_backend: str  # "gemma" | "openai"
+    llm_backend: str  # "openai"
     model: str
     temperature: float = 0.7
     max_tokens_per_agent: int = 1024

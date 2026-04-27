@@ -1,15 +1,12 @@
 """JSON sanitization and repair for LLM responses.
 
-Local Gemma will occasionally produce malformed JSON. Parse strategy
-used by agents:
+LLMs occasionally produce malformed JSON — truncated objects, stray text
+around the JSON, escaped-character glitches. Parse strategy used by agents:
 
     1. sanitize_json_string(raw) → json.loads
     2. extract_json(raw)         → json.loads
     3. repair_json(raw)          → json.loads
     4. give up, log, skip the turn's update
-
-Adapted from reference/json_sanitizer.py — trimmed to what this project
-uses (no comic-era helpers).
 """
 
 from __future__ import annotations

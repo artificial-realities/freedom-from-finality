@@ -17,7 +17,7 @@ The roster is **four agents**, each owning exactly one job, with no overlap.
 - **Attenborough** — the voice-over commentator. Reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Always emits text; optionally fires ElevenLabs TTS when audio is enabled.
 - **Spock** — the memory and context curator. After each turn, updates the structured world state and the rolling narrative memory. Before the next turn, hands Tolkien a filtered context brief — only what he needs to know right now, including the currently-relevant characters and locations.
 
-All four agents emit **structured output** via Pydantic schemas. The `json_sanitizer` pipeline repairs malformed JSON from the local model before parsing.
+All four agents emit **structured output** via Pydantic schemas. The `json_sanitizer` pipeline repairs malformed JSON before parsing.
 
 ## One-Turn-Delayed Feedback Loop
 
@@ -385,7 +385,7 @@ Each prompt ends with a schema block that describes the structured output the ag
 
 ## JSON Sanitizer
 
-Local models (Gemma 4) will occasionally produce malformed JSON. `src/util/json_sanitizer.py` provides the repair functions shared by all four agents and solo.
+LLMs occasionally produce malformed JSON — truncated objects, stray text around the JSON, escaped-character glitches. `src/util/json_sanitizer.py` provides the repair functions shared by all four agents and solo.
 
 Parse strategy for structured responses:
 
@@ -413,7 +413,7 @@ A logged interaction captures everything needed to reconstruct a run:
       "agent": "tolkien",
       "turn": 5,
       "timestamp": "2026-04-18T14:30:45",
-      "model": "google/gemma-4-31b-it",
+      "model": "gpt-4.1",
       "parameters": {"temperature": 0.7, "max_tokens": 1024},
       "prompt": {"system": "...", "user": "..."},
       "response": {"raw": "...", "parsed": {"narration": "...", "action": "...", "outcome": "...", "short_term_narrative": "..."}},
@@ -426,7 +426,7 @@ A logged interaction captures everything needed to reconstruct a run:
 
 ## LLM Backend
 
-Both Gemma 4 and OpenAI GPT-4o are called through the same interface via OpenAI-compatible APIs:
+Every agent calls OpenAI through a single `LLMBackend` interface. The abstract base exists so a second backend can be slotted in later without touching agent code, but the only concrete implementation is `OpenAIBackend`.
 
 ```python
 class LLMBackend(ABC):
@@ -434,8 +434,7 @@ class LLMBackend(ABC):
         """Returns (response_text, token_usage)."""
 ```
 
-- **Gemma 4 31B** — local vLLM on `localhost:8000`, OpenAI-compatible endpoint.
-- **GPT-4o** — OpenAI API, `OPENAI_API_KEY` from env.
+- **GPT-4.1** — OpenAI API, `OPENAI_API_KEY` from env. Same model for both `solo` and `mas` so the only varied factor is prompt shape.
 
 ## Context Management
 
@@ -457,8 +456,8 @@ Configs are YAML files loaded into Pydantic models:
 name: "mas"
 description: "Tolkien → Spielberg → Attenborough → Spock"
 graph: "mas_graph"
-llm_backend: "gemma"
-model: "google/gemma-4-31b-it"
+llm_backend: "openai"
+model: "gpt-4.1"
 temperature: 0.7
 max_tokens_per_agent: 1024
 context_window_history: 5

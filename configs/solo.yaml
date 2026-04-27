@@ -1,8 +1,8 @@
 name: "solo"
 description: "Monolithic prompting: one LLM emits Beat + Shot + Commentary + MemoryUpdate"
 graph: "solo_graph"
-llm_backend: "gemma"
-model: "google/gemma-4-31b-it"
+llm_backend: "openai"
+model: "gpt-4.1"
 temperature: 0.7
 max_tokens_per_agent: 2048
 context_window_history: 5
