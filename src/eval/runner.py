@@ -630,9 +630,8 @@ async def run_live(
                 try:
                     clip_path = clip_queue.get_nowait()
                 except asyncio.QueueEmpty:
-                    # Queue empty — current ffplay holds last frame.
-                    if current_proc is not None:
-                        print("Type to steer the story ↵", flush=True)
+                    # Queue empty — current ffplay holds last frame while we
+                    # wait for the producer. The `› ` prompt is enough cue.
                     clip_path = await clip_queue.get()
 
                 # Launch new window BEFORE killing old → no flicker.
