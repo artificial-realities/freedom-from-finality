@@ -35,6 +35,11 @@ def setup_logging(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # httpx/openai/dashscope log every HTTP request at INFO, which clutters
+    # the terminal during runs. Keep them quiet unless the user asked for -v.
+    if not verbose:
+        for noisy in ("httpx", "httpcore", "openai", "dashscope"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def build_parser() -> argparse.ArgumentParser:
