@@ -1,5 +1,3 @@
 TODO: Decide whether Spock's context_brief should be a single prose block or lightly structured (e.g., "present: ...", "holding: ...", "recent: ..."). Content is settled — relevant chars/locs with names + one-line summaries, inventory highlights, current direction, recent commitments. Try prose first; fall back to light structure if Tolkien starts drifting.
 
 TODO: Refine the data/test_scenario.json. Should be properly written so that it accuractely can test the two worklows. Should for example be much longer.
-
-TODO: Clean up the terminal UI so it only functions as an input field by removing all existing text clutter, and add a separate log that records only agent responses. This log should be structured to allow easy review of story flow and evaluation, and must include all relevant evaluation content while excluding prompts and unnecessary data from other logs.

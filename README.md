@@ -142,4 +142,3 @@ python main.py play --config configs/mas.yaml
 - **Pydantic v2** — validated models for state, config, story, and all LLM response schemas
 - **OpenAI GPT-4.1** — backbone model for every agent (configurable per run)
 - **ElevenLabs** — optional TTS for Attenborough's commentary
-- **Rich** — terminal UI

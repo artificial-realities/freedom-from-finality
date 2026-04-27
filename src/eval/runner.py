@@ -30,6 +30,7 @@ from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.terminal import TerminalUI
 from src.util.interaction_logger import InteractionLogger
 from src.util.media import probe_duration
+from src.util.story_log import StoryLogger
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,6 @@ async def run_scenario(
     story: Story,
     scenario_path: Path | str,
     log_dir: Path | str = "logs",
-    ui: TerminalUI | None = None,
 ) -> StoryState:
     """Run a pre-defined scenario synchronously, turn by turn.
 
@@ -62,6 +62,7 @@ async def run_scenario(
         story_title=story.title,
         log_dir=log_dir,
     )
+    story_logger = StoryLogger(interaction_logger)
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
@@ -74,9 +75,6 @@ async def run_scenario(
         interaction_logger=interaction_logger,
         tts=tts,
     )
-
-    if ui is not None:
-        ui.render_opening(state)
 
     seed_image: str = config.i2v_seed_image
     video_dir = Path(log_dir) / "video"
@@ -102,9 +100,7 @@ async def run_scenario(
             )
 
         _commit_history(state)
-
-        if ui is not None:
-            ui.render_turn(state)
+        _log_story_turn(story_logger, state)
 
     interaction_logger.log_event(
         "session_end",
@@ -236,6 +232,19 @@ def _commit_history(state: StoryState) -> None:
     ))
 
 
+def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
+    story_logger.log_turn(
+        turn=state.turn_number,
+        user_input=state.user_input,
+        beat=state.current_beat,
+        shot=state.current_shot,
+        commentary=state.current_commentary,
+        world_state=state.world_state,
+        narrative_memory=state.narrative_memory,
+        context_brief=state.context_brief,
+    )
+
+
 async def _launch_persistent_ffplay(
     clip_path: str,
 ) -> asyncio.subprocess.Process | None:
@@ -307,6 +316,7 @@ async def run_play(
         story_title=story.title,
         log_dir=log_dir,
     )
+    story_logger = StoryLogger(interaction_logger)
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
@@ -321,7 +331,6 @@ async def run_play(
     )
 
     ui = ui or TerminalUI()
-    ui.render_opening(state)
 
     seed_image: str = config.i2v_seed_image
     video_dir = Path(log_dir) / "video"
@@ -351,9 +360,9 @@ async def run_play(
                 )
 
             _commit_history(state)
-            ui.render_turn(state)
+            _log_story_turn(story_logger, state)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        ui.render_error("\n(quit)")
+        print("\n(quit)")
     finally:
         interaction_logger.log_event(
             "session_end",
@@ -368,7 +377,6 @@ async def run_live(
     config: Config,
     story: Story,
     log_dir: Path | str = "logs",
-    ui: TerminalUI | None = None,
 ) -> StoryState:
     """Live demo loop — concurrent producer + player + stdin reader.
 
@@ -393,6 +401,7 @@ async def run_live(
         story_title=story.title,
         log_dir=log_dir,
     )
+    story_logger = StoryLogger(interaction_logger)
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
@@ -407,11 +416,10 @@ async def run_live(
         interaction_logger=interaction_logger, tts=tts,
     )
 
-    ui = ui or TerminalUI()
-    ui.render_opening(state)
-    ui.console.print(
-        f"[dim]Pre-buffering up to {config.video_buffer_clips} clip(s); "
-        f"first render takes ~30s on DashScope. Type to steer; Ctrl+C to quit.[/dim]"
+    print(
+        f"Pre-buffering up to {config.video_buffer_clips} clip(s); "
+        f"first render takes ~30s on DashScope. Type to steer; Ctrl+C to quit.",
+        flush=True,
     )
 
     video_dir = Path(log_dir) / "video"
@@ -425,7 +433,14 @@ async def run_live(
     played_clips: list[str] = []
 
     def _stdin_loop() -> None:
-        """Blocking stdin reader running on a daemon thread."""
+        """Blocking stdin reader running on a daemon thread.
+
+        Re-emits a `› ` prompt after every Enter so the terminal feels
+        like a chat input field — the previous line stays as scrollback,
+        a fresh prompt waits below.
+        """
+        sys.stdout.write("› ")
+        sys.stdout.flush()
         while not stop_event.is_set():
             try:
                 line = sys.stdin.readline()
@@ -435,6 +450,8 @@ async def run_live(
                 return
             line = line.strip()
             asyncio.run_coroutine_threadsafe(user_input_queue.put(line), loop)
+            sys.stdout.write("› ")
+            sys.stdout.flush()
 
     threading.Thread(target=_stdin_loop, daemon=True).start()
 
@@ -490,7 +507,7 @@ async def run_live(
                     )
 
                 _commit_history(state)
-                ui.render_turn(state)
+                _log_story_turn(story_logger, state)
 
                 if silent is None:
                     # Render failed or skipped — nothing to enqueue. Abort any
@@ -602,8 +619,9 @@ async def run_live(
                 await asyncio.sleep(0.5)
             if stop_event.is_set():
                 return
-            ui.console.print(
-                f"[dim]Pre-buffer ready ({clip_queue.qsize()} clips). Starting playback.[/dim]"
+            print(
+                f"Pre-buffer ready ({clip_queue.qsize()} clips). Starting playback.",
+                flush=True,
             )
 
             current_proc: asyncio.subprocess.Process | None = None
@@ -614,9 +632,7 @@ async def run_live(
                 except asyncio.QueueEmpty:
                     # Queue empty — current ffplay holds last frame.
                     if current_proc is not None:
-                        ui.console.print(
-                            "[dim italic]Type to steer the story ↵[/dim italic]"
-                        )
+                        print("Type to steer the story ↵", flush=True)
                     clip_path = await clip_queue.get()
 
                 # Launch new window BEFORE killing old → no flicker.
@@ -666,7 +682,7 @@ async def run_live(
     try:
         await asyncio.gather(producer_task, consumer_task)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        ui.render_error("\n(quit)")
+        print("\n(quit)")
     finally:
         stop_event.set()
         for task in (producer_task, consumer_task):
@@ -684,10 +700,10 @@ async def run_live(
 
         if played_clips:
             out = video_dir / "full_session.mp4"
-            ui.console.print("[dim]Saving full session video…[/dim]")
+            print("Saving full session video…", flush=True)
             saved = await _save_full_session(played_clips, out)
             if saved:
-                ui.console.print(f"[bold green]Saved:[/bold green] {saved}")
+                print(f"Saved: {saved}", flush=True)
             else:
-                ui.console.print("[yellow]Could not save session video.[/yellow]")
+                print("Could not save session video.", flush=True)
     return state

@@ -62,7 +62,6 @@ def build_parser() -> argparse.ArgumentParser:
 async def cmd_play(args: argparse.Namespace) -> None:
     story = Story.from_json(args.story)
     config = Config.from_yaml(args.config)
-    ui = TerminalUI()
 
     if args.scenario is not None:
         await run_scenario(
@@ -70,13 +69,12 @@ async def cmd_play(args: argparse.Namespace) -> None:
             story=story,
             scenario_path=args.scenario,
             log_dir=args.log_dir,
-            ui=ui,
         )
     elif config.video_enabled:
         # Live demo: producer + player + stdin reader, buffered.
-        await run_live(config=config, story=story, log_dir=args.log_dir, ui=ui)
+        await run_live(config=config, story=story, log_dir=args.log_dir)
     else:
-        await run_play(config=config, story=story, log_dir=args.log_dir, ui=ui)
+        await run_play(config=config, story=story, log_dir=args.log_dir, ui=TerminalUI())
 
 
 async def cmd_benchmark(args: argparse.Namespace) -> None:
