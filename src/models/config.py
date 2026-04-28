@@ -23,9 +23,23 @@ class Config(BaseModel):
     context_window_history: int = 5
     narrative_memory_target_tokens: int = 800
 
+    # When True, dispatch to a continuous live loop instead of the
+    # turn-by-turn `run_play`. Combined with `video_enabled`:
+    #   live + video_enabled  → run_live      (clips + ffplay window)
+    #   live + !video_enabled → run_live_text (Tk popup, no clips)
+    # `play` (no scenario, !live) is the sequential terminal loop used
+    # for benchmark/dev work.
+    live: bool = False
+
     video_enabled: bool = False
-    video_buffer_clips: int = 6
-    prebuffer_clips: int = 3
+    # Producer lead, in clips. The live producer renders ahead of the
+    # player by this many clips and the consumer waits for `lead_clips + 1`
+    # clips to be queued before starting playback. 0 = no startup wait,
+    # no enforced race-ahead (queue size 1, render and play overlap by one
+    # clip naturally). Bump above 0 to re-enable the "delay-as-feature"
+    # narrative smoothing once i2v latency drops enough that a sustained
+    # lead is realistic.
+    lead_clips: int = 0
     i2v_backend: str = "dashscope"
     i2v_model: str = "wan2.6-i2v-flash"
     i2v_resolution: str = "720P"

@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 # Shell-exported values already in the environment win — override=False.
 load_dotenv(override=False)
 
-from src.eval.runner import run_live, run_play, run_scenario  # noqa: E402
+from src.eval.runner import run_live, run_live_text, run_play, run_scenario  # noqa: E402
 from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
 from src.ui.terminal import TerminalUI  # noqa: E402
@@ -75,9 +75,12 @@ async def cmd_play(args: argparse.Namespace) -> None:
             scenario_path=args.scenario,
             log_dir=args.log_dir,
         )
-    elif config.video_enabled:
-        # Live demo: producer + player + stdin reader, buffered.
+    elif config.live and config.video_enabled:
+        # Live demo with video: producer + ffplay + stdin reader.
         await run_live(config=config, story=story, log_dir=args.log_dir)
+    elif config.live:
+        # Live demo without video: continuous loop + Tk popup + stdin reader.
+        await run_live_text(config=config, story=story, log_dir=args.log_dir)
     else:
         await run_play(config=config, story=story, log_dir=args.log_dir, ui=TerminalUI())
 

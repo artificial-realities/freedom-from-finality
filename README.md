@@ -121,7 +121,7 @@ cp .env.example .env   # fill in only the keys you actually need
 ### Running
 
 ```bash
-# Interactive play (MAS, video + audio disabled)
+# Interactive play (MAS, sequential terminal loop, video + audio disabled)
 python main.py play --config configs/mas.yaml
 
 # Run the benchmark scenario against one config
@@ -130,10 +130,11 @@ python main.py play --config configs/solo.yaml --scenario data/test_scenario.jso
 # Benchmark both configs against the scenario
 python main.py benchmark --scenario data/test_scenario.json
 
-# Live demo (interactive, video + audio): requires video_enabled: true
-# in the config plus DASHSCOPE_API_KEY (and optionally ELEVENLABS_API_KEY).
-# `play` automatically switches to live mode when video_enabled is true.
-python main.py play --config configs/mas.yaml
+# Live demo, no video — story unfolds in a Tk popup; type guidance in the terminal
+python main.py play --config configs/mas.live-text.yaml
+
+# Live demo with video + audio: needs DASHSCOPE_API_KEY (and ELEVENLABS_API_KEY)
+python main.py play --config configs/mas.live.yaml
 ```
 
 ## Tech Stack

@@ -33,21 +33,25 @@ Every `.md` prompt template and every agent spec in this document assumes this l
 
 ## Pipeline Buffer (Delay-as-Feature)
 
-When video generation is live, the MAS runs **ahead of the viewer** by roughly 6 clips (~30s). At boot, the pipeline pre-generates ~30s of video (and its matching commentary audio, if enabled) before playback starts. After that, every user command is queued and lands on the next *unrendered* clip, not the currently-playing one.
+When video is live, the MAS *can* run ahead of the viewer by a configurable number of clips. The knob is `lead_clips` (default `0`). At `0`, the producer renders one clip, the player starts as soon as it is ready, and render+playback overlap by one clip naturally. At `lead_clips: N > 0`, the producer maintains an N-clip lead, the consumer waits for `N + 1` clips before launching ffplay, and every user command lands on the next *unrendered* clip instead of the currently-playing one.
 
-This is not a technical wart — it is narrative smoothing:
+The default is `0` because i2v latency today (~30s for a 5s clip on DashScope) makes a sustained lead expensive in wall time. The knob exists so the design re-engages once i2v gets fast enough, without code changes.
+
+When the lead is in use, it is narrative smoothing, not a technical wart:
 
 - User says "jump in the pool" → the MAS does not hard-cut. Tolkien has 1–2 turns to ease into it (character walks toward pool, pauses at the edge, then jumps).
 - The story keeps flowing during silence. The user is not prompted; they *optionally* steer.
 - Abrupt tonal or logical shifts get absorbed across several clips instead of snapping.
 
-Architectural consequences:
+Architectural consequences (regardless of lead value):
 
 1. **Story must keep moving when the user is silent.** The MAS does not block on user input. If the next clip is due and the user has said nothing, Tolkien advances on the current `short_term_narrative`.
-2. **User input enters a queue.** It is applied to the next unrendered clip at the time Tolkien composes that clip's beat. Earlier queued clips play out unmodified.
-3. **Two clocks.** The MAS's internal clock (one turn = one clip in the build queue) and the viewer's subjective clock (~6 clips behind). The one-turn-delayed feedback loop refers to the internal clock.
+2. **User input enters a queue.** It is applied to the next unrendered clip at the time Tolkien composes that clip's beat. Earlier queued clips play out unmodified. At `lead_clips: 0` this is "the next clip after the one currently playing"; at higher leads, several clips deeper.
+3. **Two clocks.** The MAS's internal clock (one turn = one clip in the build queue) and the viewer's subjective clock (lead clips behind). The one-turn-delayed feedback loop refers to the internal clock.
 
-For the benchmark we **bypass the buffer** and run synchronously turn-by-turn, logging prompts and Attenborough's commentary text only — no actual clips or audio are generated. The buffer is a runtime concern, not an evaluation concern.
+For the benchmark we **bypass the buffer entirely** and run synchronously turn-by-turn, logging prompts and Attenborough's commentary text only — no actual clips or audio are generated. The buffer is a runtime concern, not an evaluation concern.
+
+There is also a no-video live mode (`live: true, video_enabled: false`) intended for the academic demo: the MAS still flows continuously and the user still types in the terminal, but instead of an ffplay window the four agents' outputs stream into a Tk popup as they're produced. No clips, no buffer, no lead — turns advance at LLM latency.
 
 ## Story Blueprint
 
@@ -462,8 +466,9 @@ temperature: 0.7
 max_tokens_per_agent: 1024
 context_window_history: 5
 narrative_memory_target_tokens: 800
+live: false                      # true → continuous live loop; false → sequential `run_play`
 video_enabled: false
-video_buffer_clips: 6
+lead_clips: 0                    # producer lead in clips (0 = no startup wait)
 audio_enabled: false
 elevenlabs_voice_id: ""          # required when audio_enabled: true
 ```

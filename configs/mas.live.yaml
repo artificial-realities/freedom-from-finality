@@ -8,9 +8,10 @@ max_tokens_per_agent: 1024
 context_window_history: 5
 narrative_memory_target_tokens: 800
 
+live: true
+
 video_enabled: true
-video_buffer_clips: 6
-prebuffer_clips: 3
+lead_clips: 0  # 0 = no startup wait; bump to N to race ahead by N clips.
 i2v_model: "wan2.6-i2v-flash"
 i2v_resolution: "720P"
 i2v_audio: false

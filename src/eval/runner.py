@@ -27,6 +27,7 @@ from src.playback import (
 )
 from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
+from src.ui.popup import StoryPopup
 from src.ui.terminal import TerminalUI
 from src.util.interaction_logger import InteractionLogger
 from src.util.media import probe_duration
@@ -381,17 +382,19 @@ async def run_live(
     """Live demo loop — concurrent producer + player + stdin reader.
 
     The producer keeps generating turns and pushing playable clips
-    onto a bounded queue (size = config.video_buffer_clips). The
-    player pulls clips and pops a video window via ffplay. A
-    background stdin thread reads user input and posts it to a
-    queue; the producer drains that queue at the start of each
-    turn and applies whatever's there as `user_input`. If the queue
-    is empty the story advances on `short_term_narrative` — silent
-    turns are normal.
+    onto a bounded queue (size = `lead_clips + 1`). The player pulls
+    clips and pops a video window via ffplay. A background stdin
+    thread reads user input and posts it to a queue; the producer
+    drains that queue at the start of each turn and applies whatever's
+    there as `user_input`. If the queue is empty the story advances on
+    `short_term_narrative` — silent turns are normal.
 
-    Pre-buffer behavior: the player blocks on the first clip's
-    `queue.get()`, so playback only starts once the first render
-    completes (~30s with DashScope).
+    Lead behavior: the queue maxsize is `lead_clips + 1` and the
+    consumer waits for that many clips before launching ffplay. With
+    the default `lead_clips: 0` the player starts as soon as the first
+    clip is ready and the producer naturally overlaps one render with
+    one playback. Bump `lead_clips` to re-introduce sustained
+    "delay-as-feature" narrative smoothing.
     """
     state = StoryState.initialize(story, config_name=config.name)
     interaction_logger = InteractionLogger(
@@ -416,18 +419,26 @@ async def run_live(
         interaction_logger=interaction_logger, tts=tts,
     )
 
-    print(
-        f"Pre-buffering up to {config.video_buffer_clips} clip(s); "
-        f"first render takes ~30s on DashScope. Type to steer; Ctrl+C to quit.",
-        flush=True,
-    )
+    queue_size = max(1, config.lead_clips + 1)
+    if config.lead_clips > 0:
+        print(
+            f"Pre-buffering {queue_size} clip(s) before playback "
+            f"(lead_clips={config.lead_clips}). Ctrl+C to quit.",
+            flush=True,
+        )
+    else:
+        print(
+            "Live mode (lead_clips=0): playback starts as soon as the "
+            "first clip is ready. Ctrl+C to quit.",
+            flush=True,
+        )
 
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
     loop = asyncio.get_running_loop()
     user_input_queue: asyncio.Queue[str] = asyncio.Queue()
-    clip_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=max(1, config.video_buffer_clips))
+    clip_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=queue_size)
 
     stop_event = asyncio.Event()
     played_clips: list[str] = []
@@ -612,17 +623,19 @@ async def run_live(
             stop_event.set()
 
     async def consumer() -> None:
-        gate = max(1, config.prebuffer_clips)
+        gate = queue_size
         try:
-            # Pre-buffer gate: wait until N clips are queued.
+            # Lead gate: wait until `lead_clips + 1` clips are queued.
+            # At lead=0 this is just "wait for the first clip."
             while clip_queue.qsize() < gate and not stop_event.is_set():
                 await asyncio.sleep(0.5)
             if stop_event.is_set():
                 return
-            print(
-                f"Pre-buffer ready ({clip_queue.qsize()} clips). Starting playback.",
-                flush=True,
-            )
+            if config.lead_clips > 0:
+                print(
+                    f"Lead ready ({clip_queue.qsize()} clips). Starting playback.",
+                    flush=True,
+                )
 
             current_proc: asyncio.subprocess.Process | None = None
 
@@ -705,4 +718,117 @@ async def run_live(
                 print(f"Saved: {saved}", flush=True)
             else:
                 print("Could not save session video.", flush=True)
+    return state
+
+
+async def run_live_text(
+    *,
+    config: Config,
+    story: Story,
+    log_dir: Path | str = "logs",
+) -> StoryState:
+    """No-video live loop — story streams into a Tk popup, user types in terminal.
+
+    Same continuous shape as `run_live` (background stdin thread, drain
+    on each turn, never block on user input), but with no video render,
+    no TTS, and no clip queue. Each iteration: drain stdin → run graph
+    → push the turn into the popup → loop. Pacing is whatever the LLMs
+    deliver — no clip-duration gating.
+    """
+    state = StoryState.initialize(story, config_name=config.name)
+    interaction_logger = InteractionLogger(
+        session_label=f"{config.name}_live_text",
+        config_name=config.name,
+        scenario="live_text",
+        story_title=story.title,
+        log_dir=log_dir,
+    )
+    story_logger = StoryLogger(interaction_logger)
+
+    llm = build_backend(config.llm_backend, config.model)
+    # No TTS, no i2v — popup mode is text-only by design.
+    graph = build_graph(
+        config.graph, llm=llm, config=config,
+        interaction_logger=interaction_logger, tts=None,
+    )
+
+    popup = StoryPopup(title=f"ClankerStudios — {story.title or config.name}")
+    popup.start()
+
+    print(
+        "Live (text) mode: story streams in the popup window; "
+        "type guidance here, Ctrl+C to quit.",
+        flush=True,
+    )
+
+    loop = asyncio.get_running_loop()
+    user_input_queue: asyncio.Queue[str] = asyncio.Queue()
+    stop_event = asyncio.Event()
+
+    def _stdin_loop() -> None:
+        sys.stdout.write("› ")
+        sys.stdout.flush()
+        while not stop_event.is_set():
+            try:
+                line = sys.stdin.readline()
+            except Exception:
+                return
+            if not line:  # EOF
+                return
+            line = line.strip()
+            asyncio.run_coroutine_threadsafe(user_input_queue.put(line), loop)
+            sys.stdout.write("› ")
+            sys.stdout.flush()
+
+    threading.Thread(target=_stdin_loop, daemon=True).start()
+
+    turn = 0
+    try:
+        while not stop_event.is_set():
+            turn += 1
+
+            # Drain pending input — keep the most recent non-empty entry.
+            user_input = ""
+            while not user_input_queue.empty():
+                candidate = await user_input_queue.get()
+                if candidate:
+                    user_input = candidate
+
+            state.turn_number = turn
+            state.user_input = user_input
+            interaction_logger.log_event(
+                "turn_start", turn, {"user_input": user_input},
+            )
+
+            result = await graph.ainvoke(state)
+            state = _coerce_state(result)
+
+            _commit_history(state)
+            _log_story_turn(story_logger, state)
+
+            popup.append_turn(
+                turn=state.turn_number,
+                user_input=state.user_input,
+                beat=state.current_beat,
+                shot=state.current_shot,
+                commentary=state.current_commentary,
+                world_state=state.world_state,
+                narrative_memory=state.narrative_memory,
+                context_brief=state.context_brief,
+            )
+
+            # If the user closed the popup, treat that as a quit signal.
+            if not popup.is_alive():
+                break
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print("\n(quit)")
+    except Exception:
+        logger.exception("Live-text loop crashed on turn %s", turn)
+    finally:
+        stop_event.set()
+        popup.stop()
+        interaction_logger.log_event(
+            "session_end", state.turn_number,
+            {"turns_completed": state.turn_number},
+        )
     return state
