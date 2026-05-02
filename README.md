@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="data/banner.png" alt="Clanker Studios banner" width="100%" />
+</p>
+
 # ClankerStudios
 
 A four-role workflow for interactive storytelling, built with LangGraph. Four specialized LLMs — a beat writer, a shot composer, a voice-over commentator, and a memory curator — coordinate over a fixed, deterministic pipeline to produce a continuous stream of short video clips chained via image-to-video (i2v), layered with live voice-over commentary, while the user optionally steers the story with natural-language commands between clips.
