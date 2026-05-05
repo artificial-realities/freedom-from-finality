@@ -14,6 +14,14 @@ class LLMBackend(ABC):
         messages: list[dict],
         temperature: float = 0.7,
         max_tokens: int = 1024,
+        *,
+        trace_name: str | None = None,
+        trace_metadata: dict | None = None,
     ) -> tuple[str, dict]:
-        """Return (response_text, token_usage)."""
+        """Return (response_text, token_usage).
+
+        `trace_name` and `trace_metadata` are optional observability
+        labels (e.g., agent name, turn number). Backends that don't
+        trace simply ignore them.
+        """
         ...

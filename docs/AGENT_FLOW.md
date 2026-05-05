@@ -271,7 +271,54 @@ R = read, W = write, (W) = wrote earlier this turn.
 
 ---
 
-## 6. Where to look in code
+## 6. Tracing (Langfuse)
+
+LLM calls are traced through the **`langfuse.openai` drop-in wrapper**
+imported in `src/llm/openai_backend.py`. Every call captures model,
+prompts, completions, token usage, latency, and cost — no agent code
+knows about Langfuse.
+
+**Activation.** Tracing turns on automatically when `LANGFUSE_PUBLIC_KEY`
+is set in the environment (see `.env.example` for the EU-cloud defaults).
+With keys absent the wrapper acts as a pure passthrough and the helper
+in `src/util/langfuse_setup.py` no-ops.
+
+**Trace shape.** Each turn becomes one Langfuse trace named `turn_<n>`
+with one child generation per agent (Tolkien / Spielberg / Attenborough
+/ Spock for MAS, a single `solo` generation for the baseline). Spans are
+opened around `graph.ainvoke(state)` in `src/eval/runner.py`. All turns
+of one run share a session id mirroring the on-disk log filename stem,
+so a Langfuse session and the local `logs/<session>.json` / `.md` files
+cross-reference 1:1.
+
+```
+Session: mas_test_scenario_20260505_120000
+  tags: [mas, scenario, test_scenario]
+├── Trace: turn_1
+│   ├── Generation: tolkien        (prompt, completion, tokens, latency)
+│   ├── Generation: spielberg
+│   ├── Generation: attenborough
+│   └── Generation: spock
+├── Trace: turn_2
+└── ...
+```
+
+**Tags per loop:** `[<config.name>, "scenario", <stem>]` for benchmarks,
+`[<config.name>, "play"]` / `"live"` / `"live_text"` for the others.
+
+**Why `StoryLogger` stays.** Langfuse is call-level observability, not
+narrative reconstruction. The Markdown transcript in `logs/*.md` remains
+the canonical "read this run as a story" artifact — and the input format
+for any later LLM-as-judge pass that scores stories and writes scores
+back via `langfuse.score(trace_id, ...)`.
+
+**Common gotcha:** short-lived processes (one-shot benchmarks) lose
+buffered events without a flush. Every runner finally-block calls
+`langfuse_setup.flush()`.
+
+---
+
+## 7. Where to look in code
 
 - `src/state/story_state.py` — `StoryState`, `HistoryEntry`,
   `apply_world_delta`, `initialize`
@@ -284,5 +331,7 @@ R = read, W = write, (W) = wrote earlier this turn.
   formatters
 - `src/graph/mas_graph.py` / `solo_graph.py` — node wiring
 - `src/eval/runner.py` — `_commit_history`, `_coerce_state`, the loops
-  that drive turns
+  that drive turns; per-turn `turn_span(...)` and `langfuse_flush()`
+- `src/util/langfuse_setup.py` — `is_enabled`, `turn_span`, `flush`
+- `src/llm/openai_backend.py` — Langfuse drop-in import + trace kwargs
 - `src/prompts/*.md` — the actual prompt templates each agent fills in

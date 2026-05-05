@@ -42,6 +42,8 @@ async def call_llm_structured(
         messages=messages,
         temperature=config.temperature,
         max_tokens=max_tokens or config.max_tokens_per_agent,
+        trace_name=agent,
+        trace_metadata={"turn": turn, "config": config.name, "agent": agent},
     )
     latency_ms = int((time.monotonic() - start) * 1000)
 

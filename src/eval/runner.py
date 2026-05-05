@@ -30,6 +30,8 @@ from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.popup import StoryPopup
 from src.ui.terminal import TerminalUI
 from src.util.interaction_logger import InteractionLogger
+from src.util.langfuse_setup import flush as langfuse_flush
+from src.util.langfuse_setup import turn_span
 from src.util.media import probe_duration
 from src.util.story_log import StoryLogger
 
@@ -38,6 +40,15 @@ logger = logging.getLogger(__name__)
 
 def load_scenario(path: Path | str) -> list[str]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _trace_session_id(interaction_logger: InteractionLogger) -> str:
+    """Stable Langfuse session id, mirroring the local log filename stem.
+
+    Composing config + mode + timestamp keeps Langfuse Sessions and the
+    on-disk JSON/Markdown logs trivially cross-referenceable.
+    """
+    return interaction_logger.log_file.stem
 
 
 async def run_scenario(
@@ -81,34 +92,46 @@ async def run_scenario(
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
-    for turn_number, user_input in enumerate(turns, start=1):
-        state.turn_number = turn_number
-        state.user_input = user_input
+    trace_session_id = _trace_session_id(interaction_logger)
+    trace_tags = [config.name, "scenario", Path(scenario_path).stem]
 
-        interaction_logger.log_event("turn_start", turn_number, {"user_input": user_input})
+    try:
+        for turn_number, user_input in enumerate(turns, start=1):
+            state.turn_number = turn_number
+            state.user_input = user_input
 
-        result = await graph.ainvoke(state)
-        state = _coerce_state(result)
+            interaction_logger.log_event("turn_start", turn_number, {"user_input": user_input})
 
-        if i2v is not None and state.current_shot is not None:
-            seed_image, _silent, _playable = await _render_turn(
-                state=state,
-                i2v=i2v,
-                seed_image=seed_image,
-                frames_dir=frames_dir,
-                video_dir=video_dir,
-                interaction_logger=interaction_logger,
-            )
+            with turn_span(
+                turn_number=turn_number,
+                session_id=trace_session_id,
+                tags=trace_tags,
+                metadata={"config": config.name, "user_input": user_input},
+            ):
+                result = await graph.ainvoke(state)
+            state = _coerce_state(result)
 
-        _commit_history(state)
-        _log_story_turn(story_logger, state)
+            if i2v is not None and state.current_shot is not None:
+                seed_image, _silent, _playable = await _render_turn(
+                    state=state,
+                    i2v=i2v,
+                    seed_image=seed_image,
+                    frames_dir=frames_dir,
+                    video_dir=video_dir,
+                    interaction_logger=interaction_logger,
+                )
 
-    interaction_logger.log_event(
-        "session_end",
-        state.turn_number,
-        {"turns_completed": len(turns)},
-    )
-    return state
+            _commit_history(state)
+            _log_story_turn(story_logger, state)
+
+        interaction_logger.log_event(
+            "session_end",
+            state.turn_number,
+            {"turns_completed": len(turns)},
+        )
+        return state
+    finally:
+        langfuse_flush()
 
 
 def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
@@ -337,6 +360,9 @@ async def run_play(
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
+    trace_session_id = _trace_session_id(interaction_logger)
+    trace_tags = [config.name, "play"]
+
     turn_number = 0
     try:
         while True:
@@ -347,7 +373,13 @@ async def run_play(
 
             interaction_logger.log_event("turn_start", turn_number, {"user_input": user_input})
 
-            result = await graph.ainvoke(state)
+            with turn_span(
+                turn_number=turn_number,
+                session_id=trace_session_id,
+                tags=trace_tags,
+                metadata={"config": config.name, "user_input": user_input},
+            ):
+                result = await graph.ainvoke(state)
             state = _coerce_state(result)
 
             if i2v is not None and state.current_shot is not None:
@@ -370,6 +402,7 @@ async def run_play(
             state.turn_number,
             {"turns_completed": state.turn_number},
         )
+        langfuse_flush()
     return state
 
 
@@ -473,6 +506,9 @@ async def run_live(
     state.silence_seconds = config.min_pause_seconds
     state.audio_seconds_owed = 0.0
 
+    trace_session_id = _trace_session_id(interaction_logger)
+    trace_tags = [config.name, "live"]
+
     async def producer() -> None:
         nonlocal state
         seed_image = config.i2v_seed_image
@@ -499,7 +535,13 @@ async def run_live(
                     "turn_start", turn, {"user_input": user_input},
                 )
 
-                result = await graph.ainvoke(state)
+                with turn_span(
+                    turn_number=turn,
+                    session_id=trace_session_id,
+                    tags=trace_tags,
+                    metadata={"config": config.name, "user_input": user_input},
+                ):
+                    result = await graph.ainvoke(state)
                 state = _coerce_state(result)
                 # graph.ainvoke rebuilt state from a dict — re-arm the
                 # pacing flag so the next turn's gating still applies.
@@ -709,6 +751,7 @@ async def run_live(
             "session_end", state.turn_number,
             {"turns_completed": state.turn_number},
         )
+        langfuse_flush()
 
         if played_clips:
             out = video_dir / "full_session.mp4"
@@ -782,6 +825,9 @@ async def run_live_text(
 
     threading.Thread(target=_stdin_loop, daemon=True).start()
 
+    trace_session_id = _trace_session_id(interaction_logger)
+    trace_tags = [config.name, "live_text"]
+
     turn = 0
     try:
         while not stop_event.is_set():
@@ -800,7 +846,13 @@ async def run_live_text(
                 "turn_start", turn, {"user_input": user_input},
             )
 
-            result = await graph.ainvoke(state)
+            with turn_span(
+                turn_number=turn,
+                session_id=trace_session_id,
+                tags=trace_tags,
+                metadata={"config": config.name, "user_input": user_input},
+            ):
+                result = await graph.ainvoke(state)
             state = _coerce_state(result)
 
             _commit_history(state)
@@ -831,4 +883,5 @@ async def run_live_text(
             "session_end", state.turn_number,
             {"turns_completed": state.turn_number},
         )
+        langfuse_flush()
     return state
