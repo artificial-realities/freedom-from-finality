@@ -60,7 +60,7 @@ One pre-registered 180-turn playthrough split into seven labelled phases that ea
 
 ### Total: 2 configs × N runs × 180 turns
 
-`N` defaults to **5** for the headline benchmark (2 × 5 × 180 = 1800 turns of generated output). Multiple runs is the single most important methodological lift over a single shot: LLM stochasticity dominates a one-shot comparison. With N≥3 we can compute within-config variance and run paired statistical tests on the per-phase aggregates.
+`N` defaults to **3** for the headline benchmark (2 × 3 × 180 = 1080 turns of generated output). Multiple runs is the single most important methodological lift over a single shot: LLM stochasticity dominates a one-shot comparison. With N=3 we can compute within-config variance, run paired statistical tests on phase-pooled aggregates, and report descriptive mean ± std at the per-phase level. N=3 is a deliberate cost trade-off — N=5 would give per-phase Wilcoxon tests their full power, but at ~$75 total instead of ~$45.
 
 No video or audio is rendered during benchmark runs. Spielberg's `Shot.i2v_prompt` and Attenborough's `Commentary.voiceover` are logged as text; both configs honour the same Pacing gates so the commentary stream is comparable. This keeps the benchmark reproducible and cheap.
 
@@ -105,7 +105,7 @@ python main.py judge <session_id>
 
 ### Judge calibration
 
-Because both layers are LLM-graded, calibration against human review is **load-bearing**, not optional. Before treating the judge as ground truth, a human reviewer scores a stratified sample (~20 turns per run, balanced across phases — so ~140 turns per N=5 cycle) on the same rubric. We compute Cohen's κ between human and judge per dimension. The pre-registered threshold is **κ > 0.6** for the rubric to count as validated; below that the rubric language is sharpened (in `src/prompts/judge.local.system.md` or `src/prompts/judge.window.system.md`) and the runs are re-judged before any headline numbers are reported.
+Because both layers are LLM-graded, calibration against human review is **load-bearing**, not optional. Before treating the judge as ground truth, a human reviewer scores a stratified sample (~20 turns per run, balanced across phases — so ~120 turns total across the N=3 cycle) on the same rubric. We compute Cohen's κ between human and judge per dimension. The pre-registered threshold is **κ > 0.6** for the rubric to count as validated; below that the rubric language is sharpened (in `src/prompts/judge.local.system.md` or `src/prompts/judge.window.system.md`) and the runs are re-judged before any headline numbers are reported.
 
 This is the methodology's central reliability claim: a single calibrated LLM judge replaces the regex-layer hardening that a multi-method evaluation would have provided. If κ is low and resists rubric tightening, that is itself a publishable methodological note.
 
@@ -118,32 +118,34 @@ The seven-phase structure of the scenario gives us seven natural aggregation buc
 
 ### Statistical analysis
 
-With N≥3 paired runs per config we can run a paired Wilcoxon signed-rank test per (phase × dimension) cell. The data are bounded ordinal (0–3 means) and we have no parametric assumption to lean on, so non-parametric is the right default. Effect size is reported as **Cliff's δ** alongside the p-value — δ separates "statistically significant tiny gap" from "decisive shift" without requiring normality.
+With N=3 paired runs per config the data are bounded ordinal (0–3 means) and small-sample, so non-parametric tests are the right default. Effect size is reported as **Cliff's δ** alongside any p-value — δ separates "statistically significant tiny gap" from "decisive shift" without requiring normality, and stays meaningful even where N is too small for a significance test to bite.
+
+A note on power: paired Wilcoxon signed-rank with N=3 paired observations cannot produce a one-sided p-value below 0.125 — the discrete null distribution simply does not reach 0.05. The hypothesis tests below therefore **pool across multiple phases** (or across multiple probes) wherever a p-value is being claimed, which raises the paired-observation count to a level where p<0.05 is reachable. Per-phase numbers are reported descriptively as mean ± std without per-phase significance tests.
 
 The pre-registered hypotheses are:
 
-- **H1 — Early-phase parity.** Mean `window.long_horizon_coherence` and the four `local.*` means in the *setup* phase are not significantly different between configs (Wilcoxon p > 0.1).
-- **H2 — Late-phase MAS advantage.** Mean `window.long_horizon_coherence` over the *sleep_and_probes* and *coda* phases is higher for MAS than for solo (Wilcoxon one-sided p < 0.05, |δ| ≥ 0.33).
-- **H3 — Adversarial parity-or-MAS.** Mean `local.lego_anatomy_compliance` over the *adversarial* phase is not lower for MAS than for solo. (We expect both to be roughly tied — adversarial robustness is a prompt-discipline question, not a coordination one.)
+- **H1 — Early-phase parity.** Mean `window.long_horizon_coherence` and the four `local.*` means in the *setup* phase are not significantly different between configs at the descriptive level: 95% confidence intervals on the (MAS − solo) difference straddle zero across all five dimensions.
+- **H2 — Late-phase MAS advantage.** Pooling the *sleep_and_probes* and *coda* phases (giving 6 paired phase-mean observations across N=3 runs), `window.long_horizon_coherence` is higher for MAS than for solo (Wilcoxon one-sided p < 0.05, |δ| ≥ 0.33). The all-pairs-favor-MAS outcome required to clear p<0.05 is itself a strong directional signal.
+- **H3 — Adversarial parity-or-MAS.** Mean `local.lego_anatomy_compliance` over the *adversarial* phase is not lower for MAS than for solo (Cliff's δ ≥ 0). Reported descriptively; we expect both configs to be roughly tied since adversarial robustness is a prompt-discipline question, not a coordination one.
 
 Failure of H2 — MAS not beating solo on the long-horizon dimension — is a publishable result, not a project failure. The diagnostic question becomes whether the loss comes from cross-agent communication overhead (details slipping across the forward pass) or from specialisation not buying enough under stress. Both are visible in the logs.
 
 ### Cost envelope
 
-Approximate per-config cost for the full benchmark + judge cycle at N=5:
+Approximate per-config cost for the full benchmark + judge cycle at N=3:
 
-- **Generation** (GPT-4.1, both configs, 5 runs each, 180 turns):
-  - Solo ≈ 900 LLM calls, MAS ≈ 3,600. Roughly $30–60 total.
-- **Judging** (Claude Sonnet 4.6, both configs, 5 runs each):
-  - Per-turn local rubric: 1,800 calls, ~3K input + ~300 output tokens, with prompt caching. ≈ $25.
-  - Per-window rubric: 150 calls, ~30K input + ~600 output tokens. ≈ $15.
-- **Total ≈ $70–100** for one full pre-registered benchmark cycle.
+- **Generation** (GPT-4.1, both configs, 3 runs each, 180 turns):
+  - Solo ≈ 540 LLM calls, MAS ≈ 2,160. Roughly $24 total.
+- **Judging** (Claude Sonnet 4.6, both configs, 3 runs each):
+  - Per-turn local rubric: 1,080 calls, ~3K input + ~300 output tokens, with prompt caching. ≈ $13.
+  - Per-window rubric: 90 calls, ~30K input + ~600 output tokens. ≈ $7.
+- **Total ≈ $40–55** for one full pre-registered benchmark cycle. Add ~$15 to validate the pipeline end-to-end on a single paired smoke run before committing to the full N=3 cycle. Re-judging an existing run after sharpening the rubric costs ~$20 (judge only — generation is cached on disk and in Langfuse).
 
 ## Running
 
 ```bash
-# Headline benchmark — 5 paired runs per config against the 180-turn scenario.
-python main.py benchmark --scenario data/test_scenario.json --runs 5
+# Headline benchmark — 3 paired runs per config against the 180-turn scenario.
+python main.py benchmark --scenario data/test_scenario.json --runs 3
 
 # Or run one config at a time.
 python main.py play --config configs/mas.yaml --scenario data/test_scenario.json

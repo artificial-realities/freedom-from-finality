@@ -3,7 +3,7 @@
 Usage:
     python main.py play --config configs/mas.yaml
     python main.py play --config configs/solo.yaml --scenario data/test_scenario.json
-    python main.py benchmark --scenario data/test_scenario.json --runs 5
+    python main.py benchmark --scenario data/test_scenario.json --runs 3
     python main.py judge <session_id>
 """
 
@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     bench.add_argument("--configs", nargs="+", type=Path, default=BENCHMARK_CONFIGS)
     bench.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR)
     bench.add_argument("--runs", type=int, default=1,
-                       help="Number of paired runs per config (default 1; use 5 for the headline benchmark).")
+                       help="Number of paired runs per config (default 1; use 3 for the headline benchmark).")
     bench.add_argument("-v", "--verbose", action="store_true")
 
     judge = sub.add_parser("judge", help="Score a finished session via the LLM-as-judge harness")
