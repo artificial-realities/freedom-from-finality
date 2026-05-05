@@ -95,7 +95,6 @@ async def cmd_benchmark(args: argparse.Namespace) -> None:
             story=story,
             scenario_path=args.scenario,
             log_dir=args.log_dir,
-            ui=None,
         )
 
 
