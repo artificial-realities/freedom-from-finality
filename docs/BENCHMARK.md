@@ -35,79 +35,124 @@ This trivializes visual consistency (one character, locked background) and remov
 
 ### Scenario
 
-One predefined 100-turn playthrough that deliberately exercises long-range memory. The scenario introduces props early, runs a series of bits in the middle, and calls back to earlier props and gags in the late game. Silent turns (empty `user_input`) are sprinkled throughout — the system must advance on `short_term_narrative` without stalling.
+One pre-registered 180-turn playthrough split into seven labelled phases that each exercise a specific failure mode. The full turn list lives in `data/test_scenario.json`; turn-level metadata (phase, props introduced, explicit callbacks, traps, probe windows) lives in `data/test_scenario_annotations.json` and is loaded by the judge so its scoring is grounded against the design — not against its own intuitions.
+
+| Phase | Turns | Purpose |
+|---|---|---|
+| Setup | 1–25 | Seed core props (ball, cap, skateboard, dog, sunglasses, hammer, plant, harmonica) in a deterministic order. Both configs should look indistinguishable here. |
+| Bit introduction | 26–55 | Introduce gags and additional props. First explicit callback at turn 54. |
+| Callback density | 56–90 | Heavy callbacks to phase-1 / phase-2 props. Where solo's juggling load starts to bite. |
+| Adversarial | 91–115 | 12 deliberate traps: fake callback (turn 91 umbrella), protagonist speech (93, 110), single-location violation (95), knee bends (96), second minifig (98), on-screen text (100), wall in the void (101), background colour change (107), facial expression change (109), scale change (112), broken consistency with an earlier rule (113). Includes a 5-turn silent run (102–106). |
+| Compound callback | 116–145 | Ambiguous and multi-prop callbacks. The umbrella from the fake callback at turn 91 finally becomes real at turn 139, so the same prop probes both a memory miss and a memory hit. |
+| Sleep + memory probes | 146–165 | Sleep transition followed by direct memory probes that ask about specific earlier turns ("where is the hammer?", "what was the very first thing you did?", "whose hat are you wearing?"). |
+| Coda | 166–180 | Five-turn silent reverie, then a final long-range callback to turn 1. |
 
 | Capability | What it tests | Where it should show up |
 |---|---|---|
-| Prop persistence | Props introduced in early turns still exist / are referenced later; consumed props stay gone | Spock's `world_state` (active props) |
-| Callback quality | Late-game clips reference early-game props, bits, and running gags naturally | `narrative_memory` → `context_brief` → Tolkien's `Beat` |
+| Prop persistence | Props from phases 1–2 still exist / are referenced ~100 turns later; consumed props stay gone; phantom props are refused | Spock's `world_state` (active props), or the solo response's `memory_update.world_state_delta` |
+| Callback quality | Late-game clips ground in specific earlier turns, including under ambiguous reference ("do that hat thing again") | `narrative_memory` → `context_brief` → Tolkien's `Beat` |
 | Bit variety | The system does not repeat the same gag unless the user explicitly asks for a callback | `narrative_memory` of past bits |
-| Authorship under silence | On silent turns, the system advances purposefully rather than producing filler | Tolkien's `Beat` when `user_input` is empty |
-| Long-horizon coherence | Late-game story stays self-consistent with everything that came before | `narrative_memory` fidelity + `context_brief` quality |
-| LEGO-anatomy consistency | Physical constraints respected (no knee bends, no protagonist speech, parts can pop off and click back on) | Tolkien's `Beat`; Spielberg's `Shot` |
-| Visual anchor stability | The character and void remain on-model across all 100 clips | Spielberg's `Shot` — spot-checked across turns |
-| Commentary coherence | Attenborough's voice-over lands on visible action, stays in the tone the blueprint asks for, doesn't recycle phrasings | `Commentary.voiceover` text across turns |
+| Authorship under silence | On silent turns the system advances purposefully rather than producing filler — checked specifically on the 5-turn silent runs at 102–106 and 166–170 | Tolkien's `Beat` when `user_input` is empty |
+| Long-horizon coherence | Late-game story stays self-consistent with everything that came before — the central dimension for the research question | `narrative_memory` fidelity + `context_brief` quality |
+| LEGO-anatomy compliance | Claw hands, stiff legs, no protagonist speech, fixed face, pop-off parts; adversarial turns silently complied with score 0 | Tolkien's `Beat`; Spielberg's `Shot` |
+| Visual anchor stability | The minifigure and white void remain on-model across all 180 clips | Spielberg's `Shot` |
+| Commentary coherence | Attenborough's voice-over lands on visible action, holds its register, doesn't recycle phrasings | `Commentary.voiceover` text across turns |
 
-### Total: 2 configs × 1 scenario × 100 turns = 200 turns
+### Total: 2 configs × N runs × 180 turns
 
-No actual video or audio is generated during benchmark runs. Spielberg's `Shot.i2v_prompt` and Attenborough's `Commentary.voiceover` are logged and evaluated as text. This keeps the benchmark reproducible and cheap.
+`N` defaults to **5** for the headline benchmark (2 × 5 × 180 = 1800 turns of generated output). Multiple runs is the single most important methodological lift over a single shot: LLM stochasticity dominates a one-shot comparison. With N≥3 we can compute within-config variance and run paired statistical tests on the per-phase aggregates.
+
+No video or audio is rendered during benchmark runs. Spielberg's `Shot.i2v_prompt` and Attenborough's `Commentary.voiceover` are logged as text; both configs honour the same Pacing gates so the commentary stream is comparable. This keeps the benchmark reproducible and cheap.
 
 ## Evaluation
 
-### No Automated Scoring
+Evaluation is **automated, two-layered, and pre-registered**. Each run is scored along two orthogonal layers, both written back to Langfuse as `Score` objects keyed to the relevant `trace_id` so dashboards and CSV exports separate them cleanly. The rubric language and probe-window structure are calibrated against human spot-check before the headline numbers are taken at face value.
 
-There is no LLM-as-judge pipeline or automated scoring. The interaction logger captures everything — every prompt, every response, every turn, every agent call with full context.
+### Layer 1 — Per-turn local rubric (every turn, LLM judge)
 
-After runs complete, evaluation is post-hoc:
+For each turn, the judge scores four local-quality dimensions on an integer 0–3 scale (3 = excellent, 0 = failure):
 
-- **Manual review** — read the logs, assess quality.
-- **LLM-assisted review** — hand the log files to an LLM with a scoring prompt and let it analyze.
+- `local.lego_anatomy_compliance`
+- `local.visual_anchor_stability`
+- `local.commentary_on_screen`
+- `local.internal_coherence`
 
-This keeps the codebase simple and avoids self-preference bias from using the same model family as generator and judge.
+The judge sees the turn's normalised `{beat, shot, commentary, memory}` payload (same shape for both configs), the turn's user input, and a small annotation block surfacing the phase, any prop introduced this turn, any explicit callback target, and any trap kind. It does *not* see prior turns at this layer — local quality is judged locally.
 
-### What to Look For
+### Layer 2 — Per-window memory rubric (15 probes, LLM judge)
 
-**Prop Persistence** — Items introduced early (soccer ball, hat, dog, etc.) still exist when referenced 30–70 turns later. Consumed or dismissed props do not silently return. Props that were "put on" are still on unless explicitly removed.
+The 15 probe turns defined in `data/test_scenario_annotations.json` are the measurement points for long-horizon memory. At each probe the judge sees a compact transcript of the window from `window_start` to `score_at_turn` and scores five memory dimensions on the 0–3 scale:
 
-**Callback Quality** — When the user references an earlier prop or bit, does the system recognize it and build on it? Does the system offer its own callbacks on silent turns?
+- `window.prop_persistence`
+- `window.callback_quality`
+- `window.bit_variety`
+- `window.rule_compliance`
+- `window.long_horizon_coherence`
 
-**Bit Variety** — Does the system avoid repeating gags it has already done? A second "moonwalk" request without a variation is a memory-drift signal.
+Probes target specific failure modes: the harmonica recall (turn 60 ↔ turn 25), the fake umbrella (turn 91), the adversarial cluster (turn 113 looking back over 91–113), the ambiguous hat reference (turn 116), the direct hammer / first-action / current-hat probes (turns 154–157), and the final long-range callback (turn 173).
 
-**User Intent Fidelity** — Did the system do what the user asked? How did silent turns get filled — with genuine forward motion or with filler?
+### The judge model
 
-**LEGO-Anatomy Compliance** — Claw hands, stiff legs, pop-off parts, no protagonist speech. Any violation is a rule-compliance failure.
+We deliberately use a **different model family** for the judge than the generator. Generation is GPT-4.1 (OpenAI); the judge is **Claude Sonnet 4.6** (Anthropic, model id `claude-sonnet-4-6`). This closes the self-preference loophole that would arise from same-family judging. The judge's system prompt is sent with `cache_control: ephemeral` so the rubric is reused across the 180 per-turn calls instead of being re-paid for each turn.
 
-**Visual Anchor Stability** (from Spielberg's prompts) — The minifigure's description stays on-model across all 100 clips. The white void stays featureless (no accidental backgrounds, floors, skies).
+The judge runs post-hoc against finished Langfuse sessions:
 
-**Commentary Coherence** — Attenborough's voice-over lands on what's visible, holds its register per `tone_guidelines`, and doesn't recycle the same observations. Commentary that contradicts `Beat.narration` or the shot is a coordination failure between agents.
+```bash
+python main.py judge <session_id>
+```
 
-**Long-Horizon Coherence** — The central test. Late-game narration should behave as if it has read the early game, not as if it woke up at turn 70. This is the dimension where MAS is most expected to outperform solo.
+…and uploads its scores to Langfuse via `client.create_score(...)`. Scores are `name`-prefixed (`local.*`, `window.*`) so dashboards and exports can filter by layer.
 
-### Aggregation by Phase
+### Judge calibration
 
-Break each run into phases:
+Because both layers are LLM-graded, calibration against human review is **load-bearing**, not optional. Before treating the judge as ground truth, a human reviewer scores a stratified sample (~20 turns per run, balanced across phases — so ~140 turns per N=5 cycle) on the same rubric. We compute Cohen's κ between human and judge per dimension. The pre-registered threshold is **κ > 0.6** for the rubric to count as validated; below that the rubric language is sharpened (in `src/prompts/judge.local.system.md` or `src/prompts/judge.window.system.md`) and the runs are re-judged before any headline numbers are reported.
 
-- **Early game** (turns 1–30) — setup quality, first impressions. Solo and MAS should look similar here.
-- **Mid game** (turns 31–70) — sustained quality as state accumulates. Early divergence.
-- **Late game** (turns 71–100) — long-horizon coherence. Where MAS should most clearly win.
+This is the methodology's central reliability claim: a single calibrated LLM judge replaces the regex-layer hardening that a multi-method evaluation would have provided. If κ is low and resists rubric tightening, that is itself a publishable methodological note.
 
-### Expected Hypothesis
+### Aggregation by phase
 
-- Solo performs competently early — its holistic view keeps every element of the story consistent for free. It degrades in the late game as the growing context strains its ability to juggle all four concerns at once: dropped setups, forgotten props, inventory drift, visual descriptors that shift across clips, commentary that starts contradicting the scene.
-- MAS pays a coherence cost upfront because each agent sees only a role-specific fraction of the story. If Spock's brief, the shared state, and the forward-pass communication carry enough signal, the MAS recovers that cost; if not, it loses coherence solo had for free.
-- If the MAS's coordination holds, each specialist's narrow workload keeps late-game quality closer to early-game quality than solo's does — specialization starts paying off as soon as juggling begins to hurt solo.
-- MAS pays a latency cost per turn (four sequential agent calls instead of one). This is the main tradeoff; the bet is that coherence gains from specialization justify the extra calls.
-- If MAS does *not* beat solo on long horizons, the interesting question is whether the loss comes from cross-agent communication overhead (details slipping across the forward pass) or from specialization not buying enough under stress — both diagnosable from the logs.
+The seven-phase structure of the scenario gives us seven natural aggregation buckets per run. For each `(config, run, phase, dimension)` tuple, we report the mean. The headline figures roll up to:
+
+- Phase-mean tables for `local.*` and `window.*` dimensions, grouped by config.
+- Total cost / latency per turn by config (read off Langfuse `total_cost` and per-trace latency).
+
+### Statistical analysis
+
+With N≥3 paired runs per config we can run a paired Wilcoxon signed-rank test per (phase × dimension) cell. The data are bounded ordinal (0–3 means) and we have no parametric assumption to lean on, so non-parametric is the right default. Effect size is reported as **Cliff's δ** alongside the p-value — δ separates "statistically significant tiny gap" from "decisive shift" without requiring normality.
+
+The pre-registered hypotheses are:
+
+- **H1 — Early-phase parity.** Mean `window.long_horizon_coherence` and the four `local.*` means in the *setup* phase are not significantly different between configs (Wilcoxon p > 0.1).
+- **H2 — Late-phase MAS advantage.** Mean `window.long_horizon_coherence` over the *sleep_and_probes* and *coda* phases is higher for MAS than for solo (Wilcoxon one-sided p < 0.05, |δ| ≥ 0.33).
+- **H3 — Adversarial parity-or-MAS.** Mean `local.lego_anatomy_compliance` over the *adversarial* phase is not lower for MAS than for solo. (We expect both to be roughly tied — adversarial robustness is a prompt-discipline question, not a coordination one.)
+
+Failure of H2 — MAS not beating solo on the long-horizon dimension — is a publishable result, not a project failure. The diagnostic question becomes whether the loss comes from cross-agent communication overhead (details slipping across the forward pass) or from specialisation not buying enough under stress. Both are visible in the logs.
+
+### Cost envelope
+
+Approximate per-config cost for the full benchmark + judge cycle at N=5:
+
+- **Generation** (GPT-4.1, both configs, 5 runs each, 180 turns):
+  - Solo ≈ 900 LLM calls, MAS ≈ 3,600. Roughly $30–60 total.
+- **Judging** (Claude Sonnet 4.6, both configs, 5 runs each):
+  - Per-turn local rubric: 1,800 calls, ~3K input + ~300 output tokens, with prompt caching. ≈ $25.
+  - Per-window rubric: 150 calls, ~30K input + ~600 output tokens. ≈ $15.
+- **Total ≈ $70–100** for one full pre-registered benchmark cycle.
 
 ## Running
 
 ```bash
-# Benchmark both configs against the scenario
-python main.py benchmark --scenario data/test_scenario.json
+# Headline benchmark — 5 paired runs per config against the 180-turn scenario.
+python main.py benchmark --scenario data/test_scenario.json --runs 5
 
-# Or run one config at a time
+# Or run one config at a time.
 python main.py play --config configs/mas.yaml --scenario data/test_scenario.json
 python main.py play --config configs/solo.yaml --scenario data/test_scenario.json
 
-# Logs are written to logs/ — evaluate them afterwards.
+# Score a finished session via the LLM-as-judge harness.
+# Session ids match the on-disk log stems (e.g. mas_test_scenario_20260505_120000).
+python main.py judge mas_test_scenario_20260505_120000
+
+# Logs land in logs/<session>.md (narrative transcript) plus logs/judge/<session>.judge.json
+# (aggregated rubric and check scores). Per-turn scores are also pushed to Langfuse.
 ```

@@ -307,10 +307,20 @@ Session: mas_test_scenario_20260505_120000
 `[<config.name>, "play"]` / `"live"` / `"live_text"` for the others.
 
 **Why `StoryLogger` stays.** Langfuse is call-level observability, not
-narrative reconstruction. The Markdown transcript in `logs/*.md` remains
-the canonical "read this run as a story" artifact — and the input format
-for any later LLM-as-judge pass that scores stories and writes scores
-back via `langfuse.score(trace_id, ...)`.
+narrative reconstruction. The Markdown transcript in `logs/*.md` is the
+canonical "read this run as a story" artifact for human review.
+
+**LLM-as-judge.** The post-hoc scoring pipeline lives in
+`src/eval/judge.py`. It pulls a finished session via
+`langfuse_fetch.fetch_session(...)`, normalises MAS and solo outputs
+into a single `{beat, shot, commentary, memory}` shape, runs Claude
+Sonnet 4.6 over the per-turn and per-window rubrics defined in
+`src/prompts/judge.*.md`, and writes everything back as Langfuse
+`Score` objects keyed to each turn's `trace_id`. Score names are
+prefixed `local.*` (per-turn rubric) or `window.*` (per-window memory
+rubric) so dashboards filter cleanly. See `docs/BENCHMARK.md` for the
+full evaluation methodology, including the human spot-check calibration
+that backs the judge.
 
 **Common gotcha:** short-lived processes (one-shot benchmarks) lose
 buffered events without a flush. Every runner finally-block calls
