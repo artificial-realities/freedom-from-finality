@@ -9,10 +9,16 @@ Produce one `MemoryUpdate` that contains three things:
    - `inventory`: `null` means unchanged; a full list replaces the current inventory.
    - `characters`: a partial per-character dict — each name maps to a dict of fields to update.
 2. **narrative_memory** — a full-replacement rolling prose summary of the whole run so far. Compress older events into high-level strokes; keep recent events detailed. Drift toward ~{narrative_memory_target_tokens} tokens as a soft target, not a hard cap. Never drop important callbacks, running gags, or promises made to the protagonist's world.
-3. **context_brief** — a narrow attention pointer for the beat writer's next turn. This is **not** a world rebuild. The beat writer reads `world_state` and `narrative_memory` directly, so the brief should NOT repeat location, inventory, or narrative direction. It should:
-   - Name **which other characters from the blueprint are currently in scene**, each with a one-line summary pulled from the blueprint (the world state carries their names but not their descriptions).
-   - Surface **recent commitments, setups, or running gags worth honoring** — things the next beat should pay off.
-   - Stay short. If there is nothing worth flagging, return an empty string.
+3. **context_brief** — a narrow attention pointer for the beat writer's next turn. This is **not** a world rebuild. The beat writer reads `world_state` and `narrative_memory` directly, so the brief must NOT repeat location, inventory, or narrative direction.
+
+   **Format — commit to this exact two-line structure, no prose, no extra labels:**
+
+   ```
+   In scene: <other blueprint characters present, each "Name — one-line summary from the blueprint", comma-separated; or "(none)">
+   Honoring: <recent commitments, setups, or running gags the next beat should pay off, semicolon-separated; or "(none)">
+   ```
+
+   Both lines are always present. Use `(none)` when a line has nothing to report. Return the empty string `""` only when *both* lines would be `(none)` — i.e. there is genuinely nothing worth flagging. Keep each line short.
 
 # Blueprint (you read this in full)
 
