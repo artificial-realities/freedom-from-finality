@@ -18,29 +18,27 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.state.story_state import StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
-from src.util.interaction_logger import InteractionLogger
 
 
 def build_mas_graph(
     *,
     llm: LLMBackend,
     config: Config,
-    interaction_logger: InteractionLogger,
     tts: ElevenLabsTTS | None = None,
 ):
     graph = StateGraph(StoryState)
 
     async def tolkien_node(state: StoryState) -> dict:
-        return await run_tolkien(state, llm, config, interaction_logger)
+        return await run_tolkien(state, llm, config)
 
     async def spielberg_node(state: StoryState) -> dict:
-        return await run_spielberg(state, llm, config, interaction_logger)
+        return await run_spielberg(state, llm, config)
 
     async def attenborough_node(state: StoryState) -> dict:
-        return await run_attenborough(state, llm, config, interaction_logger, tts=tts)
+        return await run_attenborough(state, llm, config, tts=tts)
 
     async def spock_node(state: StoryState) -> dict:
-        return await run_spock(state, llm, config, interaction_logger)
+        return await run_spock(state, llm, config)
 
     graph.add_node("tolkien", tolkien_node)
     graph.add_node("spielberg", spielberg_node)

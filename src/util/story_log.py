@@ -1,10 +1,9 @@
 """Markdown story transcript — agent outputs only, for narrative review.
 
-Sits next to InteractionLogger in `logs/` with a matching basename so the
-two files are obviously paired. Contains per-turn agent outputs (Beat,
-Shot, Commentary, Memory) and nothing else — no prompts, no token counts,
-no parameters. The JSON `interaction_logger` remains the source of truth
-for everything else; this file is for skimming the story flow.
+Contains per-turn agent outputs (Beat, Shot, Commentary, Memory) and
+nothing else — no prompts, no token counts, no parameters. The full
+LLM call detail lives in Langfuse; this file is for skimming the story
+flow and as the input format for the future LLM-judge pass.
 """
 
 from __future__ import annotations
@@ -14,21 +13,28 @@ from datetime import datetime
 from pathlib import Path
 
 from src.models.responses import Beat, Commentary, Shot
-from src.util.interaction_logger import InteractionLogger
 
 logger = logging.getLogger(__name__)
 
 
 class StoryLogger:
-    def __init__(self, interaction_logger: InteractionLogger) -> None:
-        # Share session_id + base path with the JSON log so the two files
-        # pair up by name in `logs/`.
-        json_path = interaction_logger.log_file
-        self.log_file = json_path.with_suffix(".md")
-        self.config_name = interaction_logger.config_name
-        self.scenario = interaction_logger.scenario
-        self.story_title = interaction_logger.story_title
-        self.session_id = interaction_logger.session_id
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        config_name: str,
+        scenario: str,
+        story_title: str,
+        log_dir: Path | str = "logs",
+    ) -> None:
+        self.session_id = session_id
+        self.config_name = config_name
+        self.scenario = scenario
+        self.story_title = story_title
+
+        log_dir = Path(log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_file = log_dir / f"{session_id}.md"
 
         self._write_header()
 

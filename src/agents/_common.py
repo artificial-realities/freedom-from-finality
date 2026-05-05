@@ -1,17 +1,15 @@
-"""Helpers shared by every agent: LLM call + logging + JSON parsing,
+"""Helpers shared by every agent: LLM call + JSON parsing,
 and a few formatters that render state into prompt-ready strings.
 """
 
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.state.story_state import StoryState
-from src.util.interaction_logger import InteractionLogger
 from src.util.json_sanitizer import parse_structured_response, safe_json_dumps
 
 logger = logging.getLogger(__name__)
@@ -24,45 +22,29 @@ async def call_llm_structured(
     user_prompt: str,
     llm: LLMBackend,
     config: Config,
-    logger_obj: InteractionLogger,
     turn: int,
     max_tokens: int | None = None,
 ) -> dict | None:
-    """Call the LLM, log it, and return a parsed dict (or None on failure).
+    """Call the LLM and return a parsed dict (or None on failure).
 
-    Parse failures return None; callers decide whether to skip the update.
+    Prompts/completions/tokens/latency are captured by the
+    `langfuse.openai` wrapper inside the backend. Parse failures return
+    None; callers decide whether to skip the update.
     """
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
 
-    start = time.monotonic()
-    raw, usage = await llm.generate(
+    raw, _usage = await llm.generate(
         messages=messages,
         temperature=config.temperature,
         max_tokens=max_tokens or config.max_tokens_per_agent,
         trace_name=agent,
         trace_metadata={"turn": turn, "config": config.name, "agent": agent},
     )
-    latency_ms = int((time.monotonic() - start) * 1000)
 
     parsed = parse_structured_response(raw)
-
-    logger_obj.log_llm_call(
-        agent=agent,
-        turn=turn,
-        model=llm.model,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        raw_response=raw,
-        parsed_response=parsed,
-        token_usage=usage,
-        latency_ms=latency_ms,
-        temperature=config.temperature,
-        max_tokens=max_tokens or config.max_tokens_per_agent,
-    )
-
     if parsed is None:
         logger.warning(
             "agent=%s turn=%s: structured parse failed — skipping update",

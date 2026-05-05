@@ -27,7 +27,7 @@ from src.models.config import Config
 from src.models.responses import Commentary, SoloResponse
 from src.state.story_state import StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
-from src.util.interaction_logger import InteractionLogger
+from src.util.langfuse_setup import event as langfuse_event
 from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,6 @@ async def run(
     state: StoryState,
     llm: LLMBackend,
     config: Config,
-    interaction_logger: InteractionLogger,
     tts: ElevenLabsTTS | None = None,
 ) -> dict:
     system_prompt = load_prompt(
@@ -74,7 +73,6 @@ async def run(
         user_prompt=user_prompt,
         llm=llm,
         config=config,
-        logger_obj=interaction_logger,
         turn=state.turn_number,
         max_tokens=config.max_tokens_per_agent,
     )
@@ -97,13 +95,13 @@ async def run(
         or state.silence_seconds < config.min_pause_seconds
     ):
         effective_commentary = Commentary(voiceover="")
-        interaction_logger.log_event(
+        langfuse_event(
             "solo_commentary_hold",
-            state.turn_number,
-            {"reason": "audio_owed" if state.audio_seconds_owed > 0.001 else "min_pause",
-             "audio_seconds_owed": state.audio_seconds_owed,
-             "silence_seconds": state.silence_seconds,
-             "suppressed_voiceover": solo.commentary.voiceover},
+            metadata={"turn": state.turn_number,
+                      "reason": "audio_owed" if state.audio_seconds_owed > 0.001 else "min_pause",
+                      "audio_seconds_owed": state.audio_seconds_owed,
+                      "silence_seconds": state.silence_seconds,
+                      "suppressed_voiceover": solo.commentary.voiceover},
         )
     else:
         effective_commentary = solo.commentary
@@ -112,12 +110,13 @@ async def run(
     audio_path = ""
     if config.audio_enabled and tts is not None and effective_commentary.voiceover:
         result_path = await tts.synthesize(effective_commentary.voiceover, turn=state.turn_number)
-        interaction_logger.log_tts(
-            turn=state.turn_number,
-            voice_id=tts.voice_id,
-            text=effective_commentary.voiceover,
-            audio_path=result_path,
-            success=result_path is not None,
+        langfuse_event(
+            "tts",
+            input=effective_commentary.voiceover,
+            output=result_path,
+            metadata={"turn": state.turn_number, "voice_id": tts.voice_id,
+                      "success": result_path is not None},
+            level="DEFAULT" if result_path else "WARNING",
         )
         audio_path = result_path or ""
 

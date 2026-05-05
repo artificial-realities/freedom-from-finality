@@ -9,23 +9,12 @@ def build_graph(
     *,
     llm,
     config,
-    interaction_logger,
     tts=None,
 ):
     """Dispatch by config.graph ("solo_graph" | "mas_graph")."""
     key = graph_name.lower()
     if key == "mas_graph":
-        return build_mas_graph(
-            llm=llm,
-            config=config,
-            interaction_logger=interaction_logger,
-            tts=tts,
-        )
+        return build_mas_graph(llm=llm, config=config, tts=tts)
     if key == "solo_graph":
-        return build_solo_graph(
-            llm=llm,
-            config=config,
-            interaction_logger=interaction_logger,
-            tts=tts,
-        )
+        return build_solo_graph(llm=llm, config=config, tts=tts)
     raise ValueError(f"Unknown graph: {graph_name!r}")

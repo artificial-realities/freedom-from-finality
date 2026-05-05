@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from src.graph import build_graph
@@ -29,9 +30,9 @@ from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.popup import StoryPopup
 from src.ui.terminal import TerminalUI
-from src.util.interaction_logger import InteractionLogger
+from src.util.langfuse_setup import event as langfuse_event
 from src.util.langfuse_setup import flush as langfuse_flush
-from src.util.langfuse_setup import turn_span
+from src.util.langfuse_setup import set_trace_output, turn_span
 from src.util.media import probe_duration
 from src.util.story_log import StoryLogger
 
@@ -42,13 +43,17 @@ def load_scenario(path: Path | str) -> list[str]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def _trace_session_id(interaction_logger: InteractionLogger) -> str:
-    """Stable Langfuse session id, mirroring the local log filename stem.
+def _make_session_id(config_name: str, label: str) -> str:
+    """Stable session id used for Langfuse and the on-disk Markdown log."""
+    return f"{config_name}_{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-    Composing config + mode + timestamp keeps Langfuse Sessions and the
-    on-disk JSON/Markdown logs trivially cross-referenceable.
-    """
-    return interaction_logger.log_file.stem
+
+def _trace_output(state: StoryState) -> dict:
+    """What to surface as the trace.output in the Langfuse Sessions view."""
+    return {
+        "narration": state.current_beat.narration if state.current_beat else None,
+        "voiceover": state.current_commentary.voiceover if state.current_commentary else None,
+    }
 
 
 async def run_scenario(
@@ -58,77 +63,62 @@ async def run_scenario(
     scenario_path: Path | str,
     log_dir: Path | str = "logs",
 ) -> StoryState:
-    """Run a pre-defined scenario synchronously, turn by turn.
-
-    Bypasses any pipeline buffer — each turn runs the graph to completion
-    before moving on. Returns the final `StoryState` for inspection.
-    """
+    """Run a pre-defined scenario synchronously, turn by turn."""
     turns = load_scenario(scenario_path)
 
     state = StoryState.initialize(story, config_name=config.name)
 
-    interaction_logger = InteractionLogger(
-        session_label=f"{config.name}_{Path(scenario_path).stem}",
+    scenario_stem = Path(scenario_path).stem
+    session_id = _make_session_id(config.name, scenario_stem)
+    story_logger = StoryLogger(
+        session_id=session_id,
         config_name=config.name,
         scenario=Path(scenario_path).name,
         story_title=story.title,
         log_dir=log_dir,
     )
-    story_logger = StoryLogger(interaction_logger)
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
 
-    graph = build_graph(
-        config.graph,
-        llm=llm,
-        config=config,
-        interaction_logger=interaction_logger,
-        tts=tts,
-    )
+    graph = build_graph(config.graph, llm=llm, config=config, tts=tts)
 
     seed_image: str = config.i2v_seed_image
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
-    trace_session_id = _trace_session_id(interaction_logger)
-    trace_tags = [config.name, "scenario", Path(scenario_path).stem]
+    trace_tags = [config.name, "scenario", scenario_stem]
 
     try:
         for turn_number, user_input in enumerate(turns, start=1):
             state.turn_number = turn_number
             state.user_input = user_input
 
-            interaction_logger.log_event("turn_start", turn_number, {"user_input": user_input})
-
             with turn_span(
                 turn_number=turn_number,
-                session_id=trace_session_id,
+                session_id=session_id,
                 tags=trace_tags,
+                user_input=user_input,
                 metadata={"config": config.name, "user_input": user_input},
             ):
                 result = await graph.ainvoke(state)
-            state = _coerce_state(result)
+                state = _coerce_state(result)
 
-            if i2v is not None and state.current_shot is not None:
-                seed_image, _silent, _playable = await _render_turn(
-                    state=state,
-                    i2v=i2v,
-                    seed_image=seed_image,
-                    frames_dir=frames_dir,
-                    video_dir=video_dir,
-                    interaction_logger=interaction_logger,
-                )
+                if i2v is not None and state.current_shot is not None:
+                    seed_image, _silent, _playable = await _render_turn(
+                        state=state,
+                        i2v=i2v,
+                        seed_image=seed_image,
+                        frames_dir=frames_dir,
+                        video_dir=video_dir,
+                    )
+
+                set_trace_output(_trace_output(state))
 
             _commit_history(state)
             _log_story_turn(story_logger, state)
 
-        interaction_logger.log_event(
-            "session_end",
-            state.turn_number,
-            {"turns_completed": len(turns)},
-        )
         return state
     finally:
         langfuse_flush()
@@ -165,7 +155,6 @@ async def _render_turn(
     seed_image: str,
     frames_dir: Path,
     video_dir: Path,
-    interaction_logger: InteractionLogger,
     mux_inline: bool = True,
 ) -> tuple[str, str | None, str | None]:
     """Render one clip, threading the seed image forward.
@@ -183,8 +172,12 @@ async def _render_turn(
     if not Path(seed_image).exists():
         logger.warning("Seed image missing for turn %s: %s — skipping render",
                        state.turn_number, seed_image)
-        interaction_logger.log_event("i2v_skip", state.turn_number,
-                                     {"reason": "missing_seed", "seed_image": seed_image})
+        langfuse_event(
+            "i2v_skip",
+            metadata={"turn": state.turn_number,
+                      "reason": "missing_seed", "seed_image": seed_image},
+            level="WARNING",
+        )
         return seed_image, None, None
 
     prompt = state.current_shot.i2v_prompt
@@ -195,8 +188,11 @@ async def _render_turn(
         duration=state.current_shot.duration_seconds,
     )
     if not video_path:
-        interaction_logger.log_event("i2v_render_failed", state.turn_number,
-                                     {"seed_image": seed_image})
+        langfuse_event(
+            "i2v_render_failed",
+            metadata={"turn": state.turn_number, "seed_image": seed_image},
+            level="ERROR",
+        )
         return seed_image, None, None
 
     next_seed = frames_dir / f"turn_{state.turn_number:04d}_last.png"
@@ -214,14 +210,18 @@ async def _render_turn(
         if muxed_path:
             playable_path = muxed_path
 
-    interaction_logger.log_event("i2v_render", state.turn_number, {
-        "seed_image": seed_image,
-        "video_path": video_path,
-        "audio_path": state.current_audio_path or None,
-        "muxed_path": muxed_path,
-        "playable_path": playable_path,
-        "next_seed_image": extracted or seed_image,
-    })
+    langfuse_event(
+        "i2v_render",
+        metadata={
+            "turn": state.turn_number,
+            "seed_image": seed_image,
+            "video_path": video_path,
+            "audio_path": state.current_audio_path or None,
+            "muxed_path": muxed_path,
+            "playable_path": playable_path,
+            "next_seed_image": extracted or seed_image,
+        },
+    )
     return extracted or seed_image, video_path, playable_path
 
 
@@ -333,26 +333,20 @@ async def run_play(
 ) -> StoryState:
     """Interactive loop — prompts user between turns. Ctrl+C to quit."""
     state = StoryState.initialize(story, config_name=config.name)
-    interaction_logger = InteractionLogger(
-        session_label=f"{config.name}_play",
+    session_id = _make_session_id(config.name, "play")
+    story_logger = StoryLogger(
+        session_id=session_id,
         config_name=config.name,
         scenario="interactive",
         story_title=story.title,
         log_dir=log_dir,
     )
-    story_logger = StoryLogger(interaction_logger)
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
 
-    graph = build_graph(
-        config.graph,
-        llm=llm,
-        config=config,
-        interaction_logger=interaction_logger,
-        tts=tts,
-    )
+    graph = build_graph(config.graph, llm=llm, config=config, tts=tts)
 
     ui = ui or TerminalUI()
 
@@ -360,7 +354,6 @@ async def run_play(
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
-    trace_session_id = _trace_session_id(interaction_logger)
     trace_tags = [config.name, "play"]
 
     turn_number = 0
@@ -371,37 +364,32 @@ async def run_play(
             state.turn_number = turn_number
             state.user_input = user_input
 
-            interaction_logger.log_event("turn_start", turn_number, {"user_input": user_input})
-
             with turn_span(
                 turn_number=turn_number,
-                session_id=trace_session_id,
+                session_id=session_id,
                 tags=trace_tags,
+                user_input=user_input,
                 metadata={"config": config.name, "user_input": user_input},
             ):
                 result = await graph.ainvoke(state)
-            state = _coerce_state(result)
+                state = _coerce_state(result)
 
-            if i2v is not None and state.current_shot is not None:
-                seed_image, _playable_path = await _render_turn(
-                    state=state,
-                    i2v=i2v,
-                    seed_image=seed_image,
-                    frames_dir=frames_dir,
-                    video_dir=video_dir,
-                    interaction_logger=interaction_logger,
-                )
+                if i2v is not None and state.current_shot is not None:
+                    seed_image, _silent, _playable = await _render_turn(
+                        state=state,
+                        i2v=i2v,
+                        seed_image=seed_image,
+                        frames_dir=frames_dir,
+                        video_dir=video_dir,
+                    )
+
+                set_trace_output(_trace_output(state))
 
             _commit_history(state)
             _log_story_turn(story_logger, state)
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\n(quit)")
     finally:
-        interaction_logger.log_event(
-            "session_end",
-            state.turn_number,
-            {"turns_completed": state.turn_number},
-        )
         langfuse_flush()
     return state
 
@@ -430,14 +418,14 @@ async def run_live(
     "delay-as-feature" narrative smoothing.
     """
     state = StoryState.initialize(story, config_name=config.name)
-    interaction_logger = InteractionLogger(
-        session_label=f"{config.name}_live",
+    session_id = _make_session_id(config.name, "live")
+    story_logger = StoryLogger(
+        session_id=session_id,
         config_name=config.name,
         scenario="live",
         story_title=story.title,
         log_dir=log_dir,
     )
-    story_logger = StoryLogger(interaction_logger)
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
@@ -447,10 +435,7 @@ async def run_live(
             "run_live requires video_enabled: true in the config; otherwise use run_play."
         )
 
-    graph = build_graph(
-        config.graph, llm=llm, config=config,
-        interaction_logger=interaction_logger, tts=tts,
-    )
+    graph = build_graph(config.graph, llm=llm, config=config, tts=tts)
 
     queue_size = max(1, config.lead_clips + 1)
     if config.lead_clips > 0:
@@ -506,7 +491,6 @@ async def run_live(
     state.silence_seconds = config.min_pause_seconds
     state.audio_seconds_owed = 0.0
 
-    trace_session_id = _trace_session_id(interaction_logger)
     trace_tags = [config.name, "live"]
 
     async def producer() -> None:
@@ -531,33 +515,32 @@ async def run_live(
 
                 state.turn_number = turn
                 state.user_input = user_input
-                interaction_logger.log_event(
-                    "turn_start", turn, {"user_input": user_input},
-                )
 
                 with turn_span(
                     turn_number=turn,
-                    session_id=trace_session_id,
+                    session_id=session_id,
                     tags=trace_tags,
+                    user_input=user_input,
                     metadata={"config": config.name, "user_input": user_input},
                 ):
                     result = await graph.ainvoke(state)
-                state = _coerce_state(result)
-                # graph.ainvoke rebuilt state from a dict — re-arm the
-                # pacing flag so the next turn's gating still applies.
-                state.pacing_managed = True
+                    state = _coerce_state(result)
+                    # graph.ainvoke rebuilt state from a dict — re-arm the
+                    # pacing flag so the next turn's gating still applies.
+                    state.pacing_managed = True
 
-                silent: str | None = None
-                if state.current_shot is not None:
-                    seed_image, silent, _ = await _render_turn(
-                        state=state,
-                        i2v=i2v,
-                        seed_image=seed_image,
-                        frames_dir=frames_dir,
-                        video_dir=video_dir,
-                        interaction_logger=interaction_logger,
-                        mux_inline=False,  # live loop owns muxing
-                    )
+                    silent: str | None = None
+                    if state.current_shot is not None:
+                        seed_image, silent, _ = await _render_turn(
+                            state=state,
+                            i2v=i2v,
+                            seed_image=seed_image,
+                            frames_dir=frames_dir,
+                            video_dir=video_dir,
+                            mux_inline=False,  # live loop owns muxing
+                        )
+
+                    set_trace_output(_trace_output(state))
 
                 _commit_history(state)
                 _log_story_turn(story_logger, state)
@@ -568,16 +551,20 @@ async def run_live(
                     # visual continuity anyway) and reset owed so the next
                     # turn's Attenborough is not artificially held.
                     if pending_span is not None:
-                        interaction_logger.log_event(
-                            "playback_span_abort", turn,
-                            {"start_turn": pending_span["start_turn"],
-                             "reason": "render_failed_mid_span"},
+                        langfuse_event(
+                            "playback_span_abort",
+                            metadata={"turn": turn,
+                                      "start_turn": pending_span["start_turn"],
+                                      "reason": "render_failed_mid_span"},
+                            level="WARNING",
                         )
                         pending_span = None
                     state.audio_seconds_owed = 0.0
-                    interaction_logger.log_event(
-                        "live_no_playable", turn,
-                        {"reason": "render_failed_or_skipped"},
+                    langfuse_event(
+                        "live_no_playable",
+                        metadata={"turn": turn,
+                                  "reason": "render_failed_or_skipped"},
+                        level="WARNING",
                     )
                     continue
 
@@ -599,8 +586,10 @@ async def run_live(
                             output_path=out,
                         )
                         chosen = combined or pending_span["clips"][0]
-                        interaction_logger.log_event(
-                            "playback_span_complete", turn, {
+                        langfuse_event(
+                            "playback_span_complete",
+                            metadata={
+                                "turn": turn,
                                 "start_turn": pending_span["start_turn"],
                                 "clip_count": len(pending_span["clips"]),
                                 "audio_dur": pending_span["audio_dur"],
@@ -636,10 +625,11 @@ async def run_live(
                         }
                         state.audio_seconds_owed = owed
                         state.silence_seconds = 0.0
-                        interaction_logger.log_event(
-                            "playback_span_open", turn,
-                            {"audio_dur": audio_dur, "clip_dur": clip_dur,
-                             "owed": owed, "audio_path": audio},
+                        langfuse_event(
+                            "playback_span_open",
+                            metadata={"turn": turn, "audio_dur": audio_dur,
+                                      "clip_dur": clip_dur, "owed": owed,
+                                      "audio_path": audio},
                         )
                         continue
 
@@ -704,17 +694,17 @@ async def run_live(
 
                 current_proc = new_proc
                 played_clips.append(clip_path)
-                interaction_logger.log_event(
-                    "playback_start", state.turn_number,
-                    {"clip_path": clip_path},
+                langfuse_event(
+                    "playback_start",
+                    metadata={"turn": state.turn_number, "clip_path": clip_path},
                 )
 
                 duration = await _get_clip_duration(clip_path)
                 await asyncio.sleep(duration)
 
-                interaction_logger.log_event(
-                    "playback_end", state.turn_number,
-                    {"clip_path": clip_path},
+                langfuse_event(
+                    "playback_end",
+                    metadata={"turn": state.turn_number, "clip_path": clip_path},
                 )
                 # After sleep, ffplay is showing frozen last frame.
                 # Loop back — if next clip is ready, swap immediately.
@@ -747,10 +737,6 @@ async def run_live(
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
-        interaction_logger.log_event(
-            "session_end", state.turn_number,
-            {"turns_completed": state.turn_number},
-        )
         langfuse_flush()
 
         if played_clips:
@@ -779,21 +765,18 @@ async def run_live_text(
     deliver — no clip-duration gating.
     """
     state = StoryState.initialize(story, config_name=config.name)
-    interaction_logger = InteractionLogger(
-        session_label=f"{config.name}_live_text",
+    session_id = _make_session_id(config.name, "live_text")
+    story_logger = StoryLogger(
+        session_id=session_id,
         config_name=config.name,
         scenario="live_text",
         story_title=story.title,
         log_dir=log_dir,
     )
-    story_logger = StoryLogger(interaction_logger)
 
     llm = build_backend(config.llm_backend, config.model)
     # No TTS, no i2v — popup mode is text-only by design.
-    graph = build_graph(
-        config.graph, llm=llm, config=config,
-        interaction_logger=interaction_logger, tts=None,
-    )
+    graph = build_graph(config.graph, llm=llm, config=config, tts=None)
 
     popup = StoryPopup(title=f"ClankerStudios — {story.title or config.name}")
     popup.start()
@@ -825,7 +808,6 @@ async def run_live_text(
 
     threading.Thread(target=_stdin_loop, daemon=True).start()
 
-    trace_session_id = _trace_session_id(interaction_logger)
     trace_tags = [config.name, "live_text"]
 
     turn = 0
@@ -842,18 +824,17 @@ async def run_live_text(
 
             state.turn_number = turn
             state.user_input = user_input
-            interaction_logger.log_event(
-                "turn_start", turn, {"user_input": user_input},
-            )
 
             with turn_span(
                 turn_number=turn,
-                session_id=trace_session_id,
+                session_id=session_id,
                 tags=trace_tags,
+                user_input=user_input,
                 metadata={"config": config.name, "user_input": user_input},
             ):
                 result = await graph.ainvoke(state)
-            state = _coerce_state(result)
+                state = _coerce_state(result)
+                set_trace_output(_trace_output(state))
 
             _commit_history(state)
             _log_story_turn(story_logger, state)
@@ -879,9 +860,5 @@ async def run_live_text(
     finally:
         stop_event.set()
         popup.stop()
-        interaction_logger.log_event(
-            "session_end", state.turn_number,
-            {"turns_completed": state.turn_number},
-        )
         langfuse_flush()
     return state

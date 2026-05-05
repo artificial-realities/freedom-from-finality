@@ -31,7 +31,7 @@ from src.models.config import Config
 from src.models.responses import Commentary
 from src.state.story_state import StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
-from src.util.interaction_logger import InteractionLogger
+from src.util.langfuse_setup import event as langfuse_event
 from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,6 @@ async def run(
     state: StoryState,
     llm: LLMBackend,
     config: Config,
-    interaction_logger: InteractionLogger,
     tts: ElevenLabsTTS | None = None,
 ) -> dict:
     if state.current_beat is None or state.current_shot is None:
@@ -66,23 +65,21 @@ async def run(
     # Pacing gates — only enforced when the live producer is bookkeeping.
     if config.audio_enabled and state.pacing_managed:
         if state.audio_seconds_owed > 0.001:
-            interaction_logger.log_event(
+            langfuse_event(
                 "attenborough_hold",
-                state.turn_number,
-                {"reason": "audio_owed",
-                 "audio_seconds_owed": state.audio_seconds_owed},
+                metadata={"turn": state.turn_number, "reason": "audio_owed",
+                          "audio_seconds_owed": state.audio_seconds_owed},
             )
             return {
                 "current_commentary": Commentary(voiceover=""),
                 "current_audio_path": "",
             }
         if state.silence_seconds < config.min_pause_seconds:
-            interaction_logger.log_event(
+            langfuse_event(
                 "attenborough_hold",
-                state.turn_number,
-                {"reason": "min_pause",
-                 "silence_seconds": state.silence_seconds,
-                 "min_pause_seconds": config.min_pause_seconds},
+                metadata={"turn": state.turn_number, "reason": "min_pause",
+                          "silence_seconds": state.silence_seconds,
+                          "min_pause_seconds": config.min_pause_seconds},
             )
             return {
                 "current_commentary": Commentary(voiceover=""),
@@ -115,7 +112,6 @@ async def run(
         user_prompt=user_prompt,
         llm=llm,
         config=config,
-        logger_obj=interaction_logger,
         turn=state.turn_number,
     )
 
@@ -135,12 +131,13 @@ async def run(
     audio_path = ""
     if config.audio_enabled and tts is not None and commentary.voiceover:
         result_path = await tts.synthesize(commentary.voiceover, turn=state.turn_number)
-        interaction_logger.log_tts(
-            turn=state.turn_number,
-            voice_id=tts.voice_id,
-            text=commentary.voiceover,
-            audio_path=result_path,
-            success=result_path is not None,
+        langfuse_event(
+            "tts",
+            input=commentary.voiceover,
+            output=result_path,
+            metadata={"turn": state.turn_number, "voice_id": tts.voice_id,
+                      "success": result_path is not None},
+            level="DEFAULT" if result_path else "WARNING",
         )
         audio_path = result_path or ""
 

@@ -24,7 +24,6 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.models.responses import Shot
 from src.state.story_state import StoryState
-from src.util.interaction_logger import InteractionLogger
 from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,6 @@ async def run(
     state: StoryState,
     llm: LLMBackend,
     config: Config,
-    interaction_logger: InteractionLogger,
 ) -> dict:
     if state.current_beat is None:
         logger.warning("Spielberg skipped turn %s — no current_beat", state.turn_number)
@@ -76,7 +74,6 @@ async def run(
         user_prompt=user_prompt,
         llm=llm,
         config=config,
-        logger_obj=interaction_logger,
         turn=state.turn_number,
     )
 
