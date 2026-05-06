@@ -60,33 +60,30 @@ One pre-registered 180-turn playthrough split into seven labelled phases that ea
 
 ### Total: 2 configs × N runs × 180 turns
 
-`N` defaults to **3** for the headline benchmark (2 × 3 × 180 = 1080 turns of generated output). Multiple runs is the single most important methodological lift over a single shot: LLM stochasticity dominates a one-shot comparison. With N=3 we can compute within-config variance, run paired statistical tests on phase-pooled aggregates, and report descriptive mean ± std at the per-phase level. N=3 is a deliberate cost trade-off — N=5 would give per-phase Wilcoxon tests their full power, but at ~$75 total instead of ~$45.
+`N` defaults to **3** for the headline benchmark (2 × 3 × 180 = 1080 turns of generated output). Multiple runs is the single most important methodological lift over a single shot: LLM stochasticity dominates a one-shot comparison. With N=3 we get a meaningful within-config spread (range across runs) and three paired observations per phase, which is enough to count how many runs favor each config descriptively. N=3 is a deliberate cost trade-off against running larger N for inferential statistics — see *Aggregation and reporting* below for why we report descriptively rather than testing for significance.
 
 No video or audio is rendered during benchmark runs. Spielberg's `Shot.i2v_prompt` and Attenborough's `Commentary.voiceover` are logged as text; both configs honour the same Pacing gates so the commentary stream is comparable. This keeps the benchmark reproducible and cheap.
 
 ## Evaluation
 
-Evaluation is **automated, two-layered, and pre-registered**. Each run is scored along two orthogonal layers, both written back to Langfuse as `Score` objects keyed to the relevant `trace_id` so dashboards and CSV exports separate them cleanly. The rubric language and probe-window structure are calibrated against human spot-check before the headline numbers are taken at face value.
+Evaluation is **automated and two-layered**. Each run is scored along two orthogonal layers, both written back to Langfuse as `Score` objects keyed to the relevant `trace_id` so dashboards and CSV exports separate them cleanly.
 
 ### Layer 1 — Per-turn local rubric (every turn, LLM judge)
 
-For each turn, the judge scores four local-quality dimensions on an integer 0–3 scale (3 = excellent, 0 = failure):
+For each turn, the judge scores three local-quality dimensions on an integer 0–3 scale (3 = excellent, 0 = failure):
 
-- `local.lego_anatomy_compliance`
-- `local.visual_anchor_stability`
-- `local.commentary_on_screen`
-- `local.internal_coherence`
+- `local.rule_compliance` — one broad dimension covering LEGO anatomy, no protagonist speech, no on-screen text, single character, the locked white void, and visual anchor on the minifig. Silent compliance with an adversarial trap scores 0; a clean refusal/redirect/improvise scores 3.
+- `local.commentary_on_screen` — Attenborough's voiceover lands on visible action; empty voiceover is a first-class 3 when appropriate.
+- `local.internal_coherence` — the four artifacts mutually agree this turn (shot describes what beat says, memory delta reflects the beat outcome, context_brief makes sense for the next turn).
 
 The judge sees the turn's normalised `{beat, shot, commentary, memory}` payload (same shape for both configs), the turn's user input, and a small annotation block surfacing the phase, any prop introduced this turn, any explicit callback target, and any trap kind. It does *not* see prior turns at this layer — local quality is judged locally.
 
 ### Layer 2 — Per-window memory rubric (15 probes, LLM judge)
 
-The 15 probe turns defined in `data/test_scenario_annotations.json` are the measurement points for long-horizon memory. At each probe the judge sees a compact transcript of the window from `window_start` to `score_at_turn` and scores five memory dimensions on the 0–3 scale:
+The 15 probe turns defined in `data/test_scenario_annotations.json` are the measurement points for long-horizon memory. At each probe the judge sees a compact transcript of the window from `window_start` to `score_at_turn` and scores three memory dimensions on the 0–3 scale:
 
 - `window.prop_persistence`
 - `window.callback_quality`
-- `window.bit_variety`
-- `window.rule_compliance`
 - `window.long_horizon_coherence`
 
 Probes target specific failure modes: the harmonica recall (turn 60 ↔ turn 25), the fake umbrella (turn 91), the adversarial cluster (turn 113 looking back over 91–113), the ambiguous hat reference (turn 116), the direct hammer / first-action / current-hat probes (turns 154–157), and the final long-range callback (turn 173).
@@ -103,32 +100,23 @@ python main.py judge <session_id>
 
 …and uploads its scores to Langfuse via `client.create_score(...)`. Scores are `name`-prefixed (`local.*`, `window.*`) so dashboards and exports can filter by layer.
 
-### Judge calibration
-
-Because both layers are LLM-graded, calibration against human review is **load-bearing**, not optional. Before treating the judge as ground truth, a human reviewer scores a stratified sample (~20 turns per run, balanced across phases — so ~120 turns total across the N=3 cycle) on the same rubric. We compute Cohen's κ between human and judge per dimension. The pre-registered threshold is **κ > 0.6** for the rubric to count as validated; below that the rubric language is sharpened (in `src/prompts/judge.local.system.md` or `src/prompts/judge.window.system.md`) and the runs are re-judged before any headline numbers are reported.
-
-This is the methodology's central reliability claim: a single calibrated LLM judge replaces the regex-layer hardening that a multi-method evaluation would have provided. If κ is low and resists rubric tightening, that is itself a publishable methodological note.
-
-### Aggregation by phase
+### Aggregation and reporting
 
 The seven-phase structure of the scenario gives us seven natural aggregation buckets per run. For each `(config, run, phase, dimension)` tuple, we report the mean. The headline figures roll up to:
 
-- Phase-mean tables for `local.*` and `window.*` dimensions, grouped by config.
+- Phase-mean tables for `local.*` and `window.*` dimensions, grouped by config, reported as mean across the N=3 runs with the run-to-run range as the spread.
+- For each phase × dimension, the count of paired runs that favored each config (e.g., "MAS scored higher on `window.long_horizon_coherence` in 5 of 6 paired late-phase observations"). Plain-language directional read, no p-values.
 - Total cost / latency per turn by config (read off Langfuse `total_cost` and per-trace latency).
 
-### Statistical analysis
+No inferential statistics are reported. With N=3 paired runs the data are too small for the standard non-parametric tests to do any honest work — paired Wilcoxon at N=3 cannot reach p<0.05 without pooling tricks that would weaken rather than strengthen the methodological claim. The benchmark is positioned as a **descriptive comparison under a fixed cross-family rubric**, not a hypothesis test. The cross-family judge (Anthropic Sonnet judging OpenAI GPT-4.1) closes the self-preference loophole that would otherwise dominate same-family scoring; calibration against human raters is out of scope for this project and noted as a limitation.
 
-With N=3 paired runs per config the data are bounded ordinal (0–3 means) and small-sample, so non-parametric tests are the right default. Effect size is reported as **Cliff's δ** alongside any p-value — δ separates "statistically significant tiny gap" from "decisive shift" without requiring normality, and stays meaningful even where N is too small for a significance test to bite.
+The expectations the benchmark is built around — informal, no statistical thresholds:
 
-A note on power: paired Wilcoxon signed-rank with N=3 paired observations cannot produce a one-sided p-value below 0.125 — the discrete null distribution simply does not reach 0.05. The hypothesis tests below therefore **pool across multiple phases** (or across multiple probes) wherever a p-value is being claimed, which raises the paired-observation count to a level where p<0.05 is reachable. Per-phase numbers are reported descriptively as mean ± std without per-phase significance tests.
+- **E1 — Early-phase parity.** In the *setup* phase, MAS and solo should look indistinguishable across all dimensions. Both configs are fully briefed and the workload is light; any meaningful gap here would suggest a bug, not a methodology signal.
+- **E2 — Late-phase MAS advantage on long-horizon coherence.** Across the *sleep_and_probes* and *coda* phases (6 paired observations across N=3 runs), MAS should score higher than solo on `window.long_horizon_coherence`. Reported as the count of paired observations favoring each config plus the per-phase mean gap.
+- **E3 — Adversarial parity.** Mean `local.rule_compliance` over the *adversarial* phase should be roughly tied between configs — adversarial robustness is a prompt-discipline question, not a coordination one, so both fully-briefed configs should refuse traps at similar rates.
 
-The pre-registered hypotheses are:
-
-- **H1 — Early-phase parity.** Mean `window.long_horizon_coherence` and the four `local.*` means in the *setup* phase are not significantly different between configs at the descriptive level: 95% confidence intervals on the (MAS − solo) difference straddle zero across all five dimensions.
-- **H2 — Late-phase MAS advantage.** Pooling the *sleep_and_probes* and *coda* phases (giving 6 paired phase-mean observations across N=3 runs), `window.long_horizon_coherence` is higher for MAS than for solo (Wilcoxon one-sided p < 0.05, |δ| ≥ 0.33). The all-pairs-favor-MAS outcome required to clear p<0.05 is itself a strong directional signal.
-- **H3 — Adversarial parity-or-MAS.** Mean `local.lego_anatomy_compliance` over the *adversarial* phase is not lower for MAS than for solo (Cliff's δ ≥ 0). Reported descriptively; we expect both configs to be roughly tied since adversarial robustness is a prompt-discipline question, not a coordination one.
-
-Failure of H2 — MAS not beating solo on the long-horizon dimension — is a publishable result, not a project failure. The diagnostic question becomes whether the loss comes from cross-agent communication overhead (details slipping across the forward pass) or from specialisation not buying enough under stress. Both are visible in the logs.
+Failure of E2 — MAS not exceeding solo on the long-horizon dimension — is itself an interesting result, not a project failure. The diagnostic question becomes whether the loss comes from cross-agent communication overhead (details slipping across the forward pass) or from specialisation not buying enough under stress. Both are visible in the logs.
 
 ### Cost envelope
 
@@ -137,9 +125,9 @@ Approximate per-config cost for the full benchmark + judge cycle at N=3:
 - **Generation** (GPT-4.1, both configs, 3 runs each, 180 turns):
   - Solo ≈ 540 LLM calls, MAS ≈ 2,160. Roughly $24 total.
 - **Judging** (Claude Sonnet 4.6, both configs, 3 runs each):
-  - Per-turn local rubric: 1,080 calls, ~3K input + ~300 output tokens, with prompt caching. ≈ $13.
-  - Per-window rubric: 90 calls, ~30K input + ~600 output tokens. ≈ $7.
-- **Total ≈ $40–55** for one full pre-registered benchmark cycle. Add ~$15 to validate the pipeline end-to-end on a single paired smoke run before committing to the full N=3 cycle. Re-judging an existing run after sharpening the rubric costs ~$20 (judge only — generation is cached on disk and in Langfuse).
+  - Per-turn local rubric: 1,080 calls, ~3K input + ~250 output tokens, with prompt caching. ≈ $11.
+  - Per-window rubric: 90 calls, ~30K input + ~400 output tokens. ≈ $5.
+- **Total ≈ $35–50** for one full benchmark cycle. Add ~$15 to validate the pipeline end-to-end on a single paired smoke run before committing to the full N=3 cycle. Re-judging an existing run after rubric tweaks costs ~$15 (judge only — generation is cached on disk and in Langfuse).
 
 ## Running
 

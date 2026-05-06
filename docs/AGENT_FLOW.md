@@ -319,8 +319,7 @@ Sonnet 4.6 over the per-turn and per-window rubrics defined in
 `Score` objects keyed to each turn's `trace_id`. Score names are
 prefixed `local.*` (per-turn rubric) or `window.*` (per-window memory
 rubric) so dashboards filter cleanly. See `docs/BENCHMARK.md` for the
-full evaluation methodology, including the human spot-check calibration
-that backs the judge.
+full evaluation methodology and rubric definitions.
 
 **Common gotcha:** short-lived processes (one-shot benchmarks) lose
 buffered events without a flush. Every runner finally-block calls

@@ -41,16 +41,13 @@ DEFAULT_ANNOTATIONS = Path("data/test_scenario_annotations.json")
 DEFAULT_CONCURRENCY = 8
 
 LOCAL_DIMENSIONS = (
-    "lego_anatomy_compliance",
-    "visual_anchor_stability",
+    "rule_compliance",
     "commentary_on_screen",
     "internal_coherence",
 )
 WINDOW_DIMENSIONS = (
     "prop_persistence",
     "callback_quality",
-    "bit_variety",
-    "rule_compliance",
     "long_horizon_coherence",
 )
 
