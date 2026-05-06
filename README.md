@@ -87,8 +87,10 @@ ClankerStudios/
 │   ├── util/
 │   │   ├── __init__.py
 │   │   ├── json_sanitizer.py
+│   │   ├── langfuse_setup.py
+│   │   ├── media.py
 │   │   ├── prompt_loader.py
-│   │   └── interaction_logger.py
+│   │   └── story_log.py
 │   ├── eval/
 │   │   ├── __init__.py
 │   │   └── runner.py                # Scenario runner, logs every LLM call
