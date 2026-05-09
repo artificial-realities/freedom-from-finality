@@ -295,15 +295,24 @@ def _push_score(
     if client is None:
         return
     try:
-        client.create_score(
-            name=name,
-            value=value,
-            data_type="NUMERIC",
-            session_id=session_id,
-            trace_id=trace_id,
-            comment=(comment or "")[:500],
-            metadata=metadata or {},
-        )
+        if trace_id:
+            client.create_score(
+                name=name,
+                value=value,
+                data_type="NUMERIC",
+                trace_id=trace_id,
+                comment=(comment or "")[:500],
+                metadata=metadata or {},
+            )
+        else:
+            client.create_score(
+                name=name,
+                value=value,
+                data_type="NUMERIC",
+                session_id=session_id,
+                comment=(comment or "")[:500],
+                metadata=metadata or {},
+            )
     except Exception:
         logger.debug("Langfuse create_score(%r) failed.", name, exc_info=True)
 
