@@ -298,6 +298,7 @@ def _push_score(
         client.create_score(
             name=name,
             value=value,
+            data_type="NUMERIC",
             session_id=session_id,
             trace_id=trace_id,
             comment=(comment or "")[:500],
