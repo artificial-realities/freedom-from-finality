@@ -90,7 +90,7 @@ Probes target specific failure modes: the harmonica recall (turn 60 ↔ turn 25)
 
 ### The judge model
 
-We deliberately use a **different model family** for the judge than the generator. Generation is GPT-4.1 (OpenAI); the judge is **Claude Sonnet 4.6** (Anthropic, model id `claude-sonnet-4-6`). This closes the self-preference loophole that would arise from same-family judging. The judge's system prompt is sent with `cache_control: ephemeral` so the rubric is reused across the 180 per-turn calls instead of being re-paid for each turn.
+We deliberately use a **different model family** for the judge than the generator. Generation is GPT-4.1 (OpenAI); the judge is **Claude Haiku 4.5** (Anthropic, model id `claude-haiku-4-5-20251001`). This closes the self-preference loophole that would arise from same-family judging. Haiku is one tier below Sonnet 4.6 in raw capability — the trade was deliberate: the cross-family argument is the load-bearing claim, and the cost difference (~3× cheaper than Sonnet) is what makes N=3 sustainable on this budget. The judge's system prompt is sent with `cache_control: ephemeral` so the rubric is reused across the 180 per-turn calls instead of being re-paid for each turn.
 
 The judge runs post-hoc against finished Langfuse sessions:
 
@@ -124,10 +124,10 @@ Approximate per-config cost for the full benchmark + judge cycle at N=3:
 
 - **Generation** (GPT-4.1, both configs, 3 runs each, 180 turns):
   - Solo ≈ 540 LLM calls, MAS ≈ 2,160. Roughly $24 total.
-- **Judging** (Claude Sonnet 4.6, both configs, 3 runs each):
-  - Per-turn local rubric: 1,080 calls, ~3K input + ~250 output tokens, with prompt caching. ≈ $11.
-  - Per-window rubric: 90 calls, ~30K input + ~400 output tokens. ≈ $5.
-- **Total ≈ $35–50** for one full benchmark cycle. Add ~$15 to validate the pipeline end-to-end on a single paired smoke run before committing to the full N=3 cycle. Re-judging an existing run after rubric tweaks costs ~$15 (judge only — generation is cached on disk and in Langfuse).
+- **Judging** (Claude Haiku 4.5, both configs, 3 runs each):
+  - Per-turn local rubric: 1,080 calls, ~3K input + ~250 output tokens, with prompt caching. ≈ $4.
+  - Per-window rubric: 90 calls, ~30K input + ~400 output tokens. ≈ $2.
+- **Total ≈ $25–35** for one full benchmark cycle. Add ~$5 to validate the pipeline end-to-end on a single paired smoke run before committing to the full N=3 cycle. Re-judging an existing run after rubric tweaks costs ~$6 (judge only — generation is cached on disk and in Langfuse).
 
 ## Running
 

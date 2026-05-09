@@ -20,7 +20,7 @@ from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_JUDGE_MODEL = "claude-sonnet-4-6"
+DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
 
 
 class AnthropicBackend:
