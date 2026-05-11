@@ -91,7 +91,16 @@ def fetch_session(session_id: str) -> list[TurnRecord]:
     records: list[TurnRecord] = []
 
     for trace_stub in sess.traces:
-        trace = lf.api.trace.get(trace_stub.id)
+        trace = None
+        for _attempt in range(4):
+            try:
+                trace = lf.api.trace.get(trace_stub.id)
+                break
+            except Exception:
+                if _attempt == 3:
+                    raise
+                import time
+                time.sleep(2 ** _attempt)
         meta = trace.model_dump().get("metadata") or {}
         user_input = meta.get("user_input", "")
         config_name = meta.get("config", "")
