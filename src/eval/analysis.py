@@ -344,7 +344,7 @@ def fig_turn_scores(per_turn: list[dict]) -> None:
         "internal_coherence": 0.5,
     }
 
-    fig, axes = plt.subplots(3, 1, figsize=(6.5, 5.5), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(10.0, 5.5), sharex=True)
     window = 15
 
     for ax, dim in zip(axes, LOCAL_DIMS):
@@ -463,7 +463,7 @@ def fig_window_over_turns(window_data: dict[str, dict[str, dict[str, list[float]
                     marker="o" if config == "mas" else "s",
                     markersize=4, label=label, zorder=3)
 
-        ax.set_title(title)
+        ax.set_title(title, y=1.15)
         ax.set_ylim(0.3, 3.05)
         ax.set_xticks(x)
         ax.set_xticklabels(PHASE_LABELS_WITH_PROBES, ha="right", rotation=35)
