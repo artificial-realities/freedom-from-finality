@@ -297,7 +297,12 @@ def fig_window_probes(window_data: dict[str, dict[str, dict[str, list[float]]]])
     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
     #ax.xaxis.set_minor_locator(ticker.MultipleLocator(0.5))
     #ax.grid(axis="x", alpha=0.3, linewidth=0.5)
-    ax.legend(loc="lower right", frameon=False)
+    
+    ax.legend(
+        loc="lower right",
+        bbox_to_anchor=(1.06, 0),
+        frameon=False
+    )
 
     ax.axhline(y=separator_y, color="#cccccc", linewidth=0.8, linestyle="--", zorder=1)
 
