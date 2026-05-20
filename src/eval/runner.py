@@ -89,12 +89,23 @@ async def run_scenario(
     frames_dir = video_dir / "frames"
 
     trace_tags = [config.name, "scenario", scenario_stem]
+    played_clips: list[str] = []
+    # Voiceover spanning state — when audio runs past one clip, the next
+    # silent clip is concatenated behind it and Attenborough is held quiet
+    # via audio_seconds_owed. Shape mirrors run_live's producer.
+    pending_span: dict | None = None
+
+    if config.audio_enabled:
+        state.pacing_managed = True
+        state.silence_seconds = config.min_pause_seconds
+        state.audio_seconds_owed = 0.0
 
     try:
         for turn_number, user_input in enumerate(turns, start=1):
             state.turn_number = turn_number
             state.user_input = user_input
 
+            silent: str | None = None
             with turn_span(
                 turn_number=turn_number,
                 session_id=session_id,
@@ -104,14 +115,18 @@ async def run_scenario(
             ):
                 result = await graph.ainvoke(state)
                 state = _coerce_state(result)
+                if config.audio_enabled:
+                    # graph.ainvoke rebuilt state from a dict — re-arm.
+                    state.pacing_managed = True
 
                 if i2v is not None and state.current_shot is not None:
-                    seed_image, _silent, _playable = await _render_turn(
+                    seed_image, silent, _ = await _render_turn(
                         state=state,
                         i2v=i2v,
                         seed_image=seed_image,
                         frames_dir=frames_dir,
                         video_dir=video_dir,
+                        mux_inline=False,  # we own muxing for span handling
                     )
 
                 set_trace_output(_trace_output(state))
@@ -119,9 +134,126 @@ async def run_scenario(
             _commit_history(state)
             _log_story_turn(story_logger, state)
 
+            if i2v is None:
+                continue
+
+            if silent is None:
+                # Render failed — abort any open span and reset owed so the
+                # next Attenborough turn isn't artificially held.
+                if pending_span is not None:
+                    langfuse_event(
+                        "playback_span_abort",
+                        metadata={"turn": turn_number,
+                                  "start_turn": pending_span["start_turn"],
+                                  "reason": "render_failed_mid_span"},
+                        level="WARNING",
+                    )
+                    pending_span = None
+                state.audio_seconds_owed = 0.0
+                continue
+
+            clip_dur = await _get_clip_duration(silent, fallback=float(config.i2v_duration))
+            state.last_clip_duration = clip_dur
+
+            # Mid-span: this turn's Attenborough was held silent because
+            # the previous voiceover still owes audio. Pay it down.
+            if pending_span is not None:
+                pending_span["clips"].append(silent)
+                pending_span["owed"] -= clip_dur
+                state.audio_seconds_owed = max(0.0, pending_span["owed"])
+                if pending_span["owed"] <= 0.001:
+                    out = video_dir / f"turn_{pending_span['start_turn']:04d}_span.mp4"
+                    combined = await concat_videos_and_mux_audio(
+                        video_paths=pending_span["clips"],
+                        audio_path=pending_span["audio"],
+                        output_path=out,
+                    )
+                    chosen = combined or pending_span["clips"][0]
+                    langfuse_event(
+                        "playback_span_complete",
+                        metadata={
+                            "turn": turn_number,
+                            "start_turn": pending_span["start_turn"],
+                            "clip_count": len(pending_span["clips"]),
+                            "audio_dur": pending_span["audio_dur"],
+                            "video_paths": pending_span["clips"],
+                            "audio_path": pending_span["audio"],
+                            "playable": chosen,
+                            "concat_succeeded": combined is not None,
+                        },
+                    )
+                    pending_span = None
+                    state.silence_seconds = 0.0
+                    played_clips.append(chosen)
+                continue
+
+            audio = state.current_audio_path
+
+            if audio:
+                audio_dur = await probe_duration(audio)
+                if audio_dur is None:
+                    audio_dur = clip_dur
+                if audio_dur > clip_dur + 0.05:
+                    # Voiceover spills past this clip — open a span.
+                    owed = audio_dur - clip_dur
+                    pending_span = {
+                        "clips": [silent],
+                        "audio": audio,
+                        "owed": owed,
+                        "audio_dur": audio_dur,
+                        "start_turn": turn_number,
+                    }
+                    state.audio_seconds_owed = owed
+                    state.silence_seconds = 0.0
+                    langfuse_event(
+                        "playback_span_open",
+                        metadata={"turn": turn_number, "audio_dur": audio_dur,
+                                  "clip_dur": clip_dur, "owed": owed,
+                                  "audio_path": audio},
+                    )
+                    continue
+
+                # Audio fits in one clip — mux and append.
+                out = video_dir / f"turn_{turn_number:04d}_muxed.mp4"
+                muxed = await mux_audio_into_video(
+                    video_path=silent,
+                    audio_path=audio,
+                    output_path=out,
+                )
+                state.audio_seconds_owed = 0.0
+                state.silence_seconds = 0.0
+                played_clips.append(muxed or silent)
+            else:
+                # Pure silence — accumulate the floor.
+                state.audio_seconds_owed = 0.0
+                state.silence_seconds += clip_dur
+                played_clips.append(silent)
+
         return state
     finally:
+        # Drain any still-open span so its audio isn't lost when the
+        # scenario ends mid-voiceover. The combined clip may be longer
+        # than the audio (-shortest trims it); whatever rolls is fine.
+        if pending_span is not None:
+            out = video_dir / f"turn_{pending_span['start_turn']:04d}_span.mp4"
+            combined = await concat_videos_and_mux_audio(
+                video_paths=pending_span["clips"],
+                audio_path=pending_span["audio"],
+                output_path=out,
+            )
+            chosen = combined or pending_span["clips"][0]
+            played_clips.append(chosen)
+            pending_span = None
+
         langfuse_flush()
+        if played_clips:
+            out = video_dir / f"{session_id}.mp4"
+            print("Saving full session video…", flush=True)
+            saved = await _save_full_session(played_clips, out)
+            if saved:
+                print(f"Saved: {saved}", flush=True)
+            else:
+                print("Could not save session video.", flush=True)
 
 
 def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
@@ -181,11 +313,12 @@ async def _render_turn(
         return seed_image, None, None
 
     prompt = state.current_shot.i2v_prompt
+    # Use the backend's configured duration, not the LLM's per-shot pick —
+    # wan2.2 only accepts a fixed 5s and would error on other values.
     video_path = await i2v.synthesize(
         image_path=seed_image,
         prompt=prompt,
         turn=state.turn_number,
-        duration=state.current_shot.duration_seconds,
     )
     if not video_path:
         langfuse_event(

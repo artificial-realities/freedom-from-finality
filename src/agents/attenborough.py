@@ -100,7 +100,9 @@ async def run(
         shot_camera=state.current_shot.camera,
         shot_motion=state.current_shot.motion,
         shot_end_frame_description=state.current_shot.end_frame_description,
-        clip_duration_seconds=state.current_shot.duration_seconds,
+        # The i2v backend's configured duration is the real clip length —
+        # Spielberg's per-shot pick is ignored for fixed-length models.
+        clip_duration_seconds=config.i2v_duration,
         narrative_memory=state.narrative_memory or "(no memory yet)",
         recent_commentary=format_recent_commentary(state, count=config.context_window_history),
         silence_label=_silent_label(state, config),
