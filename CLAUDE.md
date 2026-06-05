@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-ClankerStudios — a four-role LLM workflow for interactive storytelling, benchmarked against a monolithic single-LLM baseline. Academic project for IKT469 at the University of Agder.
+Artificial Realities — a four-role LLM workflow for interactive storytelling, benchmarked against a monolithic single-LLM baseline. Academic project for IKT469 at the University of Agder.
 
 ## Conventions
 

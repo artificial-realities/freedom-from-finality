@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class StoryPopup:
-    def __init__(self, *, title: str = "ClankerStudios", width: int = 100, height: int = 36) -> None:
+    def __init__(self, *, title: str = "Artificial Realities", width: int = 100, height: int = 36) -> None:
         self._title = title
         self._width = width
         self._height = height

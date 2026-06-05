@@ -1,4 +1,4 @@
-"""ffmpeg audio→video mux for ClankerStudios playback.
+"""ffmpeg audio→video mux for Artificial Realities playback.
 
 DashScope clips are silent mp4; ElevenLabs gives us mp3. The player
 needs a single file with both streams so a one-shot subprocess can

@@ -413,7 +413,7 @@ async def _launch_persistent_ffplay(
             "ffplay",
             "-noborder",
             "-loglevel", "quiet",
-            "-window_title", "ClankerStudios",
+            "-window_title", "Artificial Realities",
             clip_path,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -911,7 +911,7 @@ async def run_live_text(
     # No TTS, no i2v — popup mode is text-only by design.
     graph = build_graph(config.graph, llm=llm, config=config, tts=None)
 
-    popup = StoryPopup(title=f"ClankerStudios — {story.title or config.name}")
+    popup = StoryPopup(title=f"Artificial Realities — {story.title or config.name}")
     popup.start()
 
     print(

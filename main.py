@@ -1,4 +1,4 @@
-"""Entry point for ClankerStudios.
+"""Entry point for Artificial Realities.
 
 Usage:
     python main.py play --config configs/mas.yaml
@@ -52,7 +52,7 @@ def setup_logging(verbose: bool) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="ClankerStudios runner")
+    parser = argparse.ArgumentParser(description="Artificial Realities runner")
     sub = parser.add_subparsers(dest="command", required=True)
 
     play = sub.add_parser("play", help="Interactive play (or drive from a scenario file)")

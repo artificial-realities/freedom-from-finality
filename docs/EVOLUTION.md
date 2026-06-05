@@ -1,6 +1,6 @@
-# ClankerStudios — Evolution
+# Artificial Realities — Evolution
 
-> Forward-looking research on where ClankerStudios could go next, capturing
+> Forward-looking research on where Artificial Realities could go next, capturing
 > both drop-in upgrades to the current four-role workflow and paradigm-shifting
 > bets worth considering. Tech snapshot is **2026-05-24** — most of the
 > specific model names, latencies, and prices below will rot within months.
@@ -24,18 +24,18 @@ The synthesis stands on its own. The appendices are the receipts.
 
 Cross-referencing the four pieces of research, the picture sharpens to one sentence:
 
-**ClankerStudios is the only project I could find that genuinely combines continuous AI-generated video, between-clip steering, and a structured narrative engine — and that combination sits in an unoccupied seam on the 2026 experience map.**
+**Artificial Realities is the only project I could find that genuinely combines continuous AI-generated video, between-clip steering, and a structured narrative engine — and that combination sits in an unoccupied seam on the 2026 experience map.**
 
 - Read-only text RPGs (AI Dungeon → Voyage, Hidden Door, Friends & Fables) own *read + steer*.
 - Showrunner / Critterz / Sora-while-it-lasted own *create-then-share*.
 - Neuro-sama owns *lean-back AI broadcast* — and proves audiences will subscribe en masse to a single AI character with persistence.
 - Genie 3 / Lucy / Oasis own *play in a world*, but only for ~60 seconds before coherence collapses.
-- **Nobody owns "watch + steer."** Continuous flowing AI video you can lean back to, that responds to you, that has a story shape. That's the gap, and it's the exact shape of ClankerStudios.
+- **Nobody owns "watch + steer."** Continuous flowing AI video you can lean back to, that responds to you, that has a story shape. That's the gap, and it's the exact shape of Artificial Realities.
 
 Two external validators worth flagging:
 
 - Camera Artist, FilmAgent, ViMax, MovieAgent — every serious 2026 research paper on multi-agent video generation uses a Director/Cinematographer/Editor split. **The four-role decomposition is a recognized research pattern**, not a quirky academic choice. The Phase 2 report can cite this directly.
-- Every successful interactive-fiction product in 2026 — Hidden Door, Voyage, Friends & Fables, RoleForge — pairs LLMs with a *deterministic state layer*. ClankerStudios already has one (Pydantic `StoryState`, `WorldStateDelta`). On the right side of that consensus. The missing piece is making state *retrievable* across hundreds of turns, not just summarizable by Spock.
+- Every successful interactive-fiction product in 2026 — Hidden Door, Voyage, Friends & Fables, RoleForge — pairs LLMs with a *deterministic state layer*. Artificial Realities already has one (Pydantic `StoryState`, `WorldStateDelta`). On the right side of that consensus. The missing piece is making state *retrievable* across hundreds of turns, not just summarizable by Spock.
 
 Strategic picture: good. Technical stack: the lagging piece.
 
@@ -57,7 +57,7 @@ These keep the four-role workflow + benchmark methodology intact. Each is an eve
 
 7. **Mine the Langfuse traces.** Codebase agent named this as the single most underutilized thing in the project — per-turn cost, latency, token usage, agent-level error rates are *all already logged* and only the offline judge reads them. A simple dashboard surfaces exactly which agent burns time/money on which turns. Also a defensible "production observability" story for any pitch deck.
 
-If nothing else, this list makes ClankerStudios meaningfully better than 80% of what's shipping.
+If nothing else, this list makes Artificial Realities meaningfully better than 80% of what's shipping.
 
 ## 1.3. Paradigm shifts — three real bets, with honest tradeoffs
 
@@ -76,7 +76,7 @@ Replace clip-per-turn i2v with *continuous* video generation. Two viable paths:
 
 ### Bet B — World-model substrate (kill clips entirely, go playable)
 
-Move from "ClankerStudios renders a story" to "ClankerStudios directs a navigable world."
+Move from "Artificial Realities renders a story" to "Artificial Realities directs a navigable world."
 
 - **LingBot-World (Ant Group, Apache 2.0)** is the near-term play. 16 FPS, 10+ minute consistency, WASD-controllable, fully open weights. The four roles become: Tolkien emits *world events* and *narrative goals*, Spielberg emits *camera moves* into the running world, Attenborough streams narration alongside, Spock maintains a structured ledger that survives across world resets.
 - **Genie 3** is the eventual right answer but has no developer API yet (Ultra subscription only as of Jan 2026). Track but don't bet on.
@@ -90,7 +90,7 @@ Move from "ClankerStudios renders a story" to "ClankerStudios directs a navigabl
 
 Skip the latency problem entirely by leaning into the form factor where it doesn't matter: **lean-back AI broadcast where chat steers the show**.
 
-- Launch ClankerStudios as a 24/7 Twitch/YouTube channel. Chat aggregates into Tolkien's `user_input`. The four roles run continuously. The 30-second clip latency is invisible to the viewer because they're in lean-back mode — it's actually *the show's pacing*, not a defect.
+- Launch Artificial Realities as a 24/7 Twitch/YouTube channel. Chat aggregates into Tolkien's `user_input`. The four roles run continuously. The 30-second clip latency is invisible to the viewer because they're in lean-back mode — it's actually *the show's pacing*, not a defect.
 - This is the Neuro-sama playbook with a narrative engine instead of a single character.
 - Solves the cold-start problem (audience finds *you*, you don't acquire users one-by-one).
 - The four roles become *visible named co-hosts* the chat can prompt by name. This is the single sharpest opportunity the experience-landscape research surfaced: **converting the architecture into IP**. "Spock, give me a science twist" → the show pivots. The methodology becomes the spectacle.
@@ -111,7 +111,7 @@ The two viable wedges are **family/bedtime storytelling** and **broadcast/Twitch
 
 **Recommendation: broadcast first as a 6-month wedge, family second as the durable product.**
 
-The reason: broadcast lets ClankerStudios ship in Q3 2026 with just the drop-in upgrade list. It immediately solves distribution and validates whether the four-role split actually *engages people* as named hosts. The data collected (which characters viewers love, which steering patterns work, which story shapes hold attention) is the exact data needed to design the family product. Broadcast = live experiment + acquisition channel; family = the destination product.
+The reason: broadcast lets Artificial Realities ship in Q3 2026 with just the drop-in upgrade list. It immediately solves distribution and validates whether the four-role split actually *engages people* as named hosts. The data collected (which characters viewers love, which steering patterns work, which story shapes hold attention) is the exact data needed to design the family product. Broadcast = live experiment + acquisition channel; family = the destination product.
 
 For the **paradigm bet underneath**, don't go full world-model (Bet B) yet. The technology isn't there for narrative-grade quality; the next year would be spent fighting the substrate. Go **Bet A (streaming) on a one-year horizon**, specifically LTX-2 self-hosted: cleanest commitment, control of GPU costs, and 60-second coherent streaming is enough to make the broadcast lean-back experience feel continuous.
 
@@ -136,13 +136,13 @@ A single concrete starting move:
 - **NSFW / Character.AI-style chatbot expansion.** Highest raw traffic (Janitor 149M visits/month) but unsponsorable, zero switching costs, toxic to the kind of brand worth building.
 - **Pure AI-TV (Showrunner clone).** The market explicitly rejected high-volume AI-generated video — Sora 2 burned ~$1M/day before OpenAI killed it March 2026. Don't compete in that lane.
 - **Building on Sora.** Dead by September 2026. Any pitch starting with Sora is already obsolete.
-- **Game-engine integration (Unity/Unreal + Convai/ACE).** Beautiful, deep, six-to-twelve-month commitment. Not where the wedge is. ClankerStudios is web-native today, stay there until the founding ambition crystallizes.
+- **Game-engine integration (Unity/Unreal + Convai/ACE).** Beautiful, deep, six-to-twelve-month commitment. Not where the wedge is. Artificial Realities is web-native today, stay there until the founding ambition crystallizes.
 
 ---
 
 # Appendix A — Codebase audit + real bottlenecks
 
-> Source: research agent grounding pass over the ClankerStudios codebase, 2026-05-24.
+> Source: research agent grounding pass over the Artificial Realities codebase, 2026-05-24.
 
 ## A.1. Turn-by-turn trace (one MAS turn)
 
@@ -339,7 +339,7 @@ Crucial distinction: MirageLSD/Lucy *transform* an existing visual stream (so th
 
 ### Multi-clip narrative consistency
 
-The industry has now adopted some version of what ClankerStudios is doing with end-frame chaining, but more cleanly:
+The industry has now adopted some version of what Artificial Realities is doing with end-frame chaining, but more cleanly:
 - **Veo 3.1 Ingredients** (up to 4 reference images per clip).
 - **Kling 3.0 Omni** (multi-shot storyboard with elements referencing).
 - **Wan 2.7 reference-to-video** (with voice cloning).
@@ -365,7 +365,7 @@ Explicit reference-image conditioning beats end-frame chaining at preserving ide
 
 What's actually controllable today vs marketing: in May 2026, Genie 3, Oasis, and LingBot-World demonstrably accept inputs and update the world. But controllability is at the level of "move forward, look around, change the weather via text." Fine-grained character control is still weak. Multi-agent worlds are weak. Persistence beyond a few minutes is unsolved. The "playable Hollywood" claim is still marketing.
 
-For ClankerStudios: the world-model paradigm replaces "LLM plans → image gen → i2v → TTS" with "LLM plans → emit prompts/events into a running world model + emit narration to streaming TTS." Strictly larger experience, trade off cinematic quality (Genie 3 is 720p, not Veo-quality) for liveness.
+For Artificial Realities: the world-model paradigm replaces "LLM plans → image gen → i2v → TTS" with "LLM plans → emit prompts/events into a running world model + emit narration to streaming TTS." Strictly larger experience, trade off cinematic quality (Genie 3 is 720p, not Veo-quality) for liveness.
 
 ## B.4. Audio / voice / music
 
@@ -377,14 +377,14 @@ For ClankerStudios: the world-model paradigm replaces "LLM plans → image gen �
 - **Sesame CSM** — full-duplex *conversational* speech model with context awareness, Llama backbone + Mimi codec. The next category over.
 
 ### Speech-to-speech (the new category)
-Full-duplex speech-to-speech models (Sesame CSM, Moshi/Gradium AsyncFlow) are starting to replace TTS for character interactions. Model hears + responds + maintains character without the LLM-as-text-intermediary. Latency *under* a TTS pipeline because no text bottleneck. Candidate for live-character dialogue if ClankerStudios goes conversational.
+Full-duplex speech-to-speech models (Sesame CSM, Moshi/Gradium AsyncFlow) are starting to replace TTS for character interactions. Model hears + responds + maintains character without the LLM-as-text-intermediary. Latency *under* a TTS pipeline because no text bottleneck. Candidate for live-character dialogue if Artificial Realities goes conversational.
 
 ### Music
 - **Suno V5 / V5 Turbo** — ELO 1293, 20-30s for a 2-min track on Turbo.
 - **Stability Audio 3.0 / Stable Audio Small** — Open-weights tier, 6:20 max length, "Small" runs on-device. Targets game audio middleware (Wwise/FMOD).
 - **Udio** — better surgical inpainting (regenerate a section without touching the rest).
 
-For ClankerStudios: adaptive music tied to scene affect is mature enough to ship. The play is Stable Audio Small streaming a slow generative bed that the LLM nudges with mood prompts each turn.
+For Artificial Realities: adaptive music tied to scene affect is mature enough to ship. The play is Stable Audio Small streaming a slow generative bed that the LLM nudges with mood prompts each turn.
 
 ### Sound effects / Foley
 ElevenLabs Sound Effects v2 (up to 30s per gen) is the production option.
@@ -396,7 +396,7 @@ ElevenLabs Sound Effects v2 (up to 30s per gen) is the production option.
 - **Imagen 4 / Imagen 4 Fast** — $0.02/image on Fast; 1148 Elo Ultra; tuned for enterprise pipelines.
 - **FLUX.1 Kontext (Black Forest Labs)** — in-context image generation + editing in latent space, character preservation across iterative edits, the open-weight reference-conditioning standard.
 
-For ClankerStudios: the right end-frame strategy in 2026 is *not* "grab whatever the i2v model spit out." It's:
+For Artificial Realities: the right end-frame strategy in 2026 is *not* "grab whatever the i2v model spit out." It's:
 1. Generate the next-clip reference frame explicitly with Nano Banana Pro or FLUX Kontext, conditioned on the previous frame + locked character refs.
 2. Pass that *and* the original character references to the i2v step.
 3. This is what Veo Ingredients / Kling Omni / Wan 2.7 reference-to-video are doing internally.
@@ -516,23 +516,23 @@ The 2026 IF market makes one thing painfully clear: every successful product pai
   - Decision rule: if you can map the decision tree, build it — more accuracy, more control, lower cost. Rule of thumb: <$0.10/task = workflow territory.
 - **Event-driven / durable execution.** Temporal ($300M Series, $5B valuation Feb 2026, 1.86T AI-native lifetime executions). Restate — same journal/replay model, lighter footprint.
 - **Hybrid pattern (the consensus).** Workflow Agents / Hybrid Agents — humans design the edges, individual nodes are autonomous agents. ~80% of enterprise production cases.
-- **Evaluation benchmarks.** MultiAgentBench, TRAIL (trace reasoning + agentic issue localization), TRAJECT-Bench, BeSafe-Bench, RoleInteract / SocialBench, WebGameBench. The "Playing for Benchmarks" paradigm — *pre-registered scripted scenarios* — is directly relevant to ClankerStudios' benchmark methodology.
+- **Evaluation benchmarks.** MultiAgentBench, TRAIL (trace reasoning + agentic issue localization), TRAJECT-Bench, BeSafe-Bench, RoleInteract / SocialBench, WebGameBench. The "Playing for Benchmarks" paradigm — *pre-registered scripted scenarios* — is directly relevant to Artificial Realities' benchmark methodology.
 
 ## C.7. Adjacent: interactive media not built on game engines
 
 - **Decart.** MirageLSD (<40ms response), Lucy 2.0 (<30ms, virtual try-on / live streaming / in-video ads), Oasis. $300M Series B at $4B valuation. Most aggressive "kill the latency wall" lab.
-- **Runway GWM-1.** General World Model in three variants: GWM Worlds, GWM Avatars (conversational characters with embeddable web product + API), GWM Robotics. Runway Characters is the most ClankerStudios-shaped product on the market.
+- **Runway GWM-1.** General World Model in three variants: GWM Worlds, GWM Avatars (conversational characters with embeddable web product + API), GWM Robotics. Runway Characters is the most Artificial Realities-shaped product on the market.
 - **Pika PikaStream 1.0 (beta).** Real-time video chat for AI agents.
 - **Google DeepMind Genie 3.** 11B-param autoregressive transformer, 24fps@720p, navigable worlds from text+image. Released to AI Ultra subscribers in US, Jan 2026.
 - **World Labs Marble (Nov 2025) + World API (Jan 2026).** Generative multimodal world model — text/image/video/3D-layout → explorable 3D worlds → exportable as Gaussian splats, meshes, or video.
 - **Odyssey.** AI model generating frames every ~40ms; "early Holodeck." £0.80–£1.60/user-hour on H100 clusters.
 - **Fable Showrunner / SHOW-2.** AI-generated TV — write/produce/direct/cast/edit/voice/animate. Amazon-backed. Closest-in-spirit product on the *output* side — but batch generation, not real-time.
 - **Neuro-sama.** C# (Unity) + Python AI + JavaScript stack. ~2B param LLM with q2_k quantization. Twitch's most-subscribed channel by late 2025. Proof point that an LLM + avatar + TTS + computer-vision-game-agent stack works as an *ongoing live entertainment product*.
-- **Research stack for cinematography.** FilmAgent, ViMax, MovieAgent, Camera Artist (multi-agent: Director + Cinematography Shot Agent with Recursive Shot Generation + Cinematic Language Injection), VideoAgent — *all* use multi-role multi-agent frameworks. ClankerStudios' four-role architecture *is* a recognized research pattern.
+- **Research stack for cinematography.** FilmAgent, ViMax, MovieAgent, Camera Artist (multi-agent: Director + Cinematography Shot Agent with Recursive Shot Generation + Cinematic Language Injection), VideoAgent — *all* use multi-role multi-agent frameworks. Artificial Realities' four-role architecture *is* a recognized research pattern.
 
-## C.8. Stack comparison: ClankerStudios vs. current best-in-class
+## C.8. Stack comparison: Artificial Realities vs. current best-in-class
 
-| Dimension | ClankerStudios (now) | Best-in-class 2026 |
+| Dimension | Artificial Realities (now) | Best-in-class 2026 |
 |---|---|---|
 | **Control flow** | LangGraph fixed deterministic workflow | LangGraph fixed graphs *win* the supervisor pattern — on-trend, not behind |
 | **Roles** | Tolkien / Spielberg / Attenborough / Spock (fixed) | Camera Artist, FilmAgent, ViMax, MovieAgent use Director/Screenwriter/Cinematographer/Editor splits — same family |
@@ -543,17 +543,17 @@ The 2026 IF market makes one thing painfully clear: every successful product pai
 | **Voice** | Voice-over on top of video | OpenAI Realtime / Hume EVI-3 / Inworld TTS-2 / Vapi+Hume Octave — sub-200ms speech-to-speech with emotion adaptation |
 | **Player input** | Natural-language guidance between clips | Genie 3 continuous interaction; Runway Characters real-time; PikaStream back-and-forth |
 | **Persistence** | Per-session | Letta agents run for days; Replika 2.0 semantic-summary memory; Zep temporal knowledge graphs |
-| **Eval methodology** | Monolithic single-LLM baseline | MultiAgentBench, TRAIL, "Playing for Benchmarks" — *this is exactly what ClankerStudios is already doing methodologically* |
+| **Eval methodology** | Monolithic single-LLM baseline | MultiAgentBench, TRAIL, "Playing for Benchmarks" — *this is exactly what Artificial Realities is already doing methodologically* |
 
 ## C.9. Tensions in the field
 
-- **Fixed workflows vs agentic control flow.** Anthropic: "if you can map it, map it." Every "agents-first" school keeps pushing toward LLM-decided control. Honest reading: *workflows for the spine, agents for the leaves.* ClankerStudios should stay graph-deterministic at the top level and selectively add tool-using nodes.
-- **Deterministic state vs emergent state.** Hidden Door / Friends & Fables / Voyage / RoleForge prove *deterministic state + LLM narration* wins for IF. Smallville / AI Town / Simile / Concordia prove *emergent* simulation produces things you can't script. Split: "if the user is *in* the story, deterministic; if the user is *watching* the simulation, emergent." ClankerStudios is the first case.
+- **Fixed workflows vs agentic control flow.** Anthropic: "if you can map it, map it." Every "agents-first" school keeps pushing toward LLM-decided control. Honest reading: *workflows for the spine, agents for the leaves.* Artificial Realities should stay graph-deterministic at the top level and selectively add tool-using nodes.
+- **Deterministic state vs emergent state.** Hidden Door / Friends & Fables / Voyage / RoleForge prove *deterministic state + LLM narration* wins for IF. Smallville / AI Town / Simile / Concordia prove *emergent* simulation produces things you can't script. Split: "if the user is *in* the story, deterministic; if the user is *watching* the simulation, emergent." Artificial Realities is the first case.
 - **Memory frameworks disagree about who decides what to remember.** Mem0 (passive), Letta (agent decides), Zep (temporal graph). For a Spock-shaped role you almost certainly want Letta's model — Spock *should* be the agent deciding.
 - **Single speech-to-speech vs cascading STT→LLM→TTS.** OpenAI: one model, lowest latency, less control. Inworld / Vapi: cascading pipeline with hot-swappable components. Vapi+Hume Octave at 150ms TTS suggests cascading can win on latency *if* engineered hard.
-- **Game-engine LLM glue vs web-native.** Unreal/Unity/Roblox + Convai / NVIDIA ACE / Inworld SDK / MetaHuman — gorgeous, deeply integrated, friction-heavy. Web/cloud (Runway Characters / Decart / PikaStream / Showrunner) — leaner, faster iteration, lower ceiling on fidelity. ClankerStudios is web-shaped today and probably should stay there.
+- **Game-engine LLM glue vs web-native.** Unreal/Unity/Roblox + Convai / NVIDIA ACE / Inworld SDK / MetaHuman — gorgeous, deeply integrated, friction-heavy. Web/cloud (Runway Characters / Decart / PikaStream / Showrunner) — leaner, faster iteration, lower ceiling on fidelity. Artificial Realities is web-shaped today and probably should stay there.
 - **Long context vs structured memory.** Opus 4.5's 500k context tempts everyone to skip memory engineering. 2026 research is consistent: coherence degrades as context grows even when it fits. Don't bet on context length; bet on structured memory.
-- **Real-time interactive video vs cinematic batch i2v.** Genie 3 / Runway / Decart are gambling everyone wants *interactive* video. Fable Showrunner — closer to ClankerStudios' aesthetic ambition — is succeeding with *batch* cinematic episodes. Ask: is ClankerStudios trying to be playable, or watchable-but-co-authored?
+- **Real-time interactive video vs cinematic batch i2v.** Genie 3 / Runway / Decart are gambling everyone wants *interactive* video. Fable Showrunner — closer to Artificial Realities' aesthetic ambition — is succeeding with *batch* cinematic episodes. Ask: is Artificial Realities trying to be playable, or watchable-but-co-authored?
 
 ---
 
@@ -656,10 +656,10 @@ The 2026 IF market makes one thing painfully clear: every successful product pai
 
 ## D.4. Opportunity map
 
-Ten concrete opportunity statements, ordered roughly by adjacency to ClankerStudios:
+Ten concrete opportunity statements, ordered roughly by adjacency to Artificial Realities:
 
-1. **There is no continuous, watch-and-steer AI broadcast** you can drop into like Twitch and shape like AI Dungeon, for adult audiences who want long-form ambient narrative. The missing piece is a persistent show with a memory and a director, not a series of clips. Neuro-sama proves audiences will watch AI; ClankerStudios' four-role workflow is the closest published architecture to "AI showrunner you can talk to."
-2. **There is no AI bedtime / family storytelling experience** that runs continuously for an hour with the child as co-author and characters that persist across nights, for parents who want screen time that builds rather than rots attention. ClankerStudios' multi-role decomposition (one role for safety/age-appropriate framing, one for character voice, one for pacing) maps eerily well.
+1. **There is no continuous, watch-and-steer AI broadcast** you can drop into like Twitch and shape like AI Dungeon, for adult audiences who want long-form ambient narrative. The missing piece is a persistent show with a memory and a director, not a series of clips. Neuro-sama proves audiences will watch AI; Artificial Realities' four-role workflow is the closest published architecture to "AI showrunner you can talk to."
+2. **There is no AI bedtime / family storytelling experience** that runs continuously for an hour with the child as co-author and characters that persist across nights, for parents who want screen time that builds rather than rots attention. Artificial Realities' multi-role decomposition (one role for safety/age-appropriate framing, one for character voice, one for pacing) maps eerily well.
 3. **There is no AI dungeon master** that produces a watchable video session your D&D group can rewatch and share, for tabletop players who already love long-form actual-play podcasts (Critical Role's audience).
 4. **There is no AI-narrated "Twitch Plays Pokémon"-style live experience** where thousands of viewers steer a continuous show, for the broadcast generation that grew up on chat-driven streams.
 5. **There is no kid-safe Roblox-style social AI playground** that's a true co-watch experience for friends in different cities.
@@ -686,15 +686,15 @@ Ten concrete opportunity statements, ordered roughly by adjacency to ClankerStud
 - "Just" content quality without engagement loops.
 - An open NSFW platform without a real product layer.
 
-## D.6. Implication for ClankerStudios specifically
+## D.6. Implication for Artificial Realities specifically
 
-**Where ClankerStudios sits on the map today:**
+**Where Artificial Realities sits on the map today:**
 The current concept sits at a genuinely unoccupied intersection:
 - The **video** axis is held by Sora-style feeds (dying) and Showrunner-style creator tools (one-shot generation).
 - The **steerable continuous narrative** axis is held by text RPGs (Voyage, AI Dungeon).
 - The **lean-back AI broadcast** axis is held by Neuro-sama (single character, no video story).
 
-ClankerStudios is the only thing trying to fuse "video that flows continuously" + "you can steer it" + "a structured narrative engine behind it."
+Artificial Realities is the only thing trying to fuse "video that flows continuously" + "you can steer it" + "a structured narrative engine behind it."
 
 **Strategic opportunities:**
 
@@ -716,4 +716,4 @@ ClankerStudios is the only thing trying to fuse "video that flows continuously" 
 - Adult NSFW is the largest market but probably toxic to the brand worth building.
 - Character.AI's collapse shows trust is fragile. Over-invest in continuity (memory, world-state, recurring characters) — the thing all the failures share is they ship without it.
 
-**Bottom line:** ClankerStudios is sitting on a methodology and a form-factor that nobody else is converging on. The biggest unlock is converting the academic four-role decomposition into visible, named, beloved characters/hosts, and choosing one specific audience (most likely: kids/family bedtime as the wedge; broadcast Twitch-style as the growth channel) to build a defensible loop around before the world-model labs collapse the technical moat in 18-24 months.
+**Bottom line:** Artificial Realities is sitting on a methodology and a form-factor that nobody else is converging on. The biggest unlock is converting the academic four-role decomposition into visible, named, beloved characters/hosts, and choosing one specific audience (most likely: kids/family bedtime as the wedge; broadcast Twitch-style as the growth channel) to build a defensible loop around before the world-model labs collapse the technical moat in 18-24 months.

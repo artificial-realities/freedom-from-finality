@@ -24,7 +24,7 @@ def is_ffplay_available() -> bool:
 async def play_clip(
     path: str,
     *,
-    window_title: str = "ClankerStudios",
+    window_title: str = "Artificial Realities",
     extra_args: list[str] | None = None,
 ) -> int:
     """Play `path` to completion via ffplay. Returns the process exit code.

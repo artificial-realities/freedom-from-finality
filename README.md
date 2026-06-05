@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="data/banner.png" alt="Clanker Studios banner" width="100%" />
+  <img src="data/banner.png" alt="Artificial Realities banner" width="100%" />
 </p>
 
-# ClankerStudios
+# Artificial Realities
 
 A four-role workflow for interactive storytelling, built with LangGraph. Four specialized LLMs — a beat writer, a shot composer, a voice-over commentator, and a memory curator — coordinate over a fixed, deterministic pipeline to produce a continuous stream of short video clips chained via image-to-video (i2v), layered with live voice-over commentary, while the user optionally steers the story with natural-language commands between clips.
 
@@ -36,7 +36,7 @@ See [docs/BENCHMARK.md](docs/BENCHMARK.md) for the research question, experiment
 ## Project Structure
 
 ```
-ClankerStudios/
+ArtificialRealities/
 ├── README.md
 ├── CLAUDE.md                        # Claude Code working instructions
 ├── docs/
@@ -119,7 +119,7 @@ ClankerStudios/
 
 ```bash
 git clone <repo-url>
-cd ClankerStudios
+cd ArtificialRealities
 pip install -r requirements.txt
 cp .env.example .env   # fill in only the keys you actually need
 ```
