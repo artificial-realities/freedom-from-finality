@@ -1,8 +1,7 @@
 """Structured output schemas for every LLM call.
 
-Every MAS agent emits one of these; solo emits all four in a single
-`SoloResponse`. All schemas pass through the json_sanitizer pipeline
-before instantiation.
+Every agent emits one of these. All schemas pass through the
+json_sanitizer pipeline before instantiation.
 """
 
 from __future__ import annotations
@@ -63,12 +62,3 @@ class MemoryUpdate(BaseModel):
     world_state_delta: WorldStateDelta = Field(default_factory=WorldStateDelta)
     narrative_memory: str
     context_brief: str
-
-
-class SoloResponse(BaseModel):
-    """Solo's single structured response — all four shapes at once."""
-
-    beat: Beat
-    shot: Shot
-    commentary: Commentary
-    memory_update: MemoryUpdate

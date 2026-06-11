@@ -4,7 +4,6 @@ from src.models.responses import (
     Commentary,
     MemoryUpdate,
     Shot,
-    SoloResponse,
     WorldStateDelta,
 )
 from src.models.story import Character, Location, Story
@@ -17,7 +16,6 @@ __all__ = [
     "Location",
     "MemoryUpdate",
     "Shot",
-    "SoloResponse",
     "Story",
     "WorldStateDelta",
 ]
