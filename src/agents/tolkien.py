@@ -65,6 +65,7 @@ async def run(
         llm=llm,
         config=config,
         turn=state.turn_number,
+        schema=Beat,
     )
 
     if parsed is None:

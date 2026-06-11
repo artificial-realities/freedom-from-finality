@@ -68,6 +68,9 @@ async def run(
         recent_history=format_recent_history(state, count=config.context_window_history),
     )
 
+    # strict=False: WorldStateDelta.characters is a free-form dict[str, dict],
+    # which OpenAI's strict subset can't express (additionalProperties must be
+    # false). Non-strict still guarantees valid JSON; Pydantic validates below.
     parsed = await call_llm_structured(
         agent="spock",
         system_prompt=system_prompt,
@@ -75,6 +78,8 @@ async def run(
         llm=llm,
         config=config,
         turn=state.turn_number,
+        schema=MemoryUpdate,
+        strict=False,
     )
 
     if parsed is None:

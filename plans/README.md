@@ -15,8 +15,8 @@ How we evolve Artificial Realities, post-IKT469. See `docs/NORTH_STAR.md` for th
 
 Lightest-risk-first; everything after 00 is reorderable. Items marked *(no-regret)* pay off regardless of direction; the rest are steered by `docs/NORTH_STAR.md`.
 
-1. **`00-cleanup-baseline.md`** *(in progress)* — strip the academic/benchmark identity; preserve findings; keep the reusable scorer.
-2. **No-regret infra** — native structured outputs (EVOLUTION B5); Langfuse dashboard / trace mining. *(Agent-parallelism B2 is likely mooted by the move-2 redesign — skip as a standalone.)*
+1. **`00-cleanup-baseline.md`** *(done 2026-06-11, merged to main)* — strip the academic/benchmark identity; preserve findings; keep the reusable scorer.
+2. **No-regret infra** — ~~native structured outputs (EVOLUTION B5)~~ *(done — `01-structured-outputs.md`)*; Langfuse dashboard / trace mining. *(Agent-parallelism B2 is likely mooted by the move-2 redesign — skip as a standalone.)*
 3. **Memory: Spock → off-the-shelf framework** (Letta/Mem0). North-star move 1; most self-contained.
 4. **Agent redesign: 4 roles → ~3 literature-grounded roles.** North-star move 2; interfaces with the substrate, so settle move 5's shape first (or co-design).
 5. **Streaming substrate: LTXV autoregressive chunk-streaming.** North-star move 3; the big re-architecture (kills end-frame chaining + the 30s gate). Start with a **hands-on GPU spike** (chunk size vs. coherence vs. latency) before committing the runner rewrite.

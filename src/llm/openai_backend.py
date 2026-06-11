@@ -13,6 +13,12 @@ import logging
 import os
 
 from langfuse.openai import AsyncOpenAI
+# Private SDK helper, but it is the exact transform the SDK's own
+# `chat.completions.parse()` uses internally. We call `create()` instead
+# of `parse()` because `parse()` forces strict mode, which free-form-dict
+# schemas (e.g. MemoryUpdate) can't satisfy — see plans/01-structured-outputs.md.
+from openai.lib._pydantic import to_strict_json_schema
+from pydantic import BaseModel
 
 from src.llm.base import LLMBackend
 
@@ -53,6 +59,66 @@ class OpenAIBackend(LLMBackend):
             )
         except Exception as exc:
             logger.exception("OpenAI backend call failed: %s", exc)
+            return "", {"error": str(exc)}
+
+        text = resp.choices[0].message.content or ""
+        usage = {}
+        if resp.usage is not None:
+            usage = {
+                "prompt": resp.usage.prompt_tokens,
+                "completion": resp.usage.completion_tokens,
+                "total": resp.usage.total_tokens,
+            }
+        return text, usage
+
+    async def generate_structured(
+        self,
+        messages: list[dict],
+        schema: type[BaseModel],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        *,
+        strict: bool = True,
+        trace_name: str | None = None,
+        trace_metadata: dict | None = None,
+    ) -> tuple[str, dict]:
+        """Generate with native structured outputs.
+
+        `strict=True` enforces the schema at the API level (malformed or
+        non-conforming JSON becomes impossible). `strict=False` still
+        guarantees syntactically valid JSON with the schema as guidance —
+        used for schemas the strict subset can't express (free-form dicts).
+        """
+        extra: dict = {}
+        if trace_name is not None:
+            extra["name"] = trace_name
+        if trace_metadata is not None:
+            extra["metadata"] = trace_metadata
+
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema.__name__,
+                "strict": strict,
+                "schema": (
+                    to_strict_json_schema(schema)
+                    if strict
+                    else schema.model_json_schema()
+                ),
+            },
+        }
+
+        try:
+            resp = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format,
+                **extra,
+            )
+        except Exception as exc:
+            logger.exception("OpenAI structured call failed: %s", exc)
             return "", {"error": str(exc)}
 
         text = resp.choices[0].message.content or ""

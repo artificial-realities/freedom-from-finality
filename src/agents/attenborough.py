@@ -115,6 +115,7 @@ async def run(
         llm=llm,
         config=config,
         turn=state.turn_number,
+        schema=Commentary,
     )
 
     if parsed is None:

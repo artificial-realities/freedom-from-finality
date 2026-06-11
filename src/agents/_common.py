@@ -7,6 +7,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.state.story_state import StoryState
@@ -23,21 +25,28 @@ async def call_llm_structured(
     llm: LLMBackend,
     config: Config,
     turn: int,
+    schema: type[BaseModel],
+    strict: bool = True,
     max_tokens: int | None = None,
 ) -> dict | None:
-    """Call the LLM and return a parsed dict (or None on failure).
+    """Call the LLM with native structured outputs and return a parsed dict.
 
-    Prompts/completions/tokens/latency are captured by the
-    `langfuse.openai` wrapper inside the backend. Parse failures return
-    None; callers decide whether to skip the update.
+    `schema` constrains the response at the API level (`strict=True`
+    enforces it; `strict=False` guarantees valid JSON with the schema as
+    guidance — for shapes the strict subset can't express). Prompts/
+    completions/tokens/latency are captured by the `langfuse.openai`
+    wrapper inside the backend. Parse failures return None; callers
+    decide whether to skip the update.
     """
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
 
-    raw, _usage = await llm.generate(
+    raw, _usage = await llm.generate_structured(
         messages=messages,
+        schema=schema,
+        strict=strict,
         temperature=config.temperature,
         max_tokens=max_tokens or config.max_tokens_per_agent,
         trace_name=agent,

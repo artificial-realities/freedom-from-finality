@@ -17,7 +17,7 @@ The roster is **four agents**, each owning exactly one job, with no overlap.
 - **Attenborough** — the voice-over commentator. Reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Always emits text; optionally fires ElevenLabs TTS when audio is enabled.
 - **Spock** — the memory and context curator. After each turn, updates the structured world state and the rolling narrative memory. Before the next turn, hands Tolkien a filtered context brief — only what he needs to know right now, including the currently-relevant characters and locations.
 
-All four agents emit **structured output** via Pydantic schemas. The `json_sanitizer` pipeline repairs malformed JSON before parsing.
+All four agents emit **structured output** via Pydantic schemas, enforced at the API level with OpenAI native structured outputs (`response_format: json_schema`). Beat, Shot, and Commentary use strict mode (non-conforming JSON is impossible); MemoryUpdate uses non-strict schema guidance because its free-form `characters` dict can't be expressed in the strict subset — still guaranteed-valid JSON, with Pydantic validating downstream. The `json_sanitizer` pipeline remains as a thin fallback (e.g., `max_tokens` truncation).
 
 ## One-Turn-Delayed Feedback Loop
 
@@ -375,11 +375,11 @@ Each agent has a `system.md` and `user.md`. Variables are substituted at call ti
 
 Each prompt ends with a schema block that describes the structured output the agent must produce. The schema block lists fields, types, and purpose in plain text — not a raw JSON schema dump.
 
-## JSON Sanitizer
+## JSON Sanitizer (fallback layer)
 
-LLMs occasionally produce malformed JSON — truncated objects, stray text around the JSON, escaped-character glitches. `src/util/json_sanitizer.py` provides the repair functions shared by all four agents.
+Agent responses are constrained by native structured outputs, so malformed JSON from the OpenAI path is near-impossible. `src/util/json_sanitizer.py` survives as a **fallback layer**, not load-bearing infra: it still guards the edge cases (`max_tokens` truncation mid-object) and is the primary parse path for the Anthropic judge in `src/eval/judge.py`, which has no equivalent structured-output mode.
 
-Parse strategy for structured responses:
+Parse strategy (unchanged):
 
 1. Try direct `json.loads()`.
 2. If that fails, try `extract_json()` (pulls JSON out of surrounding text).
