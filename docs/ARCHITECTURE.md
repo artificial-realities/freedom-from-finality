@@ -4,11 +4,11 @@
 
 The system tells an interactive story as a stream of short (~5s) video clips chained together via image-to-video (i2v), layered with live voice-over commentary on top. The user types natural-language guidance between clips; the story keeps flowing whether or not the user speaks.
 
-**What kind of system this is.** Four role-specialized LLMs coordinate through shared state over a fixed pipeline. In Anthropic's agents-vs-workflows terminology this is a **workflow**, not an agent system: control flow is deterministic, there is no tool use, and no LLM decides what happens next. "MAS" remains useful shorthand in the academic sense (a system of multiple role-specialized LLMs), but the comparison we actually study is narrower and sharper — **decomposed prompting** (four role-specialized LLM calls over a fixed graph) vs **monolithic prompting** (one LLM emitting all four outputs in a single structured response).
+**What kind of system this is.** Four role-specialized LLMs coordinate through shared state over a fixed pipeline. In Anthropic's agents-vs-workflows terminology this is a **workflow**, not an agent system: control flow is deterministic, there is no tool use, and no LLM decides what happens next.
 
-A single well-briefed LLM can in principle do every job this system does. Solo's strength is **holistic coherence** — it sees the whole story in one context window and can cross-reference any part of it in a single pass, so consistency between beat, shot, commentary, and memory comes almost for free. Solo's weakness is **juggling** — producing all four outputs in one structured response strains the model as context accumulates, and setups get dropped, facts drift, threads are lost.
+A single well-briefed LLM could in principle do every job this system does — emitting beat, shot, commentary, and memory in one structured response. Its strength would be **holistic coherence** (it sees everything in one context window); its weakness is **juggling** — producing all four outputs at once strains the model as context accumulates, and setups get dropped, facts drift, threads are lost.
 
-Decomposition inverts this. Specialization trivializes juggling: each agent writes one thing. But each agent sees only a role-specific **fraction** of the total context, so coherence has to emerge from coordination — shared state, forward-passing between specialists, and Spock's one-turn-delayed brief — rather than from a single holistic view. **The research question is whether the decomposed workflow matches solo on the early game and outperforms it on the late game, where solo's juggling begins to hurt.** The bet is that it does, and that the long-horizon payoff from specialization outweighs the coordination cost.
+Decomposition inverts this. Specialization trivializes juggling: each agent writes one thing. The cost is that each agent sees only a role-specific **fraction** of the total context, so coherence has to emerge from coordination — shared state, forward-passing between specialists, and Spock's one-turn-delayed brief — rather than from a single holistic view. The bet behind this design is that the long-horizon payoff from specialization, as context strains the model, outweighs the coordination cost.
 
 The roster is **four agents**, each owning exactly one job, with no overlap.
 
@@ -49,9 +49,9 @@ Architectural consequences (regardless of lead value):
 2. **User input enters a queue.** It is applied to the next unrendered clip at the time Tolkien composes that clip's beat. Earlier queued clips play out unmodified. At `lead_clips: 0` this is "the next clip after the one currently playing"; at higher leads, several clips deeper.
 3. **Two clocks.** The MAS's internal clock (one turn = one clip in the build queue) and the viewer's subjective clock (lead clips behind). The one-turn-delayed feedback loop refers to the internal clock.
 
-For the benchmark we **bypass the buffer entirely** and run synchronously turn-by-turn, logging prompts and Attenborough's commentary text only — no actual clips or audio are generated. The buffer is a runtime concern, not an evaluation concern.
+The headless dev loop (`play`, no video) and scripted `play --scenario` runs **bypass the buffer entirely** and run synchronously turn-by-turn — no actual clips or audio are generated. The buffer is a live-playback concern only.
 
-There is also a no-video live mode (`live: true, video_enabled: false`) intended for the academic demo: the MAS still flows continuously and the user still types in the terminal, but instead of an ffplay window the four agents' outputs stream into a Tk popup as they're produced. No clips, no buffer, no lead — turns advance at LLM latency.
+There is also a no-video live mode (`live: true, video_enabled: false`): the story still flows continuously and the user still types in the terminal, but instead of an ffplay window the four agents' outputs stream into a Tk popup as they're produced. No clips, no buffer, no lead — turns advance at LLM latency.
 
 ## Story Blueprint
 
@@ -93,7 +93,7 @@ Each field has a primary audience:
 | `locations` | Spielberg (full); Spock (full, for use in `context_brief`) |
 | `characters` | Spielberg (full); Spock (full, for use in `context_brief`); Tolkien (protagonist entry only — always visible) |
 | `world_constraints` | Tolkien (upfront self-check instruction) |
-| `narrative_premise` | Tolkien, solo baseline |
+| `narrative_premise` | Tolkien |
 | `long_term_narrative` | Tolkien (read + rarely updates) |
 | `short_term_narrative` | Tolkien (read + updates every turn) |
 
@@ -103,7 +103,7 @@ We keep **exactly one** `long_term_narrative` and **exactly one** `short_term_na
 
 ## Scenario
 
-The scenario is separate from the story. It is a bare JSON list of user command strings — no schema, no Pydantic model.
+A scenario is separate from the story: a bare JSON list of user command strings — no schema, no Pydantic model. Passing one to `play --scenario` drives the session non-interactively, turn by turn.
 
 ```json
 ["Wake up.", "Look around my quarters.", "..."]
@@ -112,12 +112,12 @@ The scenario is separate from the story. It is a bare JSON list of user command 
 Loaded directly in the runner:
 
 ```python
-turns = json.loads(Path("data/test_scenario.json").read_text())
+turns = json.loads(Path("data/demo_scenario.json").read_text())
 for turn_number, user_input in enumerate(turns, start=1):
     ...
 ```
 
-The single benchmark scenario is 100 turns that test inventory persistence, character tracking, world rule consistency, location continuity, and long-horizon coherence — all woven into one continuous playthrough.
+`data/demo_scenario.json` is the canonical scripted demo input — a continuous playthrough useful for reproducible, hands-off runs.
 
 ## State (Pydantic Models)
 
@@ -297,13 +297,13 @@ The narrator-in-the-mix. Writes the spoken line that plays over one or more clip
 4. Sets `StoryState.audio_seconds_owed = audio_dur - clip_dur` so the next turn's Attenborough call sees the gate is closed and skips the LLM entirely.
 5. Tracks `StoryState.silence_seconds` between voiceovers and enforces `Config.min_pause_seconds` as a floor — a forced cinematic pause so lines do not stack back-to-back.
 
-Both gates are only enforced when `state.pacing_managed` is True (set by the live producer at startup) and `audio_enabled` is True. Benchmark and interactive loops always reach the LLM so commentary text is produced for every turn — the gates only affect playback in the live demo.
+Both gates are only enforced when `state.pacing_managed` is True (set by the live producer at startup) and `audio_enabled` is True. The scenario and interactive loops always reach the LLM so commentary text is produced for every turn — the gates only affect playback in the live demo.
 
 On a held turn Attenborough never reaches his prompt; the empty `Commentary` is logged as an `attenborough_hold` event with the reason (`audio_owed` or `min_pause`).
 
 Coordination with Spielberg happens implicitly: both read the same `Beat.narration`. The visual and the voice land together because they come from the same prose source.
 
-**Audio side effect.** After Attenborough produces text, the runtime optionally sends `voiceover` to ElevenLabs TTS when `audio_enabled: true`. When `audio_enabled: false` (the default, and always true in benchmark mode), the text is logged and nothing else happens. This mirrors the video toggle — the agent's structured output is the benchmark-relevant artifact; audio and video generation are runtime niceties. TTS failures are caught and logged — they never break the turn.
+**Audio side effect.** After Attenborough produces text, the runtime optionally sends `voiceover` to ElevenLabs TTS when `audio_enabled: true`. When `audio_enabled: false` (the default), the text is logged and nothing else happens. This mirrors the video toggle — the agent's structured output is the artifact that matters; audio and video generation are runtime niceties. TTS failures are caught and logged — they never break the turn.
 
 ### Spock — Memory and Context Curator
 
@@ -330,9 +330,9 @@ Per turn, in order:
 1. **Read user input** (may be empty).
 2. **Tolkien** reads `context_brief` (from last turn's Spock), current `world_state`, `narrative_memory`, recent `Beat.narration` from the last ~3 history entries, `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
 3. **Spielberg** reads `current_beat`, `visual_style`, full blueprint `locations` + `characters`, current `world_state` (esp. `protagonist_location`, `inventory`), previous `end_frame_description`. Writes `current_shot`.
-4. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped in benchmark mode and when `video_enabled: false`.
+4. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped when `video_enabled: false`.
 5. **Attenborough** reads `tone_guidelines`, `current_beat`, `current_shot`, `narrative_memory`, recent commentary history. Writes `current_commentary`.
-6. **(Optional)** ElevenLabs TTS renders `current_commentary.voiceover`. Skipped in benchmark mode and when `audio_enabled: false`.
+6. **(Optional)** ElevenLabs TTS renders `current_commentary.voiceover`. Skipped when `audio_enabled: false`.
 7. **Spock** reads `current_beat`, `current_shot`, `current_commentary`, current `world_state`, current `narrative_memory`, full blueprint chars/locs, recent history. Writes `world_state_delta`, new `narrative_memory`, new `context_brief`.
 8. **Commit** the history entry (`turn`, `user_input`, `beat`, `shot`, `commentary`).
 
@@ -340,19 +340,7 @@ The context Spock writes in step 7 is the context Tolkien reads in step 2 of the
 
 ## Graph Topology
 
-### Solo (`solo_graph.py`)
-
-One LLM handles everything. It receives the **entire blueprint** — including full `locations` and `characters`, `visual_style`, `tone_guidelines`, premise, constraints, both narrative directions — and emits a single structured response containing `Beat`, `Shot`, `Commentary`, and `MemoryUpdate` in one call. The question solo answers is "can a well-briefed single LLM match a decomposed pipeline?", not "can an unbriefed LLM?".
-
-```
-User Input → Solo (single structured response: Beat + Shot + Commentary + MemoryUpdate) → Output
-```
-
-Solo does the same work as the MAS — just without the split. Both configurations produce all four shapes every turn.
-
-### MAS (`mas_graph.py`)
-
-Four specialized agents.
+Four specialized agents wired in `mas_graph.py`.
 
 ```
 User Input
@@ -389,7 +377,7 @@ Each prompt ends with a schema block that describes the structured output the ag
 
 ## JSON Sanitizer
 
-LLMs occasionally produce malformed JSON — truncated objects, stray text around the JSON, escaped-character glitches. `src/util/json_sanitizer.py` provides the repair functions shared by all four agents and solo.
+LLMs occasionally produce malformed JSON — truncated objects, stray text around the JSON, escaped-character glitches. `src/util/json_sanitizer.py` provides the repair functions shared by all four agents.
 
 Parse strategy for structured responses:
 
@@ -402,7 +390,7 @@ Skipped updates mean the state stays unchanged for that turn. This is safer than
 
 ## Interaction Logger
 
-Every LLM call is logged to `logs/` as structured JSON. Each session gets its own log file. This is the primary output for benchmark evaluation — logs are reviewed post-hoc by a human or an LLM, not scored by an automated pipeline. Implementation lives in `src/util/interaction_logger.py`.
+Every LLM call is logged to `logs/` as structured JSON. Each session gets its own log file. This is the primary record of a run — reviewable post-hoc by a human or by the LLM-as-judge scorer in `src/eval/judge.py`. Implementation lives in `src/util/story_log.py`.
 
 A logged interaction captures everything needed to reconstruct a run:
 
@@ -438,7 +426,7 @@ class LLMBackend(ABC):
         """Returns (response_text, token_usage)."""
 ```
 
-- **GPT-4.1** — OpenAI API, `OPENAI_API_KEY` from env. Same model for both `solo` and `mas` so the only varied factor is prompt shape.
+- **OpenAI** — `OPENAI_API_KEY` from env; the model is set per config (`model:` in the YAML).
 
 ## Context Management
 
@@ -448,9 +436,8 @@ Agents are stateless between calls. Context is reconstructed each turn as prose.
 - **Spielberg** — receives `visual_style` + full blueprint locations/characters + Tolkien's beat (including `narration`) + previous `end_frame_description` + current `world_state` (esp. `protagonist_location` and `inventory`).
 - **Attenborough** — receives `tone_guidelines` + `current_beat` (especially `narration`) + `current_shot` + `narrative_memory` + recent commentary history.
 - **Spock** — receives beat + shot + commentary + current `world_state` + current `narrative_memory` + full blueprint chars/locs + recent history.
-- **Solo** — receives the full blueprint (including `tone_guidelines`) + full rolling state + recent history + user input in one call, and emits `Beat + Shot + Commentary + MemoryUpdate` as a single structured response.
 
-Slicing in the MAS is **deliberately narrow and role-disciplined**, not state-hiding. `visual_style` stays with Spielberg and `tone_guidelines` stays with Attenborough so Tolkien doesn't start writing cinematography or voice-over — this prevents bleed-through into other agents' domains. But the shared rolling state (`world_state`, `narrative_memory`) is not sliced: every agent that would benefit from the current world reads it directly. This isolates the thesis variable cleanly — both configs see comparably growing context; the difference is only in **the shape of what each has to produce**. Solo reads the growing context and must emit `Beat + Shot + Commentary + MemoryUpdate` in one structured response, juggling every concern at once. Each MAS agent reads a comparable slice for its role but only has to write one thing. Spock's `context_brief` is a narrow attention pointer across the one-turn delay — it flags which characters are in scene and which recent commitments matter, not rebuild the world. The central bet is that **task specialization holds up as context strains the model**, where monolithic single-pass handling drops setups and loses threads.
+Slicing in the MAS is **deliberately narrow and role-disciplined**, not state-hiding. `visual_style` stays with Spielberg and `tone_guidelines` stays with Attenborough so Tolkien doesn't start writing cinematography or voice-over — this prevents bleed-through into other agents' domains. But the shared rolling state (`world_state`, `narrative_memory`) is not sliced: every agent that would benefit from the current world reads it directly. Each agent reads a comparable slice for its role but only has to write one thing. Spock's `context_brief` is a narrow attention pointer across the one-turn delay — it flags which characters are in scene and which recent commitments matter, rather than rebuilding the world. The central bet is that **task specialization holds up as context strains the model**, where monolithic single-pass handling drops setups and loses threads.
 
 ## Configuration
 
@@ -473,4 +460,4 @@ audio_enabled: false
 elevenlabs_voice_id: ""          # required when audio_enabled: true
 ```
 
-`video_enabled: false` and `audio_enabled: false` are the defaults for benchmark runs. When `audio_enabled: true`, Attenborough's `voiceover` is sent to ElevenLabs and audio files are written to `logs/audio/`; when `false`, the text is still produced, still logged, and simply not spoken — keeping benchmarks cheap and reproducible.
+`video_enabled: false` and `audio_enabled: false` are the defaults for headless dev runs. When `audio_enabled: true`, Attenborough's `voiceover` is sent to ElevenLabs and audio files are written to `logs/audio/`; when `false`, the text is still produced, still logged, and simply not spoken — keeping dev runs cheap and reproducible.

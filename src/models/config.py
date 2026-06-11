@@ -1,7 +1,7 @@
 """Run configuration loaded from YAML.
 
-Shared by the `solo` and `mas` configs. `audio_enabled` and
-`video_enabled` default to False — benchmark runs stay cheap.
+`audio_enabled` and `video_enabled` default to False so headless dev
+runs stay cheap.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 class Config(BaseModel):
     name: str
     description: str = ""
-    graph: str  # "mas_graph" | "solo_graph"
+    graph: str  # "mas_graph"
     llm_backend: str  # "openai"
     model: str
     temperature: float = 0.7
@@ -28,7 +28,7 @@ class Config(BaseModel):
     #   live + video_enabled  → run_live      (clips + ffplay window)
     #   live + !video_enabled → run_live_text (Tk popup, no clips)
     # `play` (no scenario, !live) is the sequential terminal loop used
-    # for benchmark/dev work.
+    # for headless dev work.
     live: bool = False
 
     video_enabled: bool = False
@@ -52,7 +52,7 @@ class Config(BaseModel):
     # Minimum continuous silence required between voiceovers in the live
     # loop. The producer enforces this by gating Attenborough until
     # `silence_seconds` reaches this floor. Only meaningful when
-    # `audio_enabled` is true; ignored in benchmark/play loops.
+    # `audio_enabled` is true; ignored in the scenario/play loops.
     min_pause_seconds: float = 5.0
 
     extra: dict = Field(default_factory=dict)

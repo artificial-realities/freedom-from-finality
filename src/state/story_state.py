@@ -28,7 +28,7 @@ class StoryState(BaseModel):
     current_beat: Beat | None = None
     current_shot: Shot | None = None
     current_commentary: Commentary | None = None
-    current_audio_path: str = ""  # Set by Attenborough/Solo when TTS produced audio
+    current_audio_path: str = ""  # Set by Attenborough when TTS produced audio
 
     # Persistent memory — maintained by Spock
     world_state: dict = Field(default_factory=dict)
@@ -43,8 +43,8 @@ class StoryState(BaseModel):
     # Used to enforce a minimum cinematic pause between lines.
     # `last_clip_duration`: measured length of the most recently rendered clip.
     # `pacing_managed`: True only when the live producer is updating these
-    # fields; benchmark/play loops leave them untouched and the agent does
-    # not gate on them.
+    # fields; the scenario/play loops leave them untouched and the agent
+    # does not gate on them.
     audio_seconds_owed: float = 0.0
     silence_seconds: float = 0.0
     last_clip_duration: float = 0.0

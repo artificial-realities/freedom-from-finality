@@ -8,7 +8,7 @@ a minimum cinematic pause between lines via `silence_seconds`.
 
 Both gates are only applied when the live producer is actively
 managing pacing (`pacing_managed=True` and `audio_enabled=True`).
-Benchmark and interactive loops always reach the LLM so commentary
+The scenario and interactive loops always reach the LLM so commentary
 text is produced for every turn.
 
 If `audio_enabled: true`, the runtime pipes `voiceover` through

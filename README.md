@@ -1,18 +1,14 @@
-<p align="center">
-  <img src="data/banner.png" alt="Artificial Realities banner" width="100%" />
-</p>
-
 # Artificial Realities
 
-A four-role workflow for interactive storytelling, built with LangGraph. Four specialized LLMs — a beat writer, a shot composer, a voice-over commentator, and a memory curator — coordinate over a fixed, deterministic pipeline to produce a continuous stream of short video clips chained via image-to-video (i2v), layered with live voice-over commentary, while the user optionally steers the story with natural-language commands between clips.
+A four-role workflow for interactive storytelling, built with LangGraph. Four specialized LLMs — a beat writer, a shot composer, a voice-over commentator, and a memory curator — coordinate over a fixed, deterministic pipeline to turn the user's steering between clips into a continuous flowing video story: short clips chained via image-to-video (i2v), layered with live voice-over commentary, while the story keeps moving even when the user is silent.
 
-In Anthropic's agents-vs-workflows terminology this is a workflow, not an agent system — no tool use, no LLM-directed control flow. We also use "MAS" as academic shorthand for the same four-role decomposition.
+In Anthropic's agents-vs-workflows terminology this is a workflow, not an agent system — no tool use, no LLM-directed control flow.
 
 ## Overview
 
 The story plays as a flowing sequence of ~5-second clips. Each clip's final frame is the next clip's input image, giving the story a continuous visual feel. A voice-over commentator speaks over the clips in the register the blueprint asks for. The user types guidance between clips — but the story keeps flowing even when they don't.
 
-The test story is deliberately minimal: a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind — props come and go, bits get tried, callbacks build up. No protagonist dialogue, no locations, no other characters. The setting strips away every variable except long-horizon memory, which is exactly the dimension the benchmark is built to test.
+The default story is deliberately minimal: a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind — props come and go, bits get tried, callbacks build up. No protagonist dialogue, no locations, no other characters. It strips away every variable except long-horizon memory.
 
 Four agents collaborate behind the scenes:
 
@@ -21,17 +17,15 @@ Four agents collaborate behind the scenes:
 - **Attenborough** (voice-over commentator) — reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Optionally routed through ElevenLabs TTS when audio is enabled; otherwise logged as text.
 - **Spock** (memory + context curator) — after each turn, updates structured world state and a rolling narrative memory, and hands Tolkien a filtered context brief — including the currently-relevant characters and locations — for the next turn.
 
-A benchmark compares this MAS against a single well-briefed LLM baseline using a pre-registered 180-turn scenario, run paired N times per config. Both configurations do the same work — produce a beat, a shot, commentary, and a memory update each turn; the MAS just splits the responsibility across four agents. Finished runs are scored post-hoc via an LLM-as-judge harness (Claude Sonnet 4.6, deliberately a different model family from the GPT-4.1 generator to close the self-preference loophole); all scores are pushed to Langfuse keyed to the originating turn's trace.
+Video and audio generation are both opt-out. Every agent always produces complete, usable output, so the system behaves as if rendering were live even when clip and TTS generation are skipped at runtime (the default for headless dev).
 
-Video and audio generation are both opt-out. The system is designed so the MAS always behaves as if rendering were live — every agent produces complete, usable output — but actual clip and TTS generation can be skipped at runtime, which is the default for benchmark runs.
+## Architecture & direction
 
-## Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the MAS design, state schema, agent specs, turn execution order, pipeline buffer, and the one-turn-delayed feedback loop.
-
-## Benchmark
-
-See [docs/BENCHMARK.md](docs/BENCHMARK.md) for the research question, experiment matrix, and evaluation methodology.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design philosophy, state schema, agent specs, turn execution order, pipeline buffer, and the one-turn-delayed feedback loop.
+- [docs/AGENT_FLOW.md](docs/AGENT_FLOW.md) — a hands-on per-agent walkthrough of the pipeline.
+- [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — where the system is heading.
+- [docs/EVOLUTION.md](docs/EVOLUTION.md) + [plans/](plans/) — the roadmap and the per-topic plans that drive it.
+- [docs/findings/](docs/findings/) — context preserved from the project's earlier benchmark phase, for reference.
 
 ## Project Structure
 
@@ -41,66 +35,32 @@ ArtificialRealities/
 ├── CLAUDE.md                        # Claude Code working instructions
 ├── docs/
 │   ├── ARCHITECTURE.md              # Design philosophy, agent specs, state schema, turn order
-│   └── BENCHMARK.md                 # Research question, experiment matrix, evaluation
+│   ├── AGENT_FLOW.md                # Per-agent pipeline walkthrough
+│   ├── NORTH_STAR.md                # Technical direction
+│   ├── EVOLUTION.md                 # Roadmap quarry
+│   └── findings/                    # Preserved context from the earlier phase
 ├── data/
-│   ├── story.json                   # Story blueprint (visual_style, tone_guidelines, locations, characters, rules, premise, directions)
-│   ├── test_scenario.json           # 100-turn benchmark scenario
+│   ├── story.json                   # Story blueprint
+│   ├── demo_scenario.json           # Canonical scripted demo input
 │   └── legoman.png                  # Reference image for the LEGO minifigure
 ├── src/
-│   ├── agents/
-│   │   ├── __init__.py
-│   │   ├── tolkien.py               # Beat writer; updates narrative direction
-│   │   ├── spielberg.py             # Shot composer; i2v prompts
-│   │   ├── attenborough.py          # Voice-over commentary; pacing + spans
-│   │   ├── spock.py                 # world_state, narrative_memory, context_brief
-│   │   └── solo.py                  # Monolithic baseline emitting all four shapes
-│   ├── state/
-│   │   ├── __init__.py
-│   │   └── story_state.py           # StoryState and related Pydantic models
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── config.py                # Config model loaded from YAML
-│   │   ├── story.py                 # Story blueprint model loaded from JSON
-│   │   └── responses.py             # Beat, Shot, Commentary, MemoryUpdate, WorldStateDelta
-│   ├── graph/
-│   │   ├── __init__.py
-│   │   ├── solo_graph.py            # Single LLM (fully briefed, emits all four shapes)
-│   │   └── mas_graph.py             # Tolkien → Spielberg → Attenborough → Spock
-│   ├── llm/
-│   │   ├── __init__.py
-│   │   ├── base.py
-│   │   └── openai_backend.py
-│   ├── tts/
-│   │   ├── __init__.py
-│   │   └── elevenlabs.py            # ElevenLabs TTS adapter — called only when audio_enabled: true
-│   ├── prompts/                     # One system + user template per agent
-│   │   ├── tolkien.system.md
-│   │   ├── tolkien.user.md
-│   │   ├── spielberg.system.md
-│   │   ├── spielberg.user.md
-│   │   ├── attenborough.system.md
-│   │   ├── attenborough.user.md
-│   │   ├── spock.system.md
-│   │   ├── spock.user.md
-│   │   ├── solo.system.md
-│   │   └── solo.user.md
-│   ├── util/
-│   │   ├── __init__.py
-│   │   ├── json_sanitizer.py
-│   │   ├── langfuse_setup.py
-│   │   ├── media.py
-│   │   ├── prompt_loader.py
-│   │   └── story_log.py
-│   ├── eval/
-│   │   ├── __init__.py
-│   │   └── runner.py                # Scenario runner, logs every LLM call
-│   └── ui/
-│       ├── __init__.py
-│       └── terminal.py
+│   ├── agents/                      # tolkien, spielberg, attenborough, spock
+│   ├── state/                       # StoryState and related Pydantic models
+│   ├── models/                      # config, story, response schemas
+│   ├── graph/                       # mas_graph (Tolkien → Spielberg → Attenborough → Spock)
+│   ├── i2v/                         # image-to-video backends + frame extraction
+│   ├── llm/                         # OpenAI + Anthropic backends
+│   ├── tts/                         # ElevenLabs adapter (only when audio_enabled)
+│   ├── playback/                    # clip muxing + player
+│   ├── prompts/                     # one system + user template per agent (+ judge rubrics)
+│   ├── eval/                        # scenario runner + reusable LLM-as-judge scorer
+│   ├── ui/                          # terminal + Tk popup
+│   └── util/                        # json sanitizer, langfuse, media, logging
 ├── configs/
-│   ├── solo.yaml
-│   └── mas.yaml
-├── logs/                            # LLM interaction logs per session (and logs/audio/ when audio_enabled)
+│   ├── mas.yaml                     # headless dev (video + audio off)
+│   ├── mas.live-text.yaml           # Tk popup, no video
+│   └── mas.live.yaml                # full live (i2v + TTS)
+├── plans/                           # numbered evolution plans + workflow README
 ├── requirements.txt
 └── main.py
 ```
@@ -127,14 +87,11 @@ cp .env.example .env   # fill in only the keys you actually need
 ### Running
 
 ```bash
-# Interactive play (MAS, sequential terminal loop, video + audio disabled)
+# Headless dev: sequential terminal loop, video + audio disabled
 python main.py play --config configs/mas.yaml
 
-# Run the benchmark scenario against one config
-python main.py play --config configs/solo.yaml --scenario data/test_scenario.json
-
-# Benchmark both configs against the scenario
-python main.py benchmark --scenario data/test_scenario.json
+# Drive a scripted scenario non-interactively
+python main.py play --config configs/mas.yaml --scenario data/demo_scenario.json
 
 # Live demo, no video — story unfolds in a Tk popup; type guidance in the terminal
 python main.py play --config configs/mas.live-text.yaml
@@ -147,5 +104,5 @@ python main.py play --config configs/mas.live.yaml
 
 - **LangGraph** — multi-agent orchestration with typed shared state
 - **Pydantic v2** — validated models for state, config, story, and all LLM response schemas
-- **OpenAI GPT-4.1** — backbone model for every agent (configurable per run)
+- **OpenAI** — backbone model for every agent (configurable per run)
 - **ElevenLabs** — optional TTS for Attenborough's commentary

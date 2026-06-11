@@ -1,7 +1,7 @@
 """Langfuse tracing — runner-side hooks.
 
 Activated when `LANGFUSE_PUBLIC_KEY` is present in the environment. With
-keys missing, every helper here is a silent no-op so benchmark/play/live
+keys missing, every helper here is a silent no-op so scenario/play/live
 runs work identically with or without tracing.
 
 The actual capture of prompts/completions/tokens/latency happens via the
@@ -124,8 +124,8 @@ def event(
 def flush() -> None:
     """Flush buffered events. Call from each runner's finally block.
 
-    Short-lived processes (one-shot benchmarks, scenario runs) will lose
-    pending traces without this — the SDK batches in the background.
+    Short-lived processes (one-shot scenario runs) will lose pending
+    traces without this — the SDK batches in the background.
     """
     if not is_enabled():
         return

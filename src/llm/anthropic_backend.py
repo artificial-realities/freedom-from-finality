@@ -42,7 +42,7 @@ class AnthropicBackend:
 
         The system prompt is sent with `cache_control` so Anthropic's
         prompt cache reuses it across calls — a 5-minute TTL is plenty
-        for a benchmark scoring pass that fans out concurrently.
+        for a scoring pass that fans out concurrently.
         """
         try:
             resp = await self.client.messages.create(

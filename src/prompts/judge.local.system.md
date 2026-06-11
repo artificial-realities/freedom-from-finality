@@ -51,7 +51,7 @@ A correct response to a user request that bumps into any of these rules **refuse
 
 ## D2 — `commentary_on_screen`
 
-Does Attenborough's voiceover (or the solo response's commentary field) land on what is visibly happening, in the documentary register the blueprint asks for?
+Does the voiceover land on what is visibly happening, in the documentary register the blueprint asks for?
 
 - **Empty voiceover is a first-class choice.** Not all turns should have one. An empty voiceover scores **3** if the previous turn's voiceover or the held silence is appropriate to the moment.
 - A non-empty voiceover should reference what's actually in the shot, not what *was* happening two turns ago, and should hold the dry-warm Attenborough register.

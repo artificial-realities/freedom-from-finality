@@ -37,7 +37,6 @@ from src.util.prompt_loader import load_prompt
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path("src/prompts")
-DEFAULT_ANNOTATIONS = Path("data/test_scenario_annotations.json")
 DEFAULT_CONCURRENCY = 8
 
 LOCAL_DIMENSIONS = (
@@ -65,7 +64,7 @@ class JudgeReport:
 
 # Annotation helpers ----------------------------------------------------------
 
-def load_annotations(path: Path | str = DEFAULT_ANNOTATIONS) -> dict:
+def load_annotations(path: Path | str) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
@@ -134,24 +133,15 @@ def probe_annotation_block(annotations: dict, probe: dict) -> str:
 # Transcript formatting -------------------------------------------------------
 
 def _resolve_outputs(record: TurnRecord) -> dict[str, dict]:
-    """Normalize MAS- and solo-shaped runs into one logical layout.
+    """Normalize a run's per-agent generations into one logical layout.
 
-    MAS records four generations (`tolkien` → Beat dict, `spielberg` → Shot
-    dict, etc.); solo records one (`solo` → SoloResponse dict containing
-    {beat, shot, commentary, memory_update}). Both reduce to:
+    A run records four generations (`tolkien` → Beat dict, `spielberg` →
+    Shot dict, `attenborough` → Commentary dict, `spock` → MemoryUpdate
+    dict), which reduce to:
 
         {"beat": {...}, "shot": {...}, "commentary": {...}, "memory": {...}}
     """
     by_agent = {g.agent: g.parsed_output or {} for g in record.generations if g.agent}
-
-    if "solo" in by_agent and isinstance(by_agent["solo"], dict):
-        s = by_agent["solo"]
-        return {
-            "beat":       s.get("beat") or {},
-            "shot":       s.get("shot") or {},
-            "commentary": s.get("commentary") or {},
-            "memory":     s.get("memory_update") or {},
-        }
 
     return {
         "beat":       by_agent.get("tolkien") or {},
@@ -238,8 +228,8 @@ async def score_turn_local(
     """Run the per-turn rubric. Returns parsed-and-validated dict or None.
 
     The payload sent to the judge is the *normalized* `{beat, shot,
-    commentary, memory}` shape (resolved from both MAS and solo runs)
-    so the judge's prompt template is config-agnostic.
+    commentary, memory}` shape so the judge's prompt template is
+    config-agnostic.
     """
     normalized = _resolve_outputs(record)
     user_prompt = user_template.format(
@@ -434,7 +424,7 @@ def _get_langfuse_client():
 async def judge_session(
     session_id: str,
     *,
-    annotations_path: Path | str = DEFAULT_ANNOTATIONS,
+    annotations_path: Path | str,
     judge_model: str = DEFAULT_JUDGE_MODEL,
     concurrency: int = DEFAULT_CONCURRENCY,
     output_dir: Path | str = "logs/judge",
@@ -557,7 +547,8 @@ async def judge_session(
 def _cli() -> None:
     parser = argparse.ArgumentParser(description="Run the LLM judge on a finished session.")
     parser.add_argument("session_id", help="Langfuse session id (matches the on-disk log stem).")
-    parser.add_argument("--annotations", type=Path, default=DEFAULT_ANNOTATIONS)
+    parser.add_argument("--annotations", type=Path, required=True,
+                        help="Scenario annotations file grounding the judge rubric.")
     parser.add_argument("--model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     parser.add_argument("--output-dir", type=Path, default=Path("logs/judge"))

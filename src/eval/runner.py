@@ -1,7 +1,7 @@
 """Scenario runner — drives a config through a list of user commands.
 
-Used both for benchmark runs (no UI, bypass buffer) and for `play
---scenario` which can optionally reuse the same loop.
+Backs `play --scenario` (non-interactive, scripted demo input) as well
+as the interactive and live loops.
 """
 
 from __future__ import annotations

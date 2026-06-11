@@ -38,9 +38,6 @@ The single source of truth for shape is `src/state/story_state.py` and
 Strictly sequential, no retries, no branches. Drift is caught the *next* turn
 via Spock's `context_brief`, which Tolkien reads at the top of turn N+1.
 
-The **solo** baseline collapses all four agents into one node that emits
-`Beat + Shot + Commentary + MemoryUpdate` in a single `SoloResponse`.
-
 ---
 
 ## 2. State, by ownership
@@ -54,7 +51,7 @@ The **solo** baseline collapses all four agents into one node that emits
 | **Per-turn outputs** | `current_beat`, `current_shot`, `current_commentary`, `current_audio_path` | Written by their respective agent that turn; cleared between turns conceptually (overwritten) |
 | **Narrative direction** | `long_term_narrative`, `short_term_narrative` | Maintained by Tolkien |
 | **Persistent memory** | `world_state`, `narrative_memory`, `context_brief` | Maintained by Spock |
-| **Pacing** (live producer only) | `audio_seconds_owed`, `silence_seconds`, `last_clip_duration`, `pacing_managed` | Set by the live producer post-render; benchmark/play loops leave them at 0 |
+| **Pacing** (live producer only) | `audio_seconds_owed`, `silence_seconds`, `last_clip_duration`, `pacing_managed` | Set by the live producer post-render; scenario/play loops leave them at 0 |
 | **History** | `history: list[HistoryEntry]` | Appended by the runner after Spock, once beat+shot+commentary all exist |
 | **Meta** | `config_name` | Set at init |
 
@@ -133,8 +130,8 @@ proceeds with no shot — downstream agents will then bail out too.
 2. `silence_seconds < config.min_pause_seconds` → return empty, log
    reason `min_pause`.
 
-In benchmark/`play` loops the producer does not bookkeep pacing, so these
-gates are bypassed and the agent always reaches the LLM.
+In the scenario and `play` loops the producer does not bookkeep pacing, so
+these gates are bypassed and the agent always reaches the LLM.
 
 **TTS side effect.** When `audio_enabled` and a `tts` backend is wired,
 the runtime synthesizes `voiceover` to a file and stores its path on
@@ -171,15 +168,6 @@ the runtime synthesizes `voiceover` to a file and stores its path on
 
 **Skip condition.** If beat / shot / commentary are missing, returns `{}`
 and the previous memory carries forward unchanged.
-
----
-
-### 3.5 Solo — monolithic baseline
-One agent, one LLM call, emits `SoloResponse = Beat + Shot + Commentary +
-MemoryUpdate`. Receives the full blueprint and the entire rolling state.
-Honors the same pacing gates as Attenborough so the two configurations
-produce comparable commentary streams. Lives in `src/agents/solo.py` and
-`src/graph/solo_graph.py`.
 
 ---
 
@@ -285,15 +273,14 @@ in `src/util/langfuse_setup.py` no-ops.
 
 **Trace shape.** Each turn becomes one Langfuse trace named `turn_<n>`
 with one child generation per agent (Tolkien / Spielberg / Attenborough
-/ Spock for MAS, a single `solo` generation for the baseline). Spans are
-opened around `graph.ainvoke(state)` in `src/eval/runner.py`. All turns
-of one run share a session id mirroring the on-disk log filename stem,
-so a Langfuse session and the local `logs/<session>.json` / `.md` files
-cross-reference 1:1.
+/ Spock). Spans are opened around `graph.ainvoke(state)` in
+`src/eval/runner.py`. All turns of one run share a session id mirroring
+the on-disk log filename stem, so a Langfuse session and the local
+`logs/<session>.json` / `.md` files cross-reference 1:1.
 
 ```
-Session: mas_test_scenario_20260505_120000
-  tags: [mas, scenario, test_scenario]
+Session: mas_demo_scenario_20260505_120000
+  tags: [mas, scenario, demo_scenario]
 ├── Trace: turn_1
 │   ├── Generation: tolkien        (prompt, completion, tokens, latency)
 │   ├── Generation: spielberg
@@ -303,25 +290,27 @@ Session: mas_test_scenario_20260505_120000
 └── ...
 ```
 
-**Tags per loop:** `[<config.name>, "scenario", <stem>]` for benchmarks,
-`[<config.name>, "play"]` / `"live"` / `"live_text"` for the others.
+**Tags per loop:** `[<config.name>, "scenario", <stem>]` for `play
+--scenario`, `[<config.name>, "play"]` / `"live"` / `"live_text"` for
+the others.
 
 **Why `StoryLogger` stays.** Langfuse is call-level observability, not
 narrative reconstruction. The Markdown transcript in `logs/*.md` is the
 canonical "read this run as a story" artifact for human review.
 
 **LLM-as-judge.** The post-hoc scoring pipeline lives in
-`src/eval/judge.py`. It pulls a finished session via
-`langfuse_fetch.fetch_session(...)`, normalises MAS and solo outputs
-into a single `{beat, shot, commentary, memory}` shape, runs Claude
-Sonnet 4.6 over the per-turn and per-window rubrics defined in
-`src/prompts/judge.*.md`, and writes everything back as Langfuse
-`Score` objects keyed to each turn's `trace_id`. Score names are
-prefixed `local.*` (per-turn rubric) or `window.*` (per-window memory
-rubric) so dashboards filter cleanly. See `docs/BENCHMARK.md` for the
-full evaluation methodology and rubric definitions.
+`src/eval/judge.py` — kept as reusable A/B-evaluation infrastructure.
+It pulls a finished session via `langfuse_fetch.fetch_session(...)`,
+normalises a run's per-agent outputs into a single `{beat, shot,
+commentary, memory}` shape, runs a judge model over the per-turn and
+per-window rubrics defined in `src/prompts/judge.*.md`, and writes
+everything back as Langfuse `Score` objects keyed to each turn's
+`trace_id`. Score names are prefixed `local.*` (per-turn rubric) or
+`window.*` (per-window memory rubric) so dashboards filter cleanly. See
+`docs/findings/judge-methodology.md` for the methodology and rubric
+rationale.
 
-**Common gotcha:** short-lived processes (one-shot benchmarks) lose
+**Common gotcha:** short-lived processes (one-shot scenario runs) lose
 buffered events without a flush. Every runner finally-block calls
 `langfuse_setup.flush()`.
 
@@ -332,13 +321,13 @@ buffered events without a flush. Every runner finally-block calls
 - `src/state/story_state.py` — `StoryState`, `HistoryEntry`,
   `apply_world_delta`, `initialize`
 - `src/models/responses.py` — `Beat`, `Shot`, `Commentary`,
-  `WorldStateDelta`, `MemoryUpdate`, `SoloResponse`
+  `WorldStateDelta`, `MemoryUpdate`
 - `src/agents/tolkien.py` / `spielberg.py` / `attenborough.py` /
-  `spock.py` / `solo.py` — each `run(state, llm, config, logger, ...)`
+  `spock.py` — each `run(state, llm, config, logger, ...)`
   function; reads are the `load_prompt(...)` keyword args
 - `src/agents/_common.py` — `call_llm_structured` and the state→prompt
   formatters
-- `src/graph/mas_graph.py` / `solo_graph.py` — node wiring
+- `src/graph/mas_graph.py` — node wiring
 - `src/eval/runner.py` — `_commit_history`, `_coerce_state`, the loops
   that drive turns; per-turn `turn_span(...)` and `langfuse_flush()`
 - `src/util/langfuse_setup.py` — `is_enabled`, `turn_span`, `flush`

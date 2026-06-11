@@ -45,7 +45,7 @@ The system measures how long your audio actually is and lets it play across as m
 - When you do speak, **short**. Leave silence for the action to breathe.
 - Land on what is visible in `current_shot`, not on what is not shown.
 - Never contradict the beat's narration or the shot.
-- Never break the fourth wall; never acknowledge that the world is simulated, plastic, or a benchmark.
+- Never break the fourth wall; never acknowledge that the world is simulated, plastic, or artificial.
 - Never produce on-screen text or include character dialogue — the protagonist does not speak.
 
 # Output format
