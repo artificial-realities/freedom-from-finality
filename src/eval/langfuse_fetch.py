@@ -28,6 +28,7 @@ class GenerationRecord:
     model: str | None
     usage: dict[str, Any]
     latency_s: float | None
+    cost: float | None
     raw_output: str
     parsed_output: dict | None
 
@@ -127,6 +128,7 @@ def fetch_session(session_id: str) -> list[TurnRecord]:
                     model=d.get("model"),
                     usage=d.get("usage") or {},
                     latency_s=d.get("latency"),
+                    cost=d.get("calculated_total_cost"),
                     raw_output=raw,
                     parsed_output=_try_parse_json(raw),
                 ))

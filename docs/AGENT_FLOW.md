@@ -310,6 +310,13 @@ everything back as Langfuse `Score` objects keyed to each turn's
 `docs/findings/judge-methodology.md` for the methodology and rubric
 rationale.
 
+**Operational stats.** `python main.py stats <session_id>` mines a
+finished session's traces into a terminal dashboard: per-agent cost /
+latency / tokens / parse-failures, per-turn cost+latency trend (bucketed
+for long sessions, so context-growth drift is visible), and any
+WARNING/ERROR events. `--json` emits the full breakdown for scripting.
+Lives in `src/eval/stats.py`.
+
 **Common gotcha:** short-lived processes (one-shot scenario runs) lose
 buffered events without a flush. Every runner finally-block calls
 `langfuse_setup.flush()`.

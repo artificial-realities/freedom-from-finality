@@ -4,6 +4,7 @@ Usage:
     python main.py play --config configs/mas.yaml
     python main.py play --config configs/mas.yaml --scenario data/demo_scenario.json
     python main.py judge <session_id> --annotations <annotations.json>
+    python main.py stats <session_id> [--json]
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from src.eval.judge import (  # noqa: E402
     judge_session,
 )
 from src.eval.runner import run_live, run_live_text, run_play, run_scenario  # noqa: E402
+from src.eval.stats import format_stats, session_stats, stats_as_dict  # noqa: E402
 from src.llm.anthropic_backend import DEFAULT_JUDGE_MODEL  # noqa: E402
 from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
@@ -70,6 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
     judge.add_argument("--output-dir", type=Path, default=DEFAULT_LOG_DIR / "judge")
     judge.add_argument("-v", "--verbose", action="store_true")
 
+    stats = sub.add_parser("stats", help="Operational summary of a finished session (cost/latency/tokens per agent and per turn)")
+    stats.add_argument("session_id", help="Session id (matches the on-disk log stem and Langfuse session id).")
+    stats.add_argument("--json", action="store_true", help="Emit the full stats as JSON instead of tables.")
+    stats.add_argument("-v", "--verbose", action="store_true")
+
     return parser
 
 
@@ -111,6 +118,15 @@ async def cmd_judge(args: argparse.Namespace) -> None:
     print(json.dumps(asdict(report), indent=2, ensure_ascii=False))
 
 
+def cmd_stats(args: argparse.Namespace) -> None:
+    """Print the operational dashboard for one finished session."""
+    stats = session_stats(args.session_id)
+    if args.json:
+        print(json.dumps(stats_as_dict(stats), indent=2, ensure_ascii=False))
+    else:
+        print(format_stats(stats))
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -120,6 +136,8 @@ def main() -> None:
         asyncio.run(cmd_play(args))
     elif args.command == "judge":
         asyncio.run(cmd_judge(args))
+    elif args.command == "stats":
+        cmd_stats(args)
 
 
 if __name__ == "__main__":
