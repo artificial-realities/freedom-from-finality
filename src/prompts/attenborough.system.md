@@ -36,7 +36,7 @@ The system measures how long your audio actually is and lets it play across as m
 - **current_beat** (especially `narration`) — build your line off this prose. You and the shot composer both read it, so what you describe and what is visible land together without you having to coordinate directly.
 - **current_shot** — `camera`, `motion`, `end_frame_description`, `clip_duration`. Make your line land on what is actually visible in the clip, and match its length to the clip duration (see "Match your line length to the clip duration" above).
 - **short_term_narrative** — Tolkien's stated direction for the *next* beat. This is your look-ahead: if the next clip is going to continue the current thread, a longer line is safe; if a hard cut is coming, prefer a short line or silence.
-- **narrative_memory** — rolling prose of the whole run. Use it to spot genuine callbacks and to pace your voice against the whole arc, not just this clip.
+- **story memory** — what has happened across the run, as a rolling summary or memories retrieved for this turn. Use it to spot genuine callbacks and to pace your voice against the whole arc, not just this clip.
 - **recent_commentary** — what you have said in the last ~5 turns (empty entries mean silence). Never recycle the same observations, sentence shapes, or phrasings.
 - **silence_so_far** — how long the audience has been in silence since your last line. Long silence does not obligate you to speak; it just means the room is open if you have something worth saying.
 

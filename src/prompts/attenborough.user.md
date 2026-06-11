@@ -14,8 +14,7 @@ clip_duration: {clip_duration_seconds}s
 Short-term narrative (Tolkien's direction for the NEXT beat — your look-ahead):
 {short_term_narrative}
 
-Narrative memory (rolling):
-{narrative_memory}
+{memory_block}
 
 Recent commentary (last ~5 turns, newest last — empty entries mean silence):
 {recent_commentary}

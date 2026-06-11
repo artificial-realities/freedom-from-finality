@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from src.agents._common import (
     call_llm_structured,
+    format_memory_block,
     format_recent_commentary,
 )
 from src.llm.base import LLMBackend
@@ -54,6 +55,7 @@ async def run(
     llm: LLMBackend,
     config: Config,
     tts: ElevenLabsTTS | None = None,
+    memory=None,
 ) -> dict:
     if state.current_beat is None or state.current_shot is None:
         logger.warning(
@@ -90,6 +92,12 @@ async def run(
         SYSTEM_PATH,
         tone_guidelines=state.tone_guidelines,
     )
+    # Mem0 mode: retrieve memories relevant to this beat so genuine
+    # callbacks can be spotted without the rolling prose blob.
+    retrieved: str | None = None
+    if memory is not None:
+        retrieved = await memory.search_block(state.current_beat.narration)
+
     user_prompt = load_prompt(
         USER_PATH,
         turn_number=state.turn_number,
@@ -103,7 +111,7 @@ async def run(
         # The i2v backend's configured duration is the real clip length —
         # Spielberg's per-shot pick is ignored for fixed-length models.
         clip_duration_seconds=config.i2v_duration,
-        narrative_memory=state.narrative_memory or "(no memory yet)",
+        memory_block=format_memory_block(state, retrieved),
         recent_commentary=format_recent_commentary(state, count=config.context_window_history),
         silence_label=_silent_label(state, config),
     )

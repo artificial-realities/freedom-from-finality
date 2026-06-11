@@ -9,9 +9,10 @@ def build_graph(
     llm,
     config,
     tts=None,
+    memory=None,
 ):
     """Dispatch by config.graph ("mas_graph")."""
     key = graph_name.lower()
     if key == "mas_graph":
-        return build_mas_graph(llm=llm, config=config, tts=tts)
+        return build_mas_graph(llm=llm, config=config, tts=tts, memory=memory)
     raise ValueError(f"Unknown graph: {graph_name!r}")

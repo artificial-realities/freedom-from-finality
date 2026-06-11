@@ -143,6 +143,14 @@ the runtime synthesizes `voiceover` to a file and stores its path on
 **Purpose.** Apply this turn's effects to memory and produce the
 `context_brief` that lands in Tolkien's prompt next turn.
 
+**Modes (`config.memory_backend`).** In `prose` mode (legacy) Spock also
+rewrites the rolling `narrative_memory` each turn. In `mem0` mode
+(`configs/mas.mem0.yaml`) he emits only the delta + brief; episodic
+memory is written post-turn to an embedded Mem0 store
+(`src/memory/mem0_store.py`) by a final graph node, and Tolkien /
+Attenborough each retrieve relevant memories per turn (`search_block`)
+in place of the prose blob.
+
 **Reads from state**
 - Blueprint: `locations`, `characters`
 - This turn's outputs: full `current_beat`, `current_shot.i2v_prompt`,

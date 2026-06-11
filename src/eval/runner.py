@@ -20,6 +20,7 @@ from src.graph import build_graph
 from src.i2v import build_i2v_backend, extract_last_frame
 from src.i2v.base import I2VBackend
 from src.llm import build_backend
+from src.memory import StoryMemory
 from src.models.config import Config
 from src.models.story import Story
 from src.playback import (
@@ -82,7 +83,8 @@ async def run_scenario(
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
 
-    graph = build_graph(config.graph, llm=llm, config=config, tts=tts)
+    memory = _maybe_memory(config, log_dir, session_id, story)
+    graph = build_graph(config.graph, llm=llm, config=config, tts=tts, memory=memory)
 
     seed_image: str = config.i2v_seed_image
     video_dir = Path(log_dir) / "video"
@@ -263,6 +265,19 @@ def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
     return ElevenLabsTTS(
         voice_id=config.elevenlabs_voice_id,
         audio_dir=audio_dir,
+    )
+
+
+def _maybe_memory(
+    config: Config, log_dir: Path | str, session_id: str, story: Story,
+) -> StoryMemory | None:
+    if config.memory_backend != "mem0":
+        return None
+    return StoryMemory(
+        model=config.model,
+        session_id=session_id,
+        story_id=story.title or "story",
+        data_dir=Path(log_dir) / "memory",
     )
 
 
@@ -479,7 +494,8 @@ async def run_play(
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
 
-    graph = build_graph(config.graph, llm=llm, config=config, tts=tts)
+    memory = _maybe_memory(config, log_dir, session_id, story)
+    graph = build_graph(config.graph, llm=llm, config=config, tts=tts, memory=memory)
 
     ui = ui or TerminalUI()
 
@@ -568,7 +584,8 @@ async def run_live(
             "run_live requires video_enabled: true in the config; otherwise use run_play."
         )
 
-    graph = build_graph(config.graph, llm=llm, config=config, tts=tts)
+    memory = _maybe_memory(config, log_dir, session_id, story)
+    graph = build_graph(config.graph, llm=llm, config=config, tts=tts, memory=memory)
 
     queue_size = max(1, config.lead_clips + 1)
     if config.lead_clips > 0:
@@ -909,7 +926,8 @@ async def run_live_text(
 
     llm = build_backend(config.llm_backend, config.model)
     # No TTS, no i2v — popup mode is text-only by design.
-    graph = build_graph(config.graph, llm=llm, config=config, tts=None)
+    memory = _maybe_memory(config, log_dir, session_id, story)
+    graph = build_graph(config.graph, llm=llm, config=config, tts=None, memory=memory)
 
     popup = StoryPopup(title=f"Artificial Realities — {story.title or config.name}")
     popup.start()

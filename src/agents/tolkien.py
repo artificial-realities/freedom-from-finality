@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from src.agents._common import (
     call_llm_structured,
+    format_memory_block,
     format_protagonist,
     format_recent_narration,
     format_world_constraints,
@@ -39,7 +40,18 @@ async def run(
     state: StoryState,
     llm: LLMBackend,
     config: Config,
+    memory=None,
 ) -> dict:
+    # Mem0 mode: retrieve what's relevant to this turn's steering instead of
+    # reading the rolling prose blob. The query blends the user's command
+    # with the current direction so callbacks surface for both.
+    retrieved: str | None = None
+    if memory is not None:
+        query = " ".join(
+            p for p in (state.user_input, state.short_term_narrative) if p
+        ) or state.narrative_premise
+        retrieved = await memory.search_block(query)
+
     system_prompt = load_prompt(
         SYSTEM_PATH,
         world_constraints=format_world_constraints(state),
@@ -52,7 +64,7 @@ async def run(
         long_term_narrative=state.long_term_narrative or "(not yet set)",
         short_term_narrative=state.short_term_narrative or "(not yet set)",
         world_state=format_world_state(state.world_state),
-        narrative_memory=state.narrative_memory or "(no memory yet — this is early in the story)",
+        memory_block=format_memory_block(state, retrieved),
         recent_narration=format_recent_narration(state, count=3),
         context_brief=state.context_brief or "(empty — this is turn 1 or the brief is blank)",
         user_input=state.user_input or "(empty — advance on short_term_narrative)",

@@ -307,7 +307,10 @@ Coordination with Spielberg happens implicitly: both read the same `Beat.narrati
 
 ### Spock — Memory and Context Curator
 
-Memory is Spock's whole identity. Two output shapes (structured state + prose memory + a filtered brief), one cognitive act: *know what's true, surface what's relevant*.
+Memory is Spock's whole identity. One cognitive act: *know what's true, surface what's relevant*. His output shape depends on `memory_backend`:
+
+- **`prose`** (legacy): structured state delta + full-replacement rolling `narrative_memory` + the filtered brief.
+- **`mem0`** (plan 02): structured state delta + the brief only. The episodic layer lives in an embedded Mem0 store — a post-turn graph node persists each beat (custom narrative extraction instructions keep props/bits/setups), and Tolkien/Attenborough retrieve *relevant* memories per turn instead of reading one rolling blob. The structured `world_state` ledger stays first-party in both modes.
 
 **Receives (via prompt):**
 - `current_beat`, `current_shot`, `current_commentary` (this turn's outputs)

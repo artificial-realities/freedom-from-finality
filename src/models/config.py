@@ -23,6 +23,12 @@ class Config(BaseModel):
     context_window_history: int = 5
     narrative_memory_target_tokens: int = 800
 
+    # Episodic memory backend (plan 02):
+    #   "prose" — Spock rewrites the rolling narrative_memory every turn (legacy)
+    #   "mem0"  — embedded Mem0 store; agents retrieve relevant memories per
+    #             turn and Spock stops rewriting prose memory
+    memory_backend: str = "prose"
+
     # When True, dispatch to a continuous live loop instead of the
     # turn-by-turn `run_play`. Combined with `video_enabled`:
     #   live + video_enabled  → run_live      (clips + ffplay window)

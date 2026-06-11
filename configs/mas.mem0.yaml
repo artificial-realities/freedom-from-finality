@@ -1,0 +1,16 @@
+name: "mas_mem0"
+description: "MAS with Mem0 episodic memory: retrieval per turn, no prose-memory rewrite (plan 02)"
+graph: "mas_graph"
+llm_backend: "openai"
+model: "gpt-4.1"
+temperature: 0.7
+max_tokens_per_agent: 1024
+context_window_history: 5
+narrative_memory_target_tokens: 800
+
+memory_backend: "mem0"
+
+video_enabled: false
+
+audio_enabled: false
+elevenlabs_voice_id: ""

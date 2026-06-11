@@ -57,8 +57,19 @@ class WorldStateDelta(BaseModel):
 
 
 class MemoryUpdate(BaseModel):
-    """Spock's output per turn."""
+    """Spock's output per turn (prose memory mode)."""
 
     world_state_delta: WorldStateDelta = Field(default_factory=WorldStateDelta)
     narrative_memory: str
+    context_brief: str
+
+
+class MemoryUpdateLite(BaseModel):
+    """Spock's output per turn in mem0 mode — no prose-memory rewrite.
+
+    The episodic layer (narrative memory) lives in the Mem0 store; Spock
+    keeps only the structured world ledger and the one-turn-delay brief.
+    """
+
+    world_state_delta: WorldStateDelta = Field(default_factory=WorldStateDelta)
     context_brief: str

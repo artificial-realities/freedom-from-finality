@@ -6,8 +6,7 @@ Short-term narrative: {short_term_narrative}
 World state (current truth):
 {world_state}
 
-Narrative memory (rolling):
-{narrative_memory}
+{memory_block}
 
 Recent narration (last ~3 beats, newest last):
 {recent_narration}

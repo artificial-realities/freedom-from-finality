@@ -1,8 +1,7 @@
 # Plan 02 — Memory swap: Spock's hand-rolled summarizer → off-the-shelf framework
 
-> **Status:** researched 2026-06-11, awaiting framework go/no-go (the first
-> direction-dependent fork — user decides). Implementation section to be
-> finalized after the call.
+> **Status:** executed 2026-06-11. **Decisions taken (user, 2026-06-11): Mem0;
+> quick-check A/B.** Results in §7.
 >
 > **Consumes:** `docs/EVOLUTION.md` §1.2 item 4, §A.3 B3+B4, §C.4/C.7 memory-
 > framework notes. North-star move 1 (`docs/NORTH_STAR.md`).
@@ -117,8 +116,67 @@ targets. Plus `main.py stats` before/after for the cost/latency story.
 Acceptance: window-memory scores ≥ old Spock, Spock-agent cost down, no
 new warning events.
 
-## 6. Open decisions (user input wanted)
+## 6. Decisions & implementation notes (2026-06-11)
 
-1. **Framework call: Mem0 (recommended) vs Letta vs keep-looking.**
-2. Scope of the A/B: quick 30-turn scripted check vs a fuller pre-registered
-   scenario (~$10–20 judge cost).
+User chose **Mem0** and the **quick-check A/B**. Implemented on
+`feat/memory-swap`:
+
+- `src/memory/mem0_store.py` — `StoryMemory` over embedded `AsyncMemory`:
+  pinned LLM model, Qdrant + history DB under `logs/memory/`, slugged entity
+  ids (Mem0 rejects whitespace in `user_id` — story titles need slugging).
+- **Custom-prompt discovery:** in mem0 2.0.5 the `prompt` arg to `add()` is
+  NOT a replacement extraction prompt — it lands as a "## Custom Instructions"
+  section inside Mem0's own additive-extraction template. A full prompt with
+  its own output contract breaks extraction to zero memories; guidance-only
+  instructions work. `NARRATIVE_EXTRACTION_INSTRUCTIONS` fixes both spike
+  risks (silent loss verified gone on the hop case; no date stamps).
+- `config.memory_backend: "prose" | "mem0"` (`configs/mas.mem0.yaml`);
+  `_maybe_memory` in the runner; graph gains an optional post-Spock
+  `memory_write` node (awaited — lands before next turn's retrieval, so the
+  one-turn-delay contract holds).
+- Agents: Tolkien queries with `user_input + short_term_narrative`,
+  Attenborough with the beat narration; both inject results via a shared
+  `{memory_block}` prompt slot (prose mode keeps the old rolling-blob text).
+  Spock in mem0 mode emits `MemoryUpdateLite` (delta + brief) via
+  `spock.*.mem0.md` prompt variants.
+- Bonus: Mem0's extraction call is traced inside the turn's Langfuse span,
+  so memory cost/latency shows up in `main.py stats` per turn.
+
+## 7. A/B results (2026-06-11, quick check: 30 turns, N=1 per config)
+
+Sessions `mas_ab_scenario_20260611_112951` (prose) vs
+`mas_mem0_ab_scenario_20260611_113601` (mem0); judged with
+`data/ab_annotations.json` (4 probe windows); both clean (0 parse/validation
+failures, 30/30 turns + 4/4 windows scored).
+
+**Window memory (the swap's target), mean over 4 probes:**
+
+| Dimension | prose | mem0 | Δ |
+|---|---|---|---|
+| prop_persistence | 2.00 | 2.00 | 0.00 |
+| long_horizon_coherence | 2.25 | 2.25 | 0.00 |
+| callback_quality | 2.00 | 1.75 | −0.25 |
+
+**Operational (`main.py stats`):** Spock himself got 33% cheaper ($0.231 →
+$0.155; output tokens 11.4K → 3.3K — the rewrite is gone) and 2.8× faster
+(4.27s → 1.54s mean). But Mem0's extraction calls add $0.247/session — its
+additive-extraction template sends ~9K input tokens *per call* — so **total
+session cost rose 31%** ($0.576 → $0.754). Wall-clock roughly flat.
+
+**Honest verdict: parity, not superiority — at 30 turns.** The −0.25 is one
+integer judge point on one of four probes (single-run noise; the school
+benchmark needed N=3 to trust deltas this size). Critically, 30 turns is
+*inside prose-Spock's comfort zone* — B3's failure mode (overwriting
+earlier-correct details) emerges at turn ~50+, which the quick check cannot
+reach by design. The swap's payoff territory (100–1000 turns, multi-session)
+is untested.
+
+**Decisions taken on these results:**
+- **Merged with `memory_backend` defaulting to `"prose"`** — the swap is
+  opt-in infrastructure, zero behavior change to the default path.
+- **The long-horizon question stays open.** Re-run this A/B at 100+ turns
+  before (or as part of) the agent-redesign plan, where a memory decision
+  must be final. Acceptance then: window-memory ≥ prose *at length*.
+- **Cost lever identified:** Mem0's per-call extraction context (~9K tokens)
+  is the dominant added cost — investigate trimming its additive context
+  (last-k window / existing-memories payload) before the long-horizon run.

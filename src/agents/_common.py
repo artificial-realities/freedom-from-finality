@@ -62,6 +62,18 @@ async def call_llm_structured(
     return parsed
 
 
+def format_memory_block(state: StoryState, retrieved: str | None) -> str:
+    """The story-memory section of a prompt, labeled for its mode.
+
+    Prose mode (`retrieved is None`): the rolling narrative_memory blob.
+    Mem0 mode: the retrieval results for this turn's query.
+    """
+    if retrieved is not None:
+        return f"Relevant story memories (retrieved for this turn):\n{retrieved}"
+    memory = state.narrative_memory or "(no memory yet — this is early in the story)"
+    return f"Narrative memory (rolling):\n{memory}"
+
+
 def format_world_state(world_state: dict) -> str:
     if not world_state:
         return "(empty — this is the start of the story)"

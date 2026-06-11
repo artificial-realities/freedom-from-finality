@@ -185,6 +185,9 @@ that parallel workload degrades. Decomposition keeps each workload small and sta
 
 **Things that DIE in the redesign (do not preserve):**
 - End-frame-PNG chaining → replaced by streaming chunk conditioning.
-- Spock's full-rewrite `narrative_memory` → replaced by an off-the-shelf memory framework.
+- Spock's full-rewrite `narrative_memory` → **DONE (plan 02, 2026-06-11):** replaced by an embedded
+  Mem0 store; Spock now emits only the world-state delta + brief in `mem0` mode, and Tolkien /
+  Attenborough retrieve relevant memories per turn. The prose mode survives behind
+  `memory_backend: "prose"` for comparison.
 - The fixed-5s clip identity ("one turn = one beat = one 5s clip") → the streaming clock decouples
   story turns from clip count *(EVOLUTION.md §A.6).*
