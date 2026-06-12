@@ -55,10 +55,11 @@ class Config(BaseModel):
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""
-    # Minimum continuous silence required between voiceovers in the live
-    # loop. The producer enforces this by gating Attenborough until
-    # `silence_seconds` reaches this floor. Only meaningful when
-    # `audio_enabled` is true; ignored in the scenario/play loops.
+    # Minimum continuous silence required between voiceovers — the
+    # narrator-clock floor (plan 03). The turn engine only invokes
+    # Attenborough once `silence_seconds` reaches this floor, in every
+    # mode: with audio the live producer measures real playback time,
+    # without audio the engine counts story-time (one turn ≈ one clip).
     min_pause_seconds: float = 5.0
 
     extra: dict = Field(default_factory=dict)

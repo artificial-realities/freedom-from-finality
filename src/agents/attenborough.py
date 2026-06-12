@@ -1,18 +1,18 @@
-"""Attenborough — the voice-over commentator.
+"""Attenborough — the voice-over commentator (the Narrator role).
 
-Always emits structured text. He decides whether to speak; the live
-producer measures his audio post-TTS and concatenates as many silent
-clips behind it as the duration warrants, holding him silent on those
-turns by leaving `audio_seconds_owed > 0`. The producer also enforces
-a minimum cinematic pause between lines via `silence_seconds`.
+Runs on the narrator clock, not the chunk clock: the turn engine only
+invokes him when the silence floor is open (no audio still playing,
+`silence_seconds` at or above `min_pause_seconds`). His choice is what
+it always was — silence, a short line, or a longer continuous thought —
+but mechanical pacing holds are the engine's job now, not his.
 
-Both gates are only applied when the live producer is actively
-managing pacing (`pacing_managed=True` and `audio_enabled=True`).
-The scenario and interactive loops always reach the LLM so commentary
-text is produced for every turn.
+He reads the beats accumulated since his last line, so a line can pay
+off a thread that built across several silent clips.
 
 If `audio_enabled: true`, the runtime pipes `voiceover` through
-ElevenLabs TTS — a side effect that never blocks the turn.
+ElevenLabs TTS — a side effect that never blocks the turn. The live
+producer measures the audio and lets it span as many clips as its
+duration warrants.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from src.agents._common import (
     call_llm_structured,
+    format_beats_since_voiceover,
     format_memory_block,
     format_recent_commentary,
 )
@@ -41,13 +42,11 @@ SYSTEM_PATH: Path = prompt_path("attenborough.system.md")
 USER_PATH: Path = prompt_path("attenborough.user.md")
 
 
-def _silent_label(state: StoryState, config: Config) -> str:
+def _silence_label(state: StoryState) -> str:
     """Render `silence_seconds` as a hint for the prompt."""
-    if not (config.audio_enabled and state.pacing_managed):
-        return "(silence not tracked in this mode)"
     if not any(h.commentary.voiceover for h in state.history):
-        return "(no voiceover yet — opening line is welcome)"
-    return f"~{state.silence_seconds:.0f}s of silence since the last voiceover"
+        return "(no voiceover yet — an opening line is welcome)"
+    return f"~{state.silence_seconds:.0f}s of silence since your last line"
 
 
 async def run(
@@ -64,30 +63,6 @@ async def run(
         )
         return {}
 
-    # Pacing gates — only enforced when the live producer is bookkeeping.
-    if config.audio_enabled and state.pacing_managed:
-        if state.audio_seconds_owed > 0.001:
-            langfuse_event(
-                "attenborough_hold",
-                metadata={"turn": state.turn_number, "reason": "audio_owed",
-                          "audio_seconds_owed": state.audio_seconds_owed},
-            )
-            return {
-                "current_commentary": Commentary(voiceover=""),
-                "current_audio_path": "",
-            }
-        if state.silence_seconds < config.min_pause_seconds:
-            langfuse_event(
-                "attenborough_hold",
-                metadata={"turn": state.turn_number, "reason": "min_pause",
-                          "silence_seconds": state.silence_seconds,
-                          "min_pause_seconds": config.min_pause_seconds},
-            )
-            return {
-                "current_commentary": Commentary(voiceover=""),
-                "current_audio_path": "",
-            }
-
     system_prompt = load_prompt(
         SYSTEM_PATH,
         tone_guidelines=state.tone_guidelines,
@@ -101,6 +76,7 @@ async def run(
     user_prompt = load_prompt(
         USER_PATH,
         turn_number=state.turn_number,
+        beats_since_voiceover=format_beats_since_voiceover(state),
         beat_narration=state.current_beat.narration,
         beat_action=state.current_beat.action,
         beat_outcome=state.current_beat.outcome,
@@ -113,7 +89,7 @@ async def run(
         clip_duration_seconds=config.i2v_duration,
         memory_block=format_memory_block(state, retrieved),
         recent_commentary=format_recent_commentary(state, count=config.context_window_history),
-        silence_label=_silent_label(state, config),
+        silence_label=_silence_label(state),
     )
 
     parsed = await call_llm_structured(

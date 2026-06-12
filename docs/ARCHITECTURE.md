@@ -4,7 +4,7 @@
 
 The system tells an interactive story as a stream of short (~5s) video clips chained together via image-to-video (i2v), layered with live voice-over commentary on top. The user types natural-language guidance between clips; the story keeps flowing whether or not the user speaks.
 
-**What kind of system this is.** Four role-specialized LLMs coordinate through shared state over a fixed pipeline. In Anthropic's agents-vs-workflows terminology this is a **workflow**, not an agent system: control flow is deterministic, there is no tool use, and no LLM decides what happens next.
+**What kind of system this is.** Four role-specialized LLMs coordinate through shared state under a deterministic turn engine. In Anthropic's agents-vs-workflows terminology this is a **workflow**, not an agent system: control flow is deterministic, there is no tool use, and no LLM decides what happens next. Since plan 03 the roles are not stages in one serial pipeline but loops on their own clocks: the beat writer and shot composer form the per-turn critical path, the narrator runs on the audio clock, and the memory curator runs asynchronously behind the turn.
 
 A single well-briefed LLM could in principle do every job this system does — emitting beat, shot, commentary, and memory in one structured response. Its strength would be **holistic coherence** (it sees everything in one context window); its weakness is **juggling** — producing all four outputs at once strains the model as context accumulates, and setups get dropped, facts drift, threads are lost.
 
@@ -14,7 +14,7 @@ The roster is **four agents**, each owning exactly one job, with no overlap.
 
 - **Tolkien** — the beat writer. Decides what happens in the next ~5s (prose narration, mechanical action, outcome) and keeps the narrative direction current.
 - **Spielberg** — the shot composer. Translates Tolkien's beat into a concrete image-to-video prompt: camera, composition, motion, on-screen elements, continuity from the previous clip's last frame.
-- **Attenborough** — the voice-over commentator. Reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Always emits text; optionally fires ElevenLabs TTS when audio is enabled.
+- **Attenborough** — the voice-over commentator. Invoked on his own clock (only once the silence floor opens), reads Tolkien's beats since his last line and Spielberg's shot, and writes the spoken line that plays over the clip. Optionally fires ElevenLabs TTS when audio is enabled.
 - **Spock** — the memory and context curator. After each turn, updates the structured world state and the rolling narrative memory. Before the next turn, hands Tolkien a filtered context brief — only what he needs to know right now, including the currently-relevant characters and locations.
 
 All four agents emit **structured output** via Pydantic schemas, enforced at the API level with OpenAI native structured outputs (`response_format: json_schema`). Beat, Shot, and Commentary use strict mode (non-conforming JSON is impossible); MemoryUpdate uses non-strict schema guidance because its free-form `characters` dict can't be expressed in the strict subset — still guaranteed-valid JSON, with Pydantic validating downstream. The `json_sanitizer` pipeline remains as a thin fallback (e.g., `max_tokens` truncation).
@@ -23,9 +23,11 @@ All four agents emit **structured output** via Pydantic schemas, enforced at the
 
 Spock's updates from turn N are available to Tolkien at turn N+1. Tolkien does not see his own turn's state update within the same turn — he sees it on the next one. If Tolkien references something slightly wrong this turn, it gets corrected on the next. Over ~5s clips, this is imperceptible.
 
+Since plan 03 the delay is implemented literally: Spock runs as an **async editor task** spawned on a snapshot of the finished turn and joined at the start of the next turn, so his work overlaps rendering and user wait instead of blocking the turn. The contract already tolerated this — "lands any time before the next Tolkien read" is all it ever required.
+
 This is a load-bearing design choice. It means:
 
-- Agents never wait on each other mid-turn — the pipeline has a simple forward shape.
+- Agents never wait on each other mid-turn — the critical path has a simple forward shape.
 - Tolkien never sees his own state update in the same turn that produced it, which prevents self-reinforcing drift.
 - The cost of a one-turn-late correction is negligible at ~5s cadence.
 
@@ -231,7 +233,7 @@ Each agent is an async function:
 async def agent_name(state: StoryState, llm: LLMBackend, config: Config, logger: InteractionLogger) -> dict
 ```
 
-Returns a partial state dict that the graph merges.
+Returns a partial state dict that the turn engine applies to the shared `StoryState`.
 
 ### Tolkien — Narrator
 
@@ -290,16 +292,14 @@ The narrator-in-the-mix. Writes the spoken line that plays over one or more clip
 **Writes:** `current_commentary` (`Commentary`) with one field:
 - `voiceover` — a string, possibly empty. Empty is a first-class choice.
 
-**The measured-audio pacing model.** Attenborough never predicts how many clips his line will cover. The live producer instead:
+**The narrator clock.** Attenborough is not consulted on every clip. The turn engine only invokes him when the silence floor is open — no audio still owed (`audio_seconds_owed ≈ 0`) and `silence_seconds` at or above `Config.min_pause_seconds`; on held turns it writes a silent `Commentary` without an LLM call. The clock ticks in every mode: with audio enabled the live producer measures real playback time, without audio the engine counts story-time (one turn ≈ one clip of the configured i2v duration). Because several silent beats can pass between his lines, he also receives the narrations accumulated since he last spoke, so a line can pay off a thread that built across the quiet stretch.
+
+**The measured-audio spanning model.** Attenborough never predicts how many clips his line will cover. The live producer instead:
 1. Sends his `voiceover` through ElevenLabs and probes the resulting MP3 duration (`audio_dur`).
 2. Probes the freshly-rendered i2v clip duration (`clip_dur`).
 3. If `audio_dur > clip_dur`, opens a **pending span**: collects subsequent silent clips until their accumulated duration covers the audio, then concatenates them and muxes the single voiceover across the whole span (`concat_videos_and_mux_audio`).
-4. Sets `StoryState.audio_seconds_owed = audio_dur - clip_dur` so the next turn's Attenborough call sees the gate is closed and skips the LLM entirely.
-5. Tracks `StoryState.silence_seconds` between voiceovers and enforces `Config.min_pause_seconds` as a floor — a forced cinematic pause so lines do not stack back-to-back.
-
-Both gates are only enforced when `state.pacing_managed` is True (set by the live producer at startup) and `audio_enabled` is True. The scenario and interactive loops always reach the LLM so commentary text is produced for every turn — the gates only affect playback in the live demo.
-
-On a held turn Attenborough never reaches his prompt; the empty `Commentary` is logged as an `attenborough_hold` event with the reason (`audio_owed` or `min_pause`).
+4. Sets `StoryState.audio_seconds_owed = audio_dur - clip_dur` so the engine holds the narrator until the span is paid down.
+5. Resets `StoryState.silence_seconds` after each line so the minimum cinematic pause re-arms.
 
 Coordination with Spielberg happens implicitly: both read the same `Beat.narration`. The visual and the voice land together because they come from the same prose source.
 
@@ -310,7 +310,9 @@ Coordination with Spielberg happens implicitly: both read the same `Beat.narrati
 Memory is Spock's whole identity. One cognitive act: *know what's true, surface what's relevant*. His output shape depends on `memory_backend`:
 
 - **`prose`** (legacy): structured state delta + full-replacement rolling `narrative_memory` + the filtered brief.
-- **`mem0`** (plan 02): structured state delta + the brief only. The episodic layer lives in an embedded Mem0 store — a post-turn graph node persists each beat (custom narrative extraction instructions keep props/bits/setups), and Tolkien/Attenborough retrieve *relevant* memories per turn instead of reading one rolling blob. The structured `world_state` ledger stays first-party in both modes.
+- **`mem0`** (plan 02): structured state delta + the brief only. The episodic layer lives in an embedded Mem0 store — the editor task persists each beat after Spock runs (custom narrative extraction instructions keep props/bits/setups), and Tolkien/Attenborough retrieve *relevant* memories per turn instead of reading one rolling blob. The structured `world_state` ledger stays first-party in both modes.
+
+Since plan 03 Spock runs **off the critical path**: the engine snapshots the finished turn, spawns him as an asyncio task, and joins the task at the start of the next turn (see "One-Turn-Delayed Feedback Loop"). A failed editor task is logged and skipped — state stays unchanged, exactly like a parse failure.
 
 **Receives (via prompt):**
 - `current_beat`, `current_shot`, `current_commentary` (this turn's outputs)
@@ -330,31 +332,33 @@ The `context_brief` is the coordination artifact across the one-turn delay. Its 
 
 Per turn, in order:
 
-1. **Read user input** (may be empty).
-2. **Tolkien** reads `context_brief` (from last turn's Spock), current `world_state`, `narrative_memory`, recent `Beat.narration` from the last ~3 history entries, `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
-3. **Spielberg** reads `current_beat`, `visual_style`, full blueprint `locations` + `characters`, current `world_state` (esp. `protagonist_location`, `inventory`), previous `end_frame_description`. Writes `current_shot`.
-4. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped when `video_enabled: false`.
-5. **Attenborough** reads `tone_guidelines`, `current_beat`, `current_shot`, `narrative_memory`, recent commentary history. Writes `current_commentary`.
-6. **(Optional)** ElevenLabs TTS renders `current_commentary.voiceover`. Skipped when `audio_enabled: false`.
-7. **Spock** reads `current_beat`, `current_shot`, `current_commentary`, current `world_state`, current `narrative_memory`, full blueprint chars/locs, recent history. Writes `world_state_delta`, new `narrative_memory`, new `context_brief`.
+1. **Join** last turn's editor task — Spock's `world_state`, `context_brief` (and `narrative_memory` in prose mode) from turn N−1 land in state.
+2. **Read user input** (may be empty).
+3. **Tolkien** reads `context_brief` (from last turn's Spock), current `world_state`, story memory, recent `Beat.narration` from the last ~3 history entries, `short_term_narrative`, `long_term_narrative`, protagonist entry, and user input. Writes `current_beat` + updated narrative direction.
+4. **Spielberg** reads `current_beat`, `visual_style`, full blueprint `locations` + `characters`, current `world_state` (esp. `protagonist_location`, `inventory`), previous `end_frame_description`. Writes `current_shot`.
+5. **Narrator clock check** — if the silence floor is open, **Attenborough** reads `tone_guidelines`, the beats since his last line, `current_beat`, `current_shot`, story memory, recent commentary history. Writes `current_commentary` (and optionally fires TTS). If the floor is closed, the engine writes a silent `Commentary` without an LLM call.
+6. **Spawn the editor task** — **Spock** (on a snapshot of the turn) reads `current_beat`, `current_shot`, `current_commentary`, current `world_state`, story memory, full blueprint chars/locs, recent history. Produces `world_state_delta` + new `context_brief` (+ new `narrative_memory` in prose mode; + the Mem0 write in mem0 mode). Runs concurrently with rendering and the wait for the next turn.
+7. **(Optional)** the i2v model renders a clip from `current_shot.i2v_prompt` + the previous clip's last frame. Skipped when `video_enabled: false`.
 8. **Commit** the history entry (`turn`, `user_input`, `beat`, `shot`, `commentary`).
 
-The context Spock writes in step 7 is the context Tolkien reads in step 2 of the *next* turn. That delay is the one-turn-delayed feedback loop.
+The context Spock writes in step 6 is the context Tolkien reads in step 3 of the *next* turn — applied at that turn's join. That delay is the one-turn-delayed feedback loop.
 
-## Graph Topology
+## Turn Engine Topology
 
-Four specialized agents wired in `mas_graph.py`.
+Four specialized agents orchestrated by the `TurnEngine` in `mas_graph.py` (the module name and the `graph: "mas_graph"` config key are kept for compatibility; LangGraph itself was retired in plan 03 — the engine is plain asyncio over the typed `StoryState`).
 
 ```
-User Input
-    → Tolkien       (beat: narration + action + outcome + short/long-term direction)
-    → Spielberg     (shot / i2v prompt)
-    → Attenborough  (voice-over commentary)
-    → Spock         (world_state, narrative_memory, context_brief)
-    → Output
+chunk clock (critical path):
+  user input → Tolkien (beat) → Spielberg (shot) → render
+
+narrator clock (only when the silence floor opens):
+  Attenborough (voice-over) → TTS
+
+editor (async, joined at the start of the next turn):
+  Spock (world_state, context_brief [, narrative_memory | Mem0 write])
 ```
 
-Strictly sequential. Spielberg depends on Tolkien's beat; Attenborough depends on both; Spock depends on all three. There is no retry loop — Tolkien respects rules upfront, Spock catches drift on the next turn.
+No retry loops — Tolkien respects rules upfront, Spock catches drift on the next turn via the brief.
 
 ## Prompt Templates
 
@@ -437,7 +441,7 @@ Agents are stateless between calls. Context is reconstructed each turn as prose.
 
 - **Tolkien** — receives premise + constraints + long/short narrative + protagonist entry + current `world_state` + `narrative_memory` + recent `Beat.narration` from last ~3 history entries + Spock's `context_brief` + `user_input`. On turn 1 the `context_brief`, `narrative_memory`, and history are empty and `world_state` is default; Tolkien opens from the blueprint alone.
 - **Spielberg** — receives `visual_style` + full blueprint locations/characters + Tolkien's beat (including `narration`) + previous `end_frame_description` + current `world_state` (esp. `protagonist_location` and `inventory`).
-- **Attenborough** — receives `tone_guidelines` + `current_beat` (especially `narration`) + `current_shot` + `narrative_memory` + recent commentary history.
+- **Attenborough** — receives `tone_guidelines` + the beats since his last line + `current_beat` (especially `narration`) + `current_shot` + story memory + recent commentary history.
 - **Spock** — receives beat + shot + commentary + current `world_state` + current `narrative_memory` + full blueprint chars/locs + recent history.
 
 Slicing in the MAS is **deliberately narrow and role-disciplined**, not state-hiding. `visual_style` stays with Spielberg and `tone_guidelines` stays with Attenborough so Tolkien doesn't start writing cinematography or voice-over — this prevents bleed-through into other agents' domains. But the shared rolling state (`world_state`, `narrative_memory`) is not sliced: every agent that would benefit from the current world reads it directly. Each agent reads a comparable slice for its role but only has to write one thing. Spock's `context_brief` is a narrow attention pointer across the one-turn delay — it flags which characters are in scene and which recent commitments matter, rather than rebuilding the world. The central bet is that **task specialization holds up as context strains the model**, where monolithic single-pass handling drops setups and loses threads.

@@ -18,7 +18,7 @@ Lightest-risk-first; everything after 00 is reorderable. Items marked *(no-regre
 1. **`00-cleanup-baseline.md`** *(done 2026-06-11, merged to main)* — strip the academic/benchmark identity; preserve findings; keep the reusable scorer.
 2. **No-regret infra** — ~~native structured outputs (EVOLUTION B5)~~ *(done — `01-structured-outputs.md`)*; ~~Langfuse dashboard / trace mining~~ *(done — `main.py stats <session_id>`, no plan doc per right-sizing)*. *(Agent-parallelism B2 is likely mooted by the move-2 redesign — skip as a standalone.)*
 3. **Memory: Spock → off-the-shelf framework.** *(infra done — `02-memory-swap.md`: Mem0 mode shipped opt-in via `memory_backend: "mem0"`, default stays prose; 30-turn A/B = parity + 31% cost; the deciding long-horizon (100+ turn) A/B is folded into the agent-redesign plan.)*
-4. **Agent redesign: 4 roles → ~3 literature-grounded roles.** North-star move 2; interfaces with the substrate, so settle move 5's shape first (or co-design).
+4. **Agent redesign: 4 roles → ~3 literature-grounded roles.** *(done 2026-06-12 — `03-agent-redesign.md`: user chose the clock-split cut; Tolkien → Spielberg critical path, Attenborough on the audio clock, Spock async, LangGraph retired. The 100+-turn prose-vs-Mem0 A/B remains as a follow-up chunk on this design.)*
 5. **Streaming substrate: LTXV autoregressive chunk-streaming.** North-star move 3; the big re-architecture (kills end-frame chaining + the 30s gate). Start with a **hands-on GPU spike** (chunk size vs. coherence vs. latency) before committing the runner rewrite.
 
 ### Pruned by the north star (do NOT plan)

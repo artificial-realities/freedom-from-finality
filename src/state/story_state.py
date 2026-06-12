@@ -35,16 +35,16 @@ class StoryState(BaseModel):
     narrative_memory: str = ""
     context_brief: str = ""
 
-    # Commentary pacing — measured by the live producer post-render.
+    # Narrator-clock pacing (gating decisions live in the turn engine).
     # `audio_seconds_owed`: unplayed seconds of the most recent voiceover that
-    # still need to play across upcoming clips. While > 0, Attenborough stays
-    # silent (the producer concatenates silent clips behind the audio).
+    # still need to play across upcoming clips. While > 0, Attenborough is
+    # not invoked (the producer concatenates silent clips behind the audio).
     # `silence_seconds`: continuous silence since the last voiceover finished.
     # Used to enforce a minimum cinematic pause between lines.
     # `last_clip_duration`: measured length of the most recently rendered clip.
-    # `pacing_managed`: True only when the live producer is updating these
-    # fields; the scenario/play loops leave them untouched and the agent
-    # does not gate on them.
+    # `pacing_managed`: True when the live producer measures these fields
+    # from real playback; otherwise the engine counts story-time itself
+    # (one turn ≈ one clip of the configured i2v duration).
     audio_seconds_owed: float = 0.0
     silence_seconds: float = 0.0
     last_clip_duration: float = 0.0

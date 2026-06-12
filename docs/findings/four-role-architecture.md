@@ -174,14 +174,20 @@ that parallel workload degrades. Decomposition keeps each workload small and sta
 - **Deterministic Pydantic state, separate from narration prose** *(CLAUDE.md hard constraint).*
 
 **Incidental — free to change:**
-- The specific role **names** (Tolkien/Spielberg/Attenborough/Spock).
+- The specific role **names** (Tolkien/Spielberg/Attenborough/Spock). *(Redesign kept them.)*
 - The **strict serial graph topology** — Spielberg + Attenborough depend only on Tolkien's output and
-  could run concurrently; the strict chain was unforced *(EVOLUTION.md §A.3 B2).* (But note B2 is
-  likely mooted by the redesign itself.)
+  could run concurrently; the strict chain was unforced *(EVOLUTION.md §A.3 B2).* → **DIED in plan 03
+  (2026-06-12):** the clock-split engine re-cut the roles by clock, not by merging prompts — Tolkien →
+  Spielberg is the per-chunk critical path, Attenborough runs on the audio clock (invoked only when the
+  silence floor opens), Spock runs as an async editor task joined at the next turn. All four prompts
+  and all five load-bearing contracts above survived.
 - **LangGraph specifically** — the MAS graph was ~50 lines of straight-line edges; any async + typed-
-  state shim works *(EVOLUTION.md §A.4).*
+  state shim works *(EVOLUTION.md §A.4).* → **Retired in plan 03**; the turn engine is plain asyncio
+  over the typed StoryState.
 - Attenborough as a *separate LLM agent* — narration can fold into the Director role, with TTS as a
-  non-agent service *(docs/NORTH_STAR.md).*
+  non-agent service *(docs/NORTH_STAR.md).* → Plan 03 chose the opposite resolution: he stays a
+  separate agent (preserving the register-separation finding above) but moved off the chunk clock —
+  which also honors the observation that he never strictly needed Spielberg's full output.
 
 **Things that DIE in the redesign (do not preserve):**
 - End-frame-PNG chaining → replaced by streaming chunk conditioning.

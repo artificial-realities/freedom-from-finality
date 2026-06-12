@@ -117,9 +117,6 @@ async def run_scenario(
             ):
                 result = await graph.ainvoke(state)
                 state = _coerce_state(result)
-                if config.audio_enabled:
-                    # graph.ainvoke rebuilt state from a dict — re-arm.
-                    state.pacing_managed = True
 
                 if i2v is not None and state.current_shot is not None:
                     seed_image, silent, _ = await _render_turn(
@@ -233,6 +230,10 @@ async def run_scenario(
 
         return state
     finally:
+        # Join the in-flight editor task so the final ledger/brief and
+        # the last Mem0 write land before flush.
+        await graph.drain(state)
+
         # Drain any still-open span so its audio isn't lost when the
         # scenario ends mid-voiceover. The combined clip may be longer
         # than the audio (-shortest trims it); whatever rolls is fine.
@@ -539,6 +540,7 @@ async def run_play(
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("\n(quit)")
     finally:
+        await graph.drain(state)
         langfuse_flush()
     return state
 
@@ -675,9 +677,6 @@ async def run_live(
                 ):
                     result = await graph.ainvoke(state)
                     state = _coerce_state(result)
-                    # graph.ainvoke rebuilt state from a dict — re-arm the
-                    # pacing flag so the next turn's gating still applies.
-                    state.pacing_managed = True
 
                     silent: str | None = None
                     if state.current_shot is not None:
@@ -887,6 +886,7 @@ async def run_live(
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        await graph.drain(state)
         langfuse_flush()
 
         if played_clips:
@@ -1011,5 +1011,6 @@ async def run_live_text(
     finally:
         stop_event.set()
         popup.stop()
+        await graph.drain(state)
         langfuse_flush()
     return state

@@ -1,12 +1,15 @@
-"""Spock — the memory and context curator.
+"""Spock — the memory and context curator (the Editor role).
 
 Applies a partial world_state delta and produces a narrow context_brief
 for Tolkien's next turn (across the one-turn-delayed feedback loop).
+Since plan 03 he runs as an async task off the critical path — spawned
+on a snapshot of the finished turn, joined before the next turn's
+Tolkien call.
 
 Two modes (config.memory_backend):
 - "prose" (legacy): also rolls the full narrative_memory prose forward.
-- "mem0": episodic memory lives in the Mem0 store (written post-turn by
-  the graph's memory node); Spock keeps only the ledger and the brief.
+- "mem0": episodic memory lives in the Mem0 store (written in the same
+  editor task); Spock keeps only the ledger and the brief.
 """
 
 from __future__ import annotations

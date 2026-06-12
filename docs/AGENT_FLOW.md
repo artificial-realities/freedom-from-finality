@@ -1,17 +1,23 @@
 # Agent Flow
 
-A focused walkthrough of the MAS pipeline: which agent runs when, what each
+A focused walkthrough of the turn engine: which agent runs when, what each
 agent reads from `StoryState`, and what it writes back. For the wider design
 rationale, see `ARCHITECTURE.md`; this doc is the short, hands-on reference.
 
 The single source of truth for shape is `src/state/story_state.py` and
-`src/models/responses.py`. The graph wiring is `src/graph/mas_graph.py`.
+`src/models/responses.py`. The orchestration is the `TurnEngine` in
+`src/graph/mas_graph.py`.
 
 ---
 
-## 1. The pipeline at a glance
+## 1. The turn at a glance
+
+Since plan 03 the roles run on their own clocks, not as one serial chain:
 
 ```
+join: apply last turn's editor result (world_state, context_brief[, narrative_memory])
+  │
+  ▼                    critical path (every turn)
                      ┌──────────────┐
    user_input ─────▶ │   Tolkien    │  beat writer  ────────▶ current_beat
                      └──────┬───────┘                          long_term_narrative
@@ -21,22 +27,21 @@ The single source of truth for shape is `src/state/story_state.py` and
                      │  Spielberg   │  shot composer ────────▶ current_shot
                      └──────┬───────┘
                             │
-                            ▼
-                     ┌──────────────┐
-                     │ Attenborough │  voiceover    ────────▶ current_commentary
-                     └──────┬───────┘  (+ TTS side-effect)    current_audio_path
-                            │
-                            ▼
-                     ┌──────────────┐
-                     │    Spock     │  memory       ────────▶ world_state
-                     └──────┬───────┘                          narrative_memory
-                            │                                  context_brief
-                            ▼
-                     end of turn ─── runner appends HistoryEntry
+        ┌───────────────────┴────────────────────┐
+        ▼ narrator clock (silence floor open?)    ▼ editor (async task)
+  ┌──────────────┐                          ┌──────────────┐
+  │ Attenborough │ ──▶ current_commentary   │    Spock     │ ──▶ world_state
+  └──────────────┘     current_audio_path   └──────────────┘     context_brief
+   (gate closed: engine writes               (+ narrative_memory in prose mode,
+    a silent Commentary, no LLM call)         + Mem0 write in mem0 mode;
+                                              joined at the start of turn N+1)
+        │
+        ▼
+  end of turn ─── runner appends HistoryEntry, render starts
 ```
 
-Strictly sequential, no retries, no branches. Drift is caught the *next* turn
-via Spock's `context_brief`, which Tolkien reads at the top of turn N+1.
+No retries, no branches on the critical path. Drift is caught the *next* turn
+via Spock's `context_brief`, applied at the join before Tolkien reads.
 
 ---
 
@@ -51,8 +56,8 @@ via Spock's `context_brief`, which Tolkien reads at the top of turn N+1.
 | **Per-turn outputs** | `current_beat`, `current_shot`, `current_commentary`, `current_audio_path` | Written by their respective agent that turn; cleared between turns conceptually (overwritten) |
 | **Narrative direction** | `long_term_narrative`, `short_term_narrative` | Maintained by Tolkien |
 | **Persistent memory** | `world_state`, `narrative_memory`, `context_brief` | Maintained by Spock |
-| **Pacing** (live producer only) | `audio_seconds_owed`, `silence_seconds`, `last_clip_duration`, `pacing_managed` | Set by the live producer post-render; scenario/play loops leave them at 0 |
-| **History** | `history: list[HistoryEntry]` | Appended by the runner after Spock, once beat+shot+commentary all exist |
+| **Narrator-clock pacing** | `audio_seconds_owed`, `silence_seconds`, `last_clip_duration`, `pacing_managed` | Measured by the live producer when audio plays (`pacing_managed`); otherwise ticked by the engine as story-time |
+| **History** | `history: list[HistoryEntry]` | Appended by the runner at end of turn, once beat+shot+commentary all exist |
 | **Meta** | `config_name` | Set at init |
 
 `world_state` is a free-form dict but conventionally tracks
@@ -108,30 +113,31 @@ proceeds with no shot — downstream agents will then bail out too.
 
 ---
 
-### 3.3 Attenborough — voiceover commentator
-**Purpose.** Decide whether to speak this turn, and what to say.
+### 3.3 Attenborough — voiceover commentator (narrator clock)
+**Purpose.** When the room opens, decide whether to speak and what to say.
+
+**Invocation.** The turn engine — not the agent — holds the pacing gate:
+Attenborough is only called when `audio_seconds_owed ≈ 0` and
+`silence_seconds ≥ config.min_pause_seconds` (or no line has been spoken
+yet). On held turns the engine writes a silent `Commentary` without an
+LLM call. The clock ticks in every mode: real measured playback time when
+the live producer manages pacing, story-time (one turn ≈ one clip of
+`i2v_duration`) otherwise.
 
 **Reads from state**
 - Blueprint: `tone_guidelines`
+- Accumulated: narrations since his last non-empty line (capped)
 - Beat: `current_beat.narration / .action / .outcome`
 - Direction: `short_term_narrative`
 - Shot: `camera`, `motion`, `end_frame_description`, `duration_seconds`
-- Memory: `narrative_memory`
+- Memory: rolling prose or Mem0 retrieval (`memory_block`)
 - Recent: last *N* commentary lines (`config.context_window_history`)
 - Pacing: a humanized `silence_label` derived from `silence_seconds`
 
 **Writes**
-- `current_commentary: Commentary` (empty `voiceover` = stay silent)
+- `current_commentary: Commentary` (empty `voiceover` = stay silent —
+  still a first-class choice even when invoked)
 - `current_audio_path` (set when `audio_enabled` and TTS succeeds)
-
-**Pacing gates** (only when `pacing_managed=True` *and* `audio_enabled=True`):
-1. `audio_seconds_owed > 0.001` → return empty commentary, log
-   `attenborough_hold` reason `audio_owed`.
-2. `silence_seconds < config.min_pause_seconds` → return empty, log
-   reason `min_pause`.
-
-In the scenario and `play` loops the producer does not bookkeep pacing, so
-these gates are bypassed and the agent always reaches the LLM.
 
 **TTS side effect.** When `audio_enabled` and a `tts` backend is wired,
 the runtime synthesizes `voiceover` to a file and stores its path on
@@ -139,15 +145,21 @@ the runtime synthesizes `voiceover` to a file and stores its path on
 
 ---
 
-### 3.4 Spock — memory & context curator
+### 3.4 Spock — memory & context curator (async editor)
 **Purpose.** Apply this turn's effects to memory and produce the
 `context_brief` that lands in Tolkien's prompt next turn.
+
+**Invocation.** The engine spawns Spock as an asyncio task on a deep
+snapshot of the finished turn and joins the task at the start of the
+next turn — his work overlaps rendering and user wait. A failed task is
+logged and skipped (state carries forward unchanged). `engine.drain()`
+joins the final task at session end.
 
 **Modes (`config.memory_backend`).** In `prose` mode (legacy) Spock also
 rewrites the rolling `narrative_memory` each turn. In `mem0` mode
 (`configs/mas.mem0.yaml`) he emits only the delta + brief; episodic
-memory is written post-turn to an embedded Mem0 store
-(`src/memory/mem0_store.py`) by a final graph node, and Tolkien /
+memory is written to an embedded Mem0 store
+(`src/memory/mem0_store.py`) inside the same editor task, and Tolkien /
 Attenborough each retrieve relevant memories per turn (`search_block`)
 in place of the prose blob.
 
@@ -225,6 +237,12 @@ state.history = [..., entry_{N-1}]                state.history = [..., entry_N]
                   = beat_N + shot_N + commentary_N + U_N)
 ```
 
+Plan 03 nuance: Spock *starts* during turn N (as an async task on a
+snapshot) but his outputs are *applied* at the join that opens turn N+1 —
+the diagram's data flow is unchanged, only the wall-clock overlaps. The
+Attenborough box only runs on turns where the silence floor is open; on
+held turns the engine writes a silent commentary directly.
+
 What carries forward turn-to-turn:
 - `world_state`, `narrative_memory`, `context_brief` — Spock's outputs
 - `long_term_narrative`, `short_term_narrative` — Tolkien's outputs
@@ -235,7 +253,8 @@ What is per-turn (overwritten each turn):
 - `user_input`, `turn_number`
 - `current_beat`, `current_shot`, `current_commentary`, `current_audio_path`
 
-What is producer-managed (live mode only):
+Narrator-clock fields (live producer measures them when audio plays;
+the engine ticks story-time otherwise):
 - `audio_seconds_owed`, `silence_seconds`, `last_clip_duration`, `pacing_managed`
 
 ---
@@ -256,14 +275,15 @@ Compact view; "blueprint" means any of the read-only init fields.
 | `context_brief` | R | | | (W) |
 | `long_term_narrative` | R / W | | | |
 | `short_term_narrative` | R / W | | R | |
-| `history` (last N) | R (3, narration only) | R (last end_frame) | R (N, commentary) | R (N, full) |
+| `history` (last N) | R (3, narration only) | R (last end_frame) | R (N, commentary; narrations since last line) | R (N, full) |
 | `tone_guidelines` | | | R | |
 | `visual_style` | | R | | |
 | `locations`, `characters` | (protagonist only) | R | | R |
 | `world_constraints`, `narrative_premise` | R | | | |
-| Pacing fields | | | R (gates) | |
+| Pacing fields | | | R (silence label) | |
 
-R = read, W = write, (W) = wrote earlier this turn.
+R = read, W = write, (W) = wrote earlier this turn. The pacing *gate*
+itself lives in the turn engine, not in Attenborough.
 
 ---
 
@@ -280,11 +300,14 @@ With keys absent the wrapper acts as a pure passthrough and the helper
 in `src/util/langfuse_setup.py` no-ops.
 
 **Trace shape.** Each turn becomes one Langfuse trace named `turn_<n>`
-with one child generation per agent (Tolkien / Spielberg / Attenborough
-/ Spock). Spans are opened around `graph.ainvoke(state)` in
-`src/eval/runner.py`. All turns of one run share a session id mirroring
-the on-disk log filename stem, so a Langfuse session and the local
-`logs/<session>.json` / `.md` files cross-reference 1:1.
+with one child generation per agent call. Spans are opened around
+`graph.ainvoke(state)` (the turn engine) in `src/eval/runner.py`. The
+async Spock task inherits the turn's span via contextvars, so his
+generation attributes to the turn it describes even though it completes
+during the next one; Attenborough only appears on turns where the
+silence floor was open. All turns of one run share a session id
+mirroring the on-disk log filename stem, so a Langfuse session and the
+local `logs/<session>.json` / `.md` files cross-reference 1:1.
 
 ```
 Session: mas_demo_scenario_20260505_120000
@@ -292,8 +315,8 @@ Session: mas_demo_scenario_20260505_120000
 ├── Trace: turn_1
 │   ├── Generation: tolkien        (prompt, completion, tokens, latency)
 │   ├── Generation: spielberg
-│   ├── Generation: attenborough
-│   └── Generation: spock
+│   ├── Generation: attenborough   (only when the narrator clock fired)
+│   └── Generation: spock          (async; completes during turn_2)
 ├── Trace: turn_2
 └── ...
 ```

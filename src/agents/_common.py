@@ -107,6 +107,29 @@ def format_recent_narration(state: StoryState, count: int = 3) -> str:
     )
 
 
+def format_beats_since_voiceover(state: StoryState, cap: int = 6) -> str:
+    """Narrations accumulated since the narrator's last non-empty line.
+
+    The current beat is NOT included — it has its own prompt section.
+    Capped to the most recent `cap` so a long-silent stretch stays
+    prompt-sized.
+    """
+    beats = []
+    for h in reversed(state.history):
+        if h.commentary.voiceover:
+            break
+        beats.append(h)
+    beats.reverse()
+    if not beats:
+        return "(none — your last line was on the previous beat, or the story just began)"
+    dropped = len(beats) - cap
+    beats = beats[-cap:]
+    lines = [f"[turn {h.turn}] {h.beat.narration}" for h in beats]
+    if dropped > 0:
+        lines.insert(0, f"(… {dropped} earlier silent beat(s) omitted)")
+    return "\n\n".join(lines)
+
+
 def format_recent_commentary(state: StoryState, count: int = 5) -> str:
     recent = state.get_recent_history(count)
     if not recent:

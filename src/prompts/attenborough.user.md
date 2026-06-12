@@ -1,5 +1,8 @@
 Turn: {turn_number}
 
+Beats since your last line (the story that unfolded while you were quiet):
+{beats_since_voiceover}
+
 Current beat:
 narration: {beat_narration}
 action: {beat_action}

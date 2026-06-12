@@ -1,5 +1,5 @@
 name: "mas"
-description: "Decomposed workflow: Tolkien → Spielberg → Attenborough → Spock"
+description: "Clock-split engine: Tolkien → Spielberg critical path; Attenborough on the audio clock; Spock async (plan 03)"
 graph: "mas_graph"
 llm_backend: "openai"
 model: "gpt-4.1"
