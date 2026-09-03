@@ -31,6 +31,18 @@ The dream of "one running infinite stream you steer mid-flight" is **not** a shi
 
 **Caveat:** Lightricks' marketing overstates "live steering" vs. what the repo actually exposes (no streaming inference API; chunk-extension is batch-orchestrated). A **hands-on GPU spike** is the real proof of chunk size vs. coherence vs. latency, and of whether LTX-2 fidelity and LTXV streaming combine or force a choice. (Sources in the 2026-06-05 research turn.)
 
+### Re-validated 2026-09-03 — the call holds
+
+Three months on, re-checked before opening the substrate plan (per `plans/README.md`'s re-validate rule). Nothing found beats LTXV for this project's shape; two things got better, one open question stayed open.
+
+- **The marketing-vs-repo gap is unchanged.** LTX-2.5 shipped (Aug 2026, open weights, native audio+video, ltx-2.5-fast/pro API tiers) and PR still touts "60-second real-time streaming" / "interactive livestreaming," but the public repo (`Lightricks/LTX-Video`) still documents standard batch diffusion plus a distilled real-time single-clip mode — no exposed chunk-streaming or mid-generation steering API. The June caveat stands verbatim: **the hands-on GPU spike is still the only way to know**, not a formality.
+- **Hardware got cheaper on both axes.** The distilled 13B checkpoint now runs real-time on a single H100 at 1216×704@30fps, and community reports have it fitting 12–24GB consumer cards at reduced settings — the north star's "needs 32GB+" line was conservative. GPU rental itself is also cheaper than assumed: A100/H100 now clears at ~$1.5–3/hr (Vast.ai/RunPod spot), under the original $2–4/hr estimate. The spike is cheaper to run than planned.
+- **New open-weight streaming world models exist, but wrong shape.** Skywork's **Matrix-Game 3.0** (Mar 2026, fully open, 5B, 720p@40fps, minute-long memory) and Tencent's **HY-WorldPlay** are real, self-hostable, and genuinely streaming — but both are keyboard/mouse game-world models, not natural-language-steerable narrative video. Wrong control surface for "type guidance between clips."
+- **One genuine watch item: Wan-Streamer v0.1** (Alibaba/Wan team, arXiv 2606.25041, same lab as this project's existing i2v backend). A single causal transformer doing full-duplex text/audio/video in one stream, ~200ms model latency — architecturally the "no chunking at all" endgame the LTXV chunk-approach is a waypoint toward. Not actionable now: v0.1 is a 192p proof-of-concept, weights are unreleased, and it's shaped for conversational/avatar interaction, not narrative steering. Worth a re-check next time this doc gets re-validated.
+- **The literature gap plan 03 found is still open.** New agentic-video papers since June (Co-Director, the GEST/event-graph agentic pipeline) are both offline/batch, same as the FilmAgent-era work. Nobody has published an LLM-director loop driving a real-time steerable video model. That's still the unclaimed ground this project is aimed at.
+
+**Net: proceed with the GPU spike as planned**, budget revised down slightly, spike itself doing more work than expected (it's now also the check for whether an 8–16GB card can do dev-loop iteration before renting for the real run).
+
 ## What this north star PRUNES from EVOLUTION.md
 
 Deciding the direction kills several otherwise-tempting items:
