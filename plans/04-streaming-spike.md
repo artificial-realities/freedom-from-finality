@@ -131,6 +131,8 @@ needs its own engineering, not a config swap:
    almost entirely avoidable reload cost; a service holding the pipeline in VRAM should get
    per-chunk latency close to the ~1-2s sampling time actually observed. Scoping/building this is
    the next concrete chunk of work — bigger than a script, smaller than a full plan.
+   *(Resolved — §5: 1.3s steady-state per chunk, confirmed. §5 also surfaced a worse identity
+   problem than §3.3's, still open.)*
 2. **Re-run the identity-fidelity test on `ltxv-13b-0.9.8-distilled`.** The 2b model's drift into
    invented facial detail may not survive at 13b; this determines whether the LEGO-in-white-void
    brief is viable on this substrate at all, or needs art-directed negative prompting / a control
@@ -138,13 +140,73 @@ needs its own engineering, not a config swap:
 3. **`conditioning_strength` needs to become a per-turn model decision**, not a constant — likely
    folded into Spielberg's shot spec once the agent side of this integration is designed.
 
-## 5. Follow-ups (not yet done)
+## 5. Resident-server benchmark (2026-09-03, follow-up #1 — done)
 
-- Resident-server latency benchmark (§4.1) — the number that actually decides "is this faster than
-  Wan2.2" for the live-play case.
-- 13b fidelity re-run (§4.2).
-- A longer chain (5+ extensions) to check whether identity drift compounds or stabilizes, and
-  whether `conditioning_strength` needs to vary chunk-to-chunk to hold a longer scene together.
-- Cost model at scale: this spike cost $0.22 for ~4 short generations; a resident-server sizing
-  pass should translate into $/session estimates comparable to the current DashScope Wan2.2 numbers
-  in `main.py stats`.
+Built the fix §4 called for: a script that constructs the LTXV pipeline **once**
+(`create_ltx_video_pipeline`, wrapped in `LTXMultiScalePipeline`) and then runs a simulated 8-turn
+play session against the resident object — no process restart, no reload, between turns. New A100
+PCIE instance ($0.602/hr), separate from §3's; total spend this round **$0.17**.
+
+**Methodology change from §3.4, and why it matters.** §3's extension test conditioned on the
+*entire* prior video and asked for a growing `num_frames` (41 → 81) each call — but
+`prepare_conditioning`'s `trim_conditioning_sequence` confirms `num_frames` is the pipeline's
+*total target output length*, fully re-diffused end to end every call. Grown unbounded across a
+long session, that's not streaming, it's quadratic cost. The architecturally sane scheme — the one
+this benchmark actually tests — is a **fixed-size sliding window**: condition each turn on only the
+last 9 frames of the previous chunk, always request a fixed 41-frame output. That keeps per-turn
+compute flat regardless of session length, matching what a real chunk-streaming service needs.
+
+### 5.1 Latency: resolved, and by a wide margin
+
+| | Wall clock |
+|---|---|
+| Pipeline load (one-time, paid once at service startup) | 15.3s |
+| Turn 0 (i2v from the reference image) | 2.77s |
+| Turns 1–7 (steady-state, sliding-window extension) | mean **1.30s**, min 1.20s, max 1.83s |
+
+This confirms §4.1's hypothesis outright: the ~50s/call from §3.2 was almost entirely reload
+overhead. Resident, steady-state per-chunk latency (~1.3s for 1.37s of new footage — a real-time
+factor under 1) beats the current Wan2.2/DashScope substrate's documented ~30s per 5s clip by
+roughly **20×**, and lands close to the north star's original "~1s first-frame" figure. At
+$0.602/hr, a chunk costs **~$0.0002**; a 30-turn session (the length of the judged `ab_scenario`)
+costs **~$0.009** in GPU time for video generation, plus the one-time $0.0025 pipeline-load —
+under a cent, and a rounding error next to the ~$0.55 LLM-side cost `main.py stats` measured for
+the same scenario length in plan 03. **Video-gen compute is not the cost center on this substrate.**
+
+### 5.2 Identity drift: worse under the sliding window, and a naive fix failed
+
+The fixed 9-frame conditioning tail buys flat latency, but at that price the model loses the scene
+entirely, not just facial detail. By turn 2 the frame is a tight, unrecognizable close-up; by turn
+4 the "story" has left the LEGO minifigure altogether and is generating **macro photography of a
+human hand assembling bricks on a baseplate** — a coherent, well-formed video, just not a
+continuation of anything that came before it. This is a harder failure than §3.3's — that was
+framing/detail drift within one identity; this is losing the subject completely within four
+~1.4s chunks.
+
+Tried the obvious literature-grounded fix (ViMax's reference-portrait pattern from plan 03's
+literature review, §2.1): re-inject the original `legoman.png` as a **second conditioning item**
+every turn, at the same start frame as the sliding-window tail, low strength (0.3) so it nudges
+without overriding the motion signal. Cost nothing extra (mean 1.33s/turn, same as without it) —
+but **did not fix the drift**. By turn 4 the scene had drifted just as far, still with an invented
+human hand, just into a different wrong scene (a LEGO-panel/wall setting instead of a baseplate).
+A weak same-position anchor isn't enough to pull generation back once the sliding window has
+already carried it away from the subject.
+
+**This, not latency, is the open problem the plan now turns on.** A resident server solved speed
+convincingly. It did not touch identity. Candidate directions, untested: a much stronger anchor
+(trading motion continuity for it), the 13b checkpoint (more capacity may hold the subject longer
+even at low anchor strength), or a properly *conditional* anchor scheme closer to what ViMax
+actually does — per-shot LLM selection of which reference image to inject, not a fixed weak blend
+every turn. Worth noting: this is a substrate-level failure, not something the agent layer can
+paper over — no amount of Tolkien/Spielberg prompt discipline fixes the video model forgetting
+what the subject looks like.
+
+## 6. Follow-ups (not yet done)
+
+- **13b fidelity + anchor re-run** — does more model capacity hold the subject through a longer
+  sliding-window chain, with or without the reference-anchor trick from §5.2?
+- **Anchor strength sweep** (0.5, 0.7, stronger) and a **longer conditioning tail** (17-25 frames
+  instead of 9) — both trade some flat-cost guarantee for identity, worth knowing where the knee is.
+- **A proper multi-turn A/B**, not a single 8-turn run — is turn 2-4 drift typical or seed-dependent?
+- `conditioning_strength` as a per-turn agent decision (§4.3) — unblocked now that latency is a
+  non-issue; the design question is entirely about the agent side.
