@@ -1,27 +1,27 @@
 # Artificial Realities
 
-A four-role workflow for interactive storytelling, built with LangGraph. Four specialized LLMs — a beat writer, a shot composer, a voice-over commentator, and a memory curator — coordinate over a fixed, deterministic pipeline to turn the user's steering between clips into a continuous flowing video story: short clips chained via image-to-video (i2v), layered with live voice-over commentary, while the story keeps moving even when the user is silent.
+A four-role LLM workflow for interactive storytelling. A beat writer (Tolkien) and shot composer (Spielberg) form the per-turn critical path, a voice-over commentator (Attenborough) runs on the audio clock, and a memory curator (Spock) runs as an async editor behind the turn — orchestrated by a deterministic turn engine that turns user steering between clips into a continuous flowing video story.
 
 In Anthropic's agents-vs-workflows terminology this is a workflow, not an agent system — no tool use, no LLM-directed control flow.
 
 ## Overview
 
-The story plays as a flowing sequence of ~5-second clips. Each clip's final frame is the next clip's input image, giving the story a continuous visual feel. A voice-over commentator speaks over the clips in the register the blueprint asks for. The user types guidance between clips — but the story keeps flowing even when they don't.
+The story plays as a flowing sequence of short clips. Each clip's final frame is the next clip's input image, giving the story a continuous visual feel. A voice-over commentator speaks over the clips in the register the blueprint asks for. The user types guidance between clips — but the story keeps flowing even when they don't.
 
 The default story is deliberately minimal: a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind — props come and go, bits get tried, callbacks build up. No protagonist dialogue, no locations, no other characters. It strips away every variable except long-horizon memory.
 
-Four agents collaborate behind the scenes:
+Four roles collaborate behind the scenes, split by clock:
 
-- **Tolkien** (narrator) — writes what happens in the next clip: a prose narration, the mechanical action, and the outcome.
-- **Spielberg** (shot composer) — translates the beat into an image-to-video prompt: camera, composition, motion, and an end-frame description that becomes the next clip's starting image.
-- **Attenborough** (voice-over commentator) — reads Tolkien's beat and Spielberg's shot and writes the spoken line that plays over the clip. Optionally routed through ElevenLabs TTS when audio is enabled; otherwise logged as text.
-- **Spock** (memory + context curator) — after each turn, updates structured world state and a rolling narrative memory, and hands Tolkien a filtered context brief — including the currently-relevant characters and locations — for the next turn.
+- **Tolkien** (narrator) — writes what happens in the next clip: a prose narration, the mechanical action, and the outcome. *Per-turn critical path.*
+- **Spielberg** (shot composer) — translates the beat into an image-to-video prompt: camera, composition, motion, and an end-frame description that becomes the next clip's starting image. *Per-turn critical path.*
+- **Attenborough** (voice-over commentator) — invoked only when silence exceeds a threshold, reads the beats accumulated since his last line and writes a spoken line. Optionally routed through ElevenLabs TTS when audio is enabled. *Audio clock.*
+- **Spock** (memory + context curator) — runs as an async background task on a deep state snapshot, joined at the next turn's start. Updates structured world state and rolling narrative memory, hands Tolkien a filtered context brief. *Async editor.*
 
 Video and audio generation are both opt-out. Every agent always produces complete, usable output, so the system behaves as if rendering were live even when clip and TTS generation are skipped at runtime (the default for headless dev).
 
 ## Architecture & direction
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design philosophy, state schema, agent specs, turn execution order, pipeline buffer, and the one-turn-delayed feedback loop.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design philosophy, state schema, agent specs, turn execution order.
 - [docs/AGENT_FLOW.md](docs/AGENT_FLOW.md) — a hands-on per-agent walkthrough of the pipeline.
 - [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — where the system is heading.
 - [docs/EVOLUTION.md](docs/EVOLUTION.md) + [plans/](plans/) — the roadmap and the per-topic plans that drive it.
@@ -42,16 +42,18 @@ ArtificialRealities/
 ├── data/
 │   ├── story.json                   # Story blueprint
 │   ├── demo_scenario.json           # Canonical scripted demo input
+│   ├── ab_scenario.json             # A/B evaluation scenario
 │   └── legoman.png                  # Reference image for the LEGO minifigure
 ├── src/
 │   ├── agents/                      # tolkien, spielberg, attenborough, spock
 │   ├── state/                       # StoryState and related Pydantic models
 │   ├── models/                      # config, story, response schemas
-│   ├── graph/                       # mas_graph (Tolkien → Spielberg → Attenborough → Spock)
+│   ├── graph/                       # TurnEngine (plain asyncio, clock-split orchestration)
 │   ├── i2v/                         # image-to-video backends + frame extraction
 │   ├── llm/                         # OpenAI + Anthropic backends
+│   ├── memory/                      # Mem0 episodic memory store (opt-in)
 │   ├── tts/                         # ElevenLabs adapter (only when audio_enabled)
-│   ├── playback/                    # clip muxing + player
+│   ├── playback/                    # clip muxing
 │   ├── prompts/                     # one system + user template per agent (+ judge rubrics)
 │   ├── eval/                        # scenario runner + reusable LLM-as-judge scorer
 │   ├── ui/                          # terminal + Tk popup
@@ -59,7 +61,8 @@ ArtificialRealities/
 ├── configs/
 │   ├── mas.yaml                     # headless dev (video + audio off)
 │   ├── mas.live-text.yaml           # Tk popup, no video
-│   └── mas.live.yaml                # full live (i2v + TTS)
+│   ├── mas.live.yaml                # full live (i2v + TTS)
+│   └── mas.mem0.yaml                # Mem0 episodic memory mode
 ├── plans/                           # numbered evolution plans + workflow README
 ├── requirements.txt
 └── main.py
@@ -102,7 +105,7 @@ python main.py play --config configs/mas.live.yaml
 
 ## Tech Stack
 
-- **LangGraph** — multi-agent orchestration with typed shared state
+- **Plain asyncio** — deterministic turn engine with clock-split orchestration (Tolkien→Spielberg critical path, Attenborough on audio clock, Spock async)
 - **Pydantic v2** — validated models for state, config, story, and all LLM response schemas
 - **OpenAI** — backbone model for every agent (configurable per run)
 - **ElevenLabs** — optional TTS for Attenborough's commentary
