@@ -61,8 +61,11 @@ ArtificialRealities/
 ├── configs/
 │   ├── mas.yaml                     # headless dev (video + audio off)
 │   ├── mas.live-text.yaml           # Tk popup, no video
-│   ├── mas.live.yaml                # full live (i2v + TTS)
+│   ├── mas.live.yaml                # full live (DashScope i2v + TTS)
+│   ├── mas.live-ltxv.yaml           # full live with LTXV 13b video
 │   └── mas.mem0.yaml                # Mem0 episodic memory mode
+├── server/
+│   └── ltxv_server.py               # resident LTXV inference server (runs on GPU box)
 ├── plans/                           # numbered evolution plans + workflow README
 ├── requirements.txt
 └── main.py
@@ -74,7 +77,8 @@ ArtificialRealities/
 
 - Python 3.10+
 - OpenAI API key — every config calls the OpenAI API
-- (Optional) DashScope API key for live video (Alibaba Wan2.x i2v) — only when `video_enabled: true`
+- (Optional) LTXV server on a GPU box — for live video with identity-holding LTXV 13b (see below)
+- (Optional) DashScope API key for live video (Alibaba Wan2.x i2v) — legacy backend
 - (Optional) ElevenLabs API key for live voice-over — skipped by default
 - (Optional) `ffmpeg` on PATH for muxing TTS audio onto video clips — fails soft if missing
 
@@ -99,8 +103,31 @@ python main.py play --config configs/mas.yaml --scenario data/demo_scenario.json
 # Live demo, no video — story unfolds in a Tk popup; type guidance in the terminal
 python main.py play --config configs/mas.live-text.yaml
 
-# Live demo with video + audio: needs DASHSCOPE_API_KEY (and ELEVENLABS_API_KEY)
+# Live demo with DashScope video + audio (legacy)
 python main.py play --config configs/mas.live.yaml
+
+# Live demo with LTXV 13b video (needs a running LTXV server — see below)
+python main.py play --config configs/mas.live-ltxv.yaml
+```
+
+### LTXV video server
+
+The LTXV backend runs a resident inference server on a GPU box (≥80 GB VRAM for the 13b model). The server holds the pipeline in memory and manages a sliding-window + reference-anchor loop that holds the subject's identity across turns.
+
+```bash
+# On the GPU box:
+git clone https://github.com/Lightricks/LTX-Video.git
+cd LTX-Video && pip install -e .
+pip install fastapi uvicorn av
+
+# Copy the server script into the LTX-Video repo (or set LTXV_REPO_PATH):
+cp server/ltxv_server.py .
+LTXV_CONFIG=configs/ltxv-13b-0.9.8-distilled.yaml python ltxv_server.py
+# → Pipeline loaded in ~15s, listening on :8000
+
+# On your machine — point the config at the server:
+#   Edit configs/mas.live-ltxv.yaml → ltxv_server_url: "http://<gpu-box-ip>:8000"
+python main.py play --config configs/mas.live-ltxv.yaml
 ```
 
 ## Tech Stack

@@ -53,6 +53,10 @@ class Config(BaseModel):
     i2v_audio: bool = False
     i2v_seed_image: str = "data/legoman.png"
 
+    # LTXV backend (when i2v_backend == "ltxv"):
+    ltxv_server_url: str = ""
+    ltxv_anchor_strength: float = 0.5
+
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""
     # Minimum continuous silence required between voiceovers — the

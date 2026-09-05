@@ -293,6 +293,8 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         duration=config.i2v_duration,
         output_dir=video_dir,
         audio=config.i2v_audio,
+        server_url=config.ltxv_server_url,
+        anchor_strength=config.ltxv_anchor_strength,
     )
 
 
@@ -309,7 +311,7 @@ async def _render_turn(
 
     Returns `(next_seed_image, silent_video_path, playable_path)` where:
     - `next_seed_image` always set (falls back to current seed on failure)
-    - `silent_video_path` is the raw DashScope mp4 (or None if render failed)
+    - `silent_video_path` is the raw i2v mp4 (or None if render failed)
     - `playable_path` is the muxed mp4 when `mux_inline=True` AND audio
       was produced this turn; otherwise the silent path; or None on
       complete render failure.

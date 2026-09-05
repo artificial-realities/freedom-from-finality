@@ -1,0 +1,4 @@
+# Server-side deps (on top of the LTX-Video environment).
+# torch, diffusers, ltx_video, PIL, av are already installed there.
+fastapi>=0.110
+uvicorn>=0.29
