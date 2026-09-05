@@ -62,10 +62,11 @@ ArtificialRealities/
 │   ├── mas.yaml                     # headless dev (video + audio off)
 │   ├── mas.live-text.yaml           # Tk popup, no video
 │   ├── mas.live.yaml                # full live (DashScope i2v + TTS)
-│   ├── mas.live-ltxv.yaml           # full live with LTXV 13b video
+│   ├── mas.live-ltxv.yaml           # full live with LTX-2.5 video+audio
 │   └── mas.mem0.yaml                # Mem0 episodic memory mode
 ├── server/
-│   └── ltxv_server.py               # resident LTXV inference server (runs on GPU box)
+│   ├── ltx2_server.py               # resident LTX-2.5 server (runs on GPU box)
+│   └── ltxv_server.py               # legacy LTX-Video 13b server
 ├── plans/                           # numbered evolution plans + workflow README
 ├── requirements.txt
 └── main.py
@@ -77,7 +78,7 @@ ArtificialRealities/
 
 - Python 3.10+
 - OpenAI API key — every config calls the OpenAI API
-- (Optional) LTXV server on a GPU box — for live video with identity-holding LTXV 13b (see below)
+- (Optional) LTX-2.5 server on a GPU box — for live video+audio (see below)
 - (Optional) DashScope API key for live video (Alibaba Wan2.x i2v) — legacy backend
 - (Optional) ElevenLabs API key for live voice-over — skipped by default
 - (Optional) `ffmpeg` on PATH for muxing TTS audio onto video clips — fails soft if missing
@@ -106,27 +107,29 @@ python main.py play --config configs/mas.live-text.yaml
 # Live demo with DashScope video + audio (legacy)
 python main.py play --config configs/mas.live.yaml
 
-# Live demo with LTXV 13b video (needs a running LTXV server — see below)
+# Live demo with LTX-2.5 video+audio (needs a running LTX-2.5 server — see below)
 python main.py play --config configs/mas.live-ltxv.yaml
 ```
 
-### LTXV video server
+### LTX-2.5 video server
 
-The LTXV backend runs a resident inference server on a GPU box (≥80 GB VRAM for the 13b model). The server holds the pipeline in memory and manages a sliding-window + reference-anchor loop that holds the subject's identity across turns.
+The LTX-2.5 backend runs a resident inference server on a GPU box. The server holds the pipeline in memory and manages a sliding-window + reference-anchor loop that holds the subject's identity across turns. LTX-2.5 generates synchronized audio alongside video automatically.
 
 ```bash
 # On the GPU box:
-git clone https://github.com/Lightricks/LTX-Video.git
-cd LTX-Video && pip install -e .
-pip install fastapi uvicorn av
+pip install diffusers[torch] transformers accelerate sentencepiece
+pip install fastapi uvicorn
 
-# Copy the server script into the LTX-Video repo (or set LTXV_REPO_PATH):
-cp server/ltxv_server.py .
-LTXV_CONFIG=configs/ltxv-13b-0.9.8-distilled.yaml python ltxv_server.py
-# → Pipeline loaded in ~15s, listening on :8000
+# Copy the server script and run it:
+scp server/ltx2_server.py root@<gpu-box>:/root/
+python ltx2_server.py
+# → Downloads model (~66GB) on first run, then serves on :8000
 
-# On your machine — point the config at the server:
-#   Edit configs/mas.live-ltxv.yaml → ltxv_server_url: "http://<gpu-box-ip>:8000"
+# For 24GB cards, use fp8 quantization:
+LTX2_QUANTIZE=fp8 python ltx2_server.py
+
+# On your machine — SSH tunnel to the server:
+ssh -N -L 8000:localhost:8000 -p <PORT> root@<HOST>
 python main.py play --config configs/mas.live-ltxv.yaml
 ```
 

@@ -1,12 +1,16 @@
-"""LTXV i2v backend — calls a resident LTXV inference server.
+"""LTXV i2v backend — calls a resident LTX inference server.
 
-The server (server/ltxv_server.py) holds the pipeline in GPU memory and
-manages sliding-window state internally. This backend just sends prompts
-and downloads the returned MP4.
+The server (server/ltx2_server.py for LTX-2.5, or server/ltxv_server.py
+for LTX-Video 13b) holds the pipeline in GPU memory and manages
+sliding-window state internally. This backend just sends prompts and
+downloads the returned MP4.
 
 On the first call the reference/anchor image is uploaded. Subsequent
 calls send only the prompt — the server conditions on its own sliding
 window + the stored anchor.
+
+LTX-2.5 generates native audio alongside video — the returned MP4
+includes synchronized ambient sound/effects automatically.
 """
 
 from __future__ import annotations
@@ -23,11 +27,14 @@ from src.i2v.base import I2VBackend
 
 logger = logging.getLogger(__name__)
 
-# Generous timeout — first call includes model warmup / compilation.
-REQUEST_TIMEOUT_S = 180
+# Generous timeout — first call may include model download + warmup.
+REQUEST_TIMEOUT_S = 300
 
 
 class LtxvI2V(I2VBackend):
+    # LTX-2.5 renders at 24fps; the pipeline requires (N*8 + 1) frames.
+    FRAME_RATE = 24
+
     def __init__(
         self,
         *,
@@ -37,13 +44,23 @@ class LtxvI2V(I2VBackend):
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.anchor_strength = anchor_strength
-        self.model = "ltxv-13b"
+        self.model = "ltx-2.5"
         self.resolution = "512x768"
-        self.duration = 1  # ~1.37s per chunk (41 frames @ 30fps)
+        self.duration = 5  # default seconds if Spielberg doesn't specify
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._seed_image_path: str | None = None
         self._initialized = False
+
+    @staticmethod
+    def seconds_to_frames(seconds: int) -> int:
+        """Convert a duration in seconds to the nearest valid frame count.
+
+        The LTXV pipeline requires frame counts of the form (N*8 + 1).
+        """
+        raw = seconds * LtxvI2V.FRAME_RATE
+        # Round to nearest (N*8 + 1).
+        return ((raw - 2) // 8 + 1) * 8 + 1
 
     async def synthesize(
         self,
@@ -55,7 +72,7 @@ class LtxvI2V(I2VBackend):
     ) -> str | None:
         try:
             return await asyncio.to_thread(
-                self._synthesize_sync, image_path, prompt, turn,
+                self._synthesize_sync, image_path, prompt, turn, duration,
             )
         except Exception as exc:
             logger.exception("LTXV render failed on turn %s: %s", turn, exc)
@@ -66,14 +83,18 @@ class LtxvI2V(I2VBackend):
         image_path: Path | str,
         prompt: str,
         turn: int,
+        duration: int | None = None,
     ) -> str | None:
         # Remember the original seed image for re-init after server restart.
         if self._seed_image_path is None:
             self._seed_image_path = str(image_path)
 
+        num_frames = self.seconds_to_frames(duration or self.duration)
+
         payload: dict = {
             "prompt": prompt,
             "anchor_strength": self.anchor_strength,
+            "num_frames": num_frames,
         }
 
         if not self._initialized:

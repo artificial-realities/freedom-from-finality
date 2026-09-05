@@ -331,12 +331,14 @@ async def _render_turn(
         return seed_image, None, None
 
     prompt = state.current_shot.i2v_prompt
-    # Use the backend's configured duration, not the LLM's per-shot pick —
-    # wan2.2 only accepts a fixed 5s and would error on other values.
+    # Pass Spielberg's per-shot duration to backends that support variable
+    # lengths (LTXV).  DashScope ignores it and uses its fixed default.
+    shot_duration = state.current_shot.duration_seconds
     video_path = await i2v.synthesize(
         image_path=seed_image,
         prompt=prompt,
         turn=state.turn_number,
+        duration=shot_duration,
     )
     if not video_path:
         langfuse_event(
@@ -647,6 +649,38 @@ async def run_live(
 
     trace_tags = [config.name, "live"]
 
+    # ── Pipelined render helper ───────────────────────────────────────
+    # When the i2v backend manages sliding-window state server-side
+    # (LTXV), we can overlap render(N) with agents(N+1).  The render
+    # runs as a background task and enqueues the clip when done.
+    _pipeline_ok = config.i2v_backend.lower() == "ltxv"
+
+    async def _bg_render_and_enqueue(
+        prompt: str,
+        turn_number: int,
+        seed_image: str,
+        duration: int | None = None,
+    ) -> None:
+        """Render one clip in the background and enqueue it."""
+        video_path = await i2v.synthesize(
+            image_path=seed_image,
+            prompt=prompt,
+            turn=turn_number,
+            duration=duration,
+        )
+        if video_path:
+            # Extract last frame (non-critical for LTXV — server manages
+            # its own sliding window).
+            next_seed = frames_dir / f"turn_{turn_number:04d}_last.png"
+            await asyncio.to_thread(extract_last_frame, video_path, next_seed)
+            await clip_queue.put(video_path)
+        else:
+            langfuse_event(
+                "i2v_render_failed",
+                metadata={"turn": turn_number, "seed_image": seed_image},
+                level="ERROR",
+            )
+
     async def producer() -> None:
         nonlocal state
         seed_image = config.i2v_seed_image
@@ -657,6 +691,18 @@ async def run_live(
         # Shape: {"clips": [paths], "audio": str, "owed": float,
         #         "audio_dur": float, "start_turn": int}
         pending_span: dict | None = None
+        # Background render task for pipelining (LTXV path).
+        _prev_render: asyncio.Task | None = None
+
+        async def _drain_prev() -> None:
+            nonlocal _prev_render
+            if _prev_render is not None:
+                try:
+                    await _prev_render
+                except Exception:
+                    logger.warning("Pipelined render failed", exc_info=True)
+                _prev_render = None
+
         try:
             while not stop_event.is_set():
                 turn += 1
@@ -681,20 +727,57 @@ async def run_live(
                     state = _coerce_state(result)
 
                     silent: str | None = None
+                    pipelined = False
                     if state.current_shot is not None:
-                        seed_image, silent, _ = await _render_turn(
-                            state=state,
-                            i2v=i2v,
-                            seed_image=seed_image,
-                            frames_dir=frames_dir,
-                            video_dir=video_dir,
-                            mux_inline=False,  # live loop owns muxing
-                        )
+                        if (
+                            _pipeline_ok
+                            and not state.current_audio_path
+                            and pending_span is None
+                        ):
+                            # ── Pipelined path ──────────────────────────
+                            # Wait for previous render (sliding window is
+                            # sequential), then fire this one in the
+                            # background — it overlaps with the *next*
+                            # turn's agent calls.
+                            pipelined = True
+                            await _drain_prev()
+                            shot_dur = state.current_shot.duration_seconds
+                            _prev_render = asyncio.create_task(
+                                _bg_render_and_enqueue(
+                                    prompt=state.current_shot.i2v_prompt,
+                                    turn_number=turn,
+                                    seed_image=seed_image,
+                                    duration=shot_dur,
+                                )
+                            )
+                            # Set pacing state immediately with the
+                            # expected clip duration so the next
+                            # Attenborough decision is correct.
+                            expected_dur = float(shot_dur)
+                            state.last_clip_duration = expected_dur
+                            state.audio_seconds_owed = 0.0
+                            state.silence_seconds += expected_dur
+                        else:
+                            # ── Serial path (DashScope / audio / span) ──
+                            await _drain_prev()
+                            seed_image, silent, _ = await _render_turn(
+                                state=state,
+                                i2v=i2v,
+                                seed_image=seed_image,
+                                frames_dir=frames_dir,
+                                video_dir=video_dir,
+                                mux_inline=False,  # live loop owns muxing
+                            )
 
                     set_trace_output(_trace_output(state))
 
                 _commit_history(state)
                 _log_story_turn(story_logger, state)
+
+                # Pipelined turns already set pacing and enqueued via the
+                # background task — skip the serial post-render logic.
+                if pipelined:
+                    continue
 
                 if silent is None:
                     # Render failed or skipped — nothing to enqueue. Abort any
@@ -800,6 +883,8 @@ async def run_live(
                     state.silence_seconds += clip_dur
                     await clip_queue.put(silent)
         except asyncio.CancelledError:
+            if _prev_render is not None:
+                _prev_render.cancel()
             raise
         except Exception:
             logger.exception("Live producer crashed on turn %s", turn)
