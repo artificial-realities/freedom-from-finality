@@ -201,12 +201,73 @@ every turn. Worth noting: this is a substrate-level failure, not something the a
 paper over — no amount of Tolkien/Spielberg prompt discipline fixes the video model forgetting
 what the subject looks like.
 
-## 6. Follow-ups (not yet done)
+## 6. 13b fidelity + anchor sweep (2026-09-05, follow-up #2 — done)
 
-- **13b fidelity + anchor re-run** — does more model capacity hold the subject through a longer
-  sliding-window chain, with or without the reference-anchor trick from §5.2?
-- **Anchor strength sweep** (0.5, 0.7, stronger) and a **longer conditioning tail** (17-25 frames
-  instead of 9) — both trade some flat-cost guarantee for identity, worth knowing where the knee is.
-- **A proper multi-turn A/B**, not a single 8-turn run — is turn 2-4 drift typical or seed-dependent?
-- `conditioning_strength` as a per-turn agent decision (§4.3) — unblocked now that latency is a
-  non-issue; the design question is entirely about the agent side.
+Ran three configurations on `ltxv-13b-0.9.8-distilled` (A100 PCIE 80GB, $0.873/hr, **$0.27**
+spent), same 8 prompts, same seeds, same sliding-window methodology as §5:
+
+### 6.1 Latency: proportional to model size, still real-time
+
+| | 2b (§5) | 13b |
+|---|---|---|
+| Pipeline load (one-time) | 15.3s | 12.3s (cached) / 319s (first, includes download) |
+| Turn 0 (i2v) | 2.77s | 4.14s |
+| Steady-state mean | 1.30s | **3.59–3.64s** |
+| VRAM | ~16GB | **38.6–40.7GB** |
+
+3.6s for 1.37s of footage is a real-time factor of ~2.6 — not under 1 like the 2b, but still
+comfortably interactive (the LLM calls in the director loop take longer). 80GB VRAM required.
+
+### 6.2 Identity: 13b solves the catastrophic failure, anchor 0.5 is the sweet spot
+
+**13b baseline (no anchor):** Dramatic improvement over 2b. The model holds the LEGO minifigure as
+a LEGO minifigure through all 8 turns — no human-hand hallucination, no total subject loss. BUT:
+the camera drifts down to a legs-only crop by turn 4, and the torso shifts from red to brown with
+invented construction-worker printing. This is *graceful degradation* (framing/costume drift)
+rather than *catastrophic failure* (subject identity loss). Still not production-ready on its own.
+
+**13b + anchor 0.5:** **The clear winner.** Subject identity held cleanly through all 8 turns —
+yellow smooth head, red torso, blue legs, correct LEGO proportions. No invented hair or facial
+detail (the 2b's T0 failure mode, absent here). Prompt steering worked well: the minifigure
+actually picks up and holds a red brick (T4), spreads arms in a triumphant pose. Camera framing
+stayed on the full figure. The only drift: background migrated from pure white to a LEGO baseplate
++ brick-wall setting by T2, and the torso shifted from bright red to brown-red by T7. Neither is a
+subject-identity failure — they're *scene* drift, much easier to address with prompt discipline
+(Spielberg can specify background) or a background-reinforcement prompt suffix.
+
+**13b + anchor 0.7:** Subject identity also held through 8 turns, but **re-introduced the
+hair-invention artifact** at T2 — brown sculpted hair on what should be a smooth yellow head. The
+competing signals between a strong reference anchor and the sliding-window continuation create
+hallucinated detail, the same failure mode the 2b showed at T0 but now appearing mid-session.
+Prompt steering was also weaker than at 0.5 (less responsive to action instructions). 0.7 is
+worse than 0.5 on both axes.
+
+### 6.3 Verdict: viable substrate configuration found
+
+**`ltxv-13b-0.9.8-distilled` + resident pipeline + 9-frame sliding window + anchor at 0.5** is
+the first configuration tested that holds subject identity through a full 8-turn session while
+also responding to prompt-driven steering. The remaining drift (background, torso hue) is scene
+detail, not subject identity — the kind of thing the agent layer (Tolkien/Spielberg prompt
+discipline) *can* address, unlike the 2b's catastrophic subject loss which it could not.
+
+This resolves the §5.2 open question: **more model capacity (13b) + moderate anchor (0.5) fixes
+the identity problem** that was blocking the substrate choice. The white-void brief isn't quite
+free (background drifts to a LEGO-set context), but the subject stays recognizable — good enough
+to build the integration on, with background reinforcement as an agent-layer concern.
+
+**Cost:** ~3.6s/chunk on an 80GB A100 at ~$0.87/hr = **~$0.0009/chunk** — still a rounding error
+vs LLM costs. 80GB VRAM is the new floor (vs 40GB for the 2b), raising the self-hosting cost from
+~$0.60/hr to ~$0.87/hr at current rental rates.
+
+## 7. Follow-ups (not yet done)
+
+- **Longer conditioning tail** (17-25 frames instead of 9) — may reduce background drift further;
+  trades flat-cost guarantee for identity. Worth knowing where the knee is.
+- **Multi-seed A/B** — is the anchor-0.5 result robust across different seeds, or was this a
+  lucky draw? Run 3-5 seeds to confirm.
+- **Background reinforcement via prompt** — can Spielberg-style prompt suffixes ("pure white
+  seamless background, studio lighting") hold the background where the anchor can't?
+- `conditioning_strength` as a per-turn agent decision — the design question is entirely agent-side
+  now that a viable substrate config exists.
+- **Integration design** — the resident server now needs to become a real service the TurnEngine
+  can call, replacing the DashScope i2v backend.
