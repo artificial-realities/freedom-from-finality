@@ -1,27 +1,65 @@
 """Resident LTX-2.5 inference server.
 
 Holds the LTX-2.5 pipeline in GPU memory and serves /generate requests.
-Manages sliding-window state internally — the client just sends prompts.
-Uses the diffusers LTX2ConditionPipeline for multi-frame conditioning
-(continuity from last frame + identity anchor from reference image).
+The client sends only a prompt; this server owns the sliding window that
+carries the story from one chunk to the next.
 
-Native audio: LTX-2.5 generates synchronized audio alongside video — the
-returned MP4 includes audio automatically.
+Continuity model
+----------------
+LTX-2.5's `LTX2ConditionPipeline` applies a first-frame condition by
+*overwriting* latent tokens:
 
-Setup on a GPU box (≥80GB VRAM recommended for bf16; works on 24GB with fp8):
+    latents[:, start:end] = cond
+    conditioning_mask[:, start:end] = strength
 
-    pip install diffusers[torch] transformers accelerate sentencepiece
+Conditions are applied in list order, so two conditions at `index=0`
+overlap and the later one wins over the earlier one's leading tokens.
+There is therefore no way to blend a second "identity anchor" image on
+top of a continuity window the way LTX-Video 0.9's `ConditioningItem`
+allowed — a low-strength anchor at index 0 would just clobber the front
+of the window. So we send exactly one first-frame condition:
+
+  * turn 1  — the reference image, strength 1.0, which seeds the chain
+  * turn N  — the trailing `continuity_frames` of the previous chunk,
+              at `continuity_strength`
+
+`continuity_strength` is the steering knob: 1.0 holds the previous chunk
+hard (and largely ignores a new prompt), lower values let the prompt
+through at the cost of visual continuity.
+
+Frames are kept in memory as uint8 [0, 255] and handed straight back as
+the next condition — no PNG round trip, no decode/re-encode loss. The
+pipeline maps conditions with `pixels / 127.5 - 1.0`, so the [0, 255]
+range matters; float [0, 1] would condition on near-black.
+
+Native audio: LTX-2.5 generates a synchronized audio track, so the MP4
+this server returns already carries ambient sound and effects.
+
+Setup on a GPU box:
+
+    pip install "diffusers[torch]" transformers accelerate sentencepiece av
     pip install fastapi uvicorn
 
+    # The weights are GATED. One-time, on huggingface.co:
+    #   1. Log in, open https://huggingface.co/Lightricks/LTX-2.5-Diffusers
+    #   2. Click "Agree and access repository" (auto-approved, instant)
+    #   3. Make a token at https://huggingface.co/settings/tokens
+    export HF_TOKEN=hf_...
+
     python ltx2_server.py
-    # → Downloads model on first run (~66GB), then serves on :8000
 
 Environment variables:
-    LTX2_MODEL        HuggingFace model id (default: Lightricks/LTX-2.5)
-    LTX2_HOST         bind host (default: 0.0.0.0)
-    LTX2_PORT         bind port (default: 8000)
-    LTX2_QUANTIZE     set to "fp8" for fp8 quantization (fits 24GB cards)
-    LTX2_OFFLOAD      set to "cpu" or "sequential" for memory-constrained GPUs
+    HF_TOKEN          HuggingFace token (required — the weights are gated)
+    LTX2_MODEL        model id (default: Lightricks/LTX-2.5-Diffusers)
+    LTX2_DISTILLED    "0" to disable the distilled LoRA (default: on)
+    LTX2_STEPS        override sampling steps (default: 8 distilled / 30 base)
+    LTX2_STG          spatio-temporal guidance (default: 0.0 distilled, 1.0
+                      base). Non-zero costs an extra forward pass per step.
+    LTX2_WIDTH        output width, multiple of 32 (default: 768)
+    LTX2_HEIGHT       output height, multiple of 32 (default: 512)
+    LTX2_OFFLOAD      "cpu" or "sequential" when VRAM is tight
+    LTX2_VAE_TILING   "1" to enable VAE tiling (lower peak VRAM on decode)
+    LTX2_HOST/PORT    bind address (default: 0.0.0.0:8000)
 """
 
 from __future__ import annotations
@@ -40,7 +78,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 logging.basicConfig(
@@ -49,72 +87,105 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ltx2_server")
 
-# ── Defaults ───────────────────────────────────────────────────────
-MODEL_ID = os.getenv("LTX2_MODEL", "Lightricks/LTX-2.5")
-WIDTH = 768
-HEIGHT = 512
+# ── Model / output defaults ───────────────────────────────────────
+# NB: "Lightricks/LTX-2.5" is the ComfyUI / ltx-pipelines layout (raw
+# safetensors under diffusion_models/) with no model_index.json, so
+# diffusers cannot load it. "-Diffusers" is the same 22B weights in the
+# layout from_pretrained() expects.
+MODEL_ID = os.getenv("LTX2_MODEL", "Lightricks/LTX-2.5-Diffusers")
+DISTILLED_LORA = "ltx-2.5-22b-distilled-lora-450-bf16.safetensors"
+USE_DISTILLED = os.getenv("LTX2_DISTILLED", "1") != "0"
+
+WIDTH = int(os.getenv("LTX2_WIDTH", "768"))
+HEIGHT = int(os.getenv("LTX2_HEIGHT", "512"))
 FRAME_RATE = 24.0
-NEGATIVE = "worst quality, inconsistent motion, blurry, jittery, distorted"
+NEGATIVE = (
+    "worst quality, inconsistent motion, blurry, jittery, distorted, static"
+)
 
 # ── Server state ──────────────────────────────────────────────────
 app = FastAPI(title="LTX-2.5 Inference Server")
-pipe = None  # set at startup
-_encode_video = None  # diffusers export helper
+pipe = None
+_encode_video = None
+_sigmas: list[float] | None = None
+_steps: int = 30
+_guidance: float = 3.0
+_stg: float = 1.0
 _audio_sample_rate: int = 24000
-session: dict = {}  # ref_image, last_frame, turn_count
+
+# Session: the reference image (PIL, seeds turn 1) and the tail of the
+# last generated chunk (uint8 ndarray, shape (F, H, W, 3)).
+session: dict = {}
 _lock = asyncio.Lock()
 
 
-# ── Request model ─────────────────────────────────────────────────
-
 class GenerateRequest(BaseModel):
     prompt: str
-    reference_image: str | None = None  # base64 PNG — required on first call
-    anchor_strength: float = 0.5
+    reference_image: str | None = None  # base64 PNG, required on first call
+    continuity_strength: float = Field(default=1.0, ge=0.0, le=1.0)
+    continuity_frames: int = Field(default=9, ge=1)
     seed: int | None = None
-    num_frames: int = 121  # ~5s at 24fps; must be 8k+1
+    num_frames: int = Field(default=121, ge=9)
 
 
-# ── Pipeline loading ──────────────────────────────────────────────
+# ── Startup ───────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def load_pipeline() -> None:
-    global pipe, _encode_video, _audio_sample_rate
+    global pipe, _encode_video, _sigmas, _steps, _guidance, _stg
+    global _audio_sample_rate
 
-    logger.info("Loading LTX-2.5 from %s …", MODEL_ID)
+    from diffusers import LTX2ConditionPipeline
+    from diffusers.pipelines.ltx2.utils import DISTILLED_SIGMA_VALUES
+    from diffusers.utils import encode_video
+
+    _encode_video = encode_video
+
+    if not (os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")):
+        logger.warning(
+            "No HF_TOKEN set — %s is gated and the download will fail. "
+            "Accept the licence on the model page, then export HF_TOKEN.",
+            MODEL_ID,
+        )
+
+    logger.info("Loading %s …", MODEL_ID)
     t0 = time.monotonic()
-
-    # Import here so startup logs show before the heavy import.
-    from diffusers.pipelines.ltx2.export_utils import encode_video as _ev
-
-    _encode_video = _ev
-
-    # Try the multi-condition pipeline first; fall back to i2v.
     try:
-        from diffusers import LTX2ConditionPipeline
-        logger.info("Using LTX2ConditionPipeline (multi-condition support)")
         pipe = LTX2ConditionPipeline.from_pretrained(
             MODEL_ID, torch_dtype=torch.bfloat16,
         )
-    except (ImportError, Exception) as exc:
-        logger.warning(
-            "LTX2ConditionPipeline not available (%s), "
-            "falling back to LTX2ImageToVideoPipeline",
-            exc,
+    except Exception as exc:
+        logger.error(
+            "Failed to load %s: %s\nIf this is a 401/403 the weights are "
+            "gated — accept the licence at https://huggingface.co/%s and "
+            "export HF_TOKEN.", MODEL_ID, exc, MODEL_ID,
         )
-        from diffusers import LTX2ImageToVideoPipeline
-        pipe = LTX2ImageToVideoPipeline.from_pretrained(
-            MODEL_ID, torch_dtype=torch.bfloat16,
-        )
+        raise
 
-    # Memory strategy.
+    # ── Distilled schedule: 8 steps, CFG off ───────────────────────
+    if USE_DISTILLED:
+        logger.info("Applying distilled LoRA %s", DISTILLED_LORA)
+        pipe.load_lora_weights(
+            MODEL_ID, weight_name=DISTILLED_LORA, adapter_name="distilled",
+        )
+        pipe.set_adapters("distilled", 1.0)
+        _sigmas = list(DISTILLED_SIGMA_VALUES)
+        _steps = len(_sigmas)
+        # guidance 1.0 disables CFG, which also skips the negative
+        # forward pass — roughly halves the work per step.
+        _guidance = 1.0
+        _stg = 0.0
+    else:
+        _sigmas, _steps, _guidance, _stg = None, 30, 3.0, 1.0
+
+    if os.getenv("LTX2_STEPS"):
+        _steps = int(os.environ["LTX2_STEPS"])
+        _sigmas = None  # an explicit step count overrides the fixed schedule
+    if os.getenv("LTX2_STG"):
+        _stg = float(os.environ["LTX2_STG"])
+
+    # ── Placement ──────────────────────────────────────────────────
     offload = os.getenv("LTX2_OFFLOAD", "").lower()
-    quantize = os.getenv("LTX2_QUANTIZE", "").lower()
-
-    if quantize == "fp8":
-        logger.info("Applying fp8 quantization to transformer")
-        pipe.transformer = pipe.transformer.to(torch.float8_e4m3fn)
-
     if offload == "sequential":
         pipe.enable_sequential_cpu_offload(device="cuda:0")
     elif offload == "cpu":
@@ -122,32 +193,39 @@ async def load_pipeline() -> None:
     else:
         pipe.to("cuda")
 
-    # Cache the vocoder sample rate for audio encoding.
-    if hasattr(pipe, "vocoder") and pipe.vocoder is not None:
+    if os.getenv("LTX2_VAE_TILING") == "1":
+        pipe.vae.enable_tiling()
+        logger.info("VAE tiling enabled")
+
+    if getattr(pipe, "vocoder", None) is not None:
         _audio_sample_rate = getattr(
             pipe.vocoder.config, "output_sampling_rate", 24000,
         )
 
-    dt = time.monotonic() - t0
     vram = torch.cuda.memory_allocated() / 1e9 if torch.cuda.is_available() else 0
-    logger.info("Pipeline ready in %.1fs (%.1f GB VRAM)", dt, vram)
+    logger.info(
+        "Ready in %.1fs — %s, %d steps, guidance=%.1f, stg=%.1f, "
+        "%dx%d @%.0ffps, audio@%dHz, %.1f GB VRAM",
+        time.monotonic() - t0, "distilled" if USE_DISTILLED else "base",
+        _steps, _guidance, _stg, WIDTH, HEIGHT, FRAME_RATE,
+        _audio_sample_rate, vram,
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────
 
 @app.post("/generate")
 async def generate(req: GenerateRequest):
-    """Generate one video chunk. Returns MP4 (with native audio)."""
+    """Generate one chunk. Returns an MP4 with LTX-2.5's native audio."""
     if pipe is None:
         raise HTTPException(503, "Pipeline still loading — try again shortly")
     async with _lock:
-        result = await asyncio.to_thread(_generate_sync, req)
-    return result
+        return await asyncio.to_thread(_generate_sync, req)
 
 
 @app.post("/reset")
 async def reset():
-    """Clear session state. Keeps the pipeline loaded."""
+    """Drop session state (reference + window). Keeps the pipeline loaded."""
     session.clear()
     logger.info("Session reset")
     return {"status": "reset"}
@@ -158,23 +236,26 @@ async def health():
     return {
         "status": "ready" if pipe is not None else "loading",
         "model": MODEL_ID,
+        "distilled": USE_DISTILLED,
+        "steps": _steps,
+        "frame_rate": FRAME_RATE,
+        "width": WIDTH,
+        "height": HEIGHT,
         "turn_count": session.get("turn_count", 0),
         "has_reference": "ref_image" in session,
-        "frame_rate": FRAME_RATE,
         "vram_allocated_gb": round(torch.cuda.memory_allocated() / 1e9, 1)
         if torch.cuda.is_available()
         else None,
     }
 
 
-# ── Sync generation (runs in a thread) ───────────────────────────
+# ── Generation ────────────────────────────────────────────────────
 
 def _generate_sync(req: GenerateRequest) -> FileResponse:
     from diffusers.pipelines.ltx2.pipeline_ltx2_condition import (
         LTX2VideoCondition,
     )
 
-    # Session init — first call must carry the reference image.
     if "ref_image" not in session:
         if req.reference_image is None:
             raise HTTPException(
@@ -183,48 +264,32 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
                 "Send it again if the server was restarted.",
             )
         session["ref_image"] = _decode_image(req.reference_image)
-        session["last_frame"] = None
+        session["window"] = None
         session["turn_count"] = 0
-        logger.info("Session initialised with reference image")
+        logger.info("Session seeded with reference image")
     elif req.reference_image is not None:
         session["ref_image"] = _decode_image(req.reference_image)
-        logger.info("Reference image updated mid-session")
+        logger.info("Reference image replaced mid-session")
 
     session["turn_count"] += 1
     turn = session["turn_count"]
 
-    # Pad num_frames to (N*8 + 1) as required by the pipeline.
-    num_frames = ((req.num_frames - 2) // 8 + 1) * 8 + 1
+    num_frames = _snap_to_frame_grid(req.num_frames)
 
-    # ── Build conditioning ──────────────────────────────────────
-    conditions: list[LTX2VideoCondition] = []
-
-    if session["last_frame"] is None:
-        # First turn — condition on reference image.
-        conditions.append(
-            LTX2VideoCondition(
-                frames=session["ref_image"],
-                index=0,
-                strength=1.0,
-            )
+    # Exactly one first-frame condition — see the module docstring for
+    # why a second one at index 0 cannot work.
+    if session["window"] is None:
+        condition = LTX2VideoCondition(
+            frames=session["ref_image"], index=0, strength=1.0,
         )
+        cond_desc = "reference image"
     else:
-        # Subsequent — continuity from last frame + reference anchor.
-        conditions.append(
-            LTX2VideoCondition(
-                frames=session["last_frame"],
-                index=0,
-                strength=1.0,
-            )
+        condition = LTX2VideoCondition(
+            frames=session["window"],  # uint8 (F, H, W, 3)
+            index=0,
+            strength=req.continuity_strength,
         )
-        if req.anchor_strength > 0:
-            conditions.append(
-                LTX2VideoCondition(
-                    frames=session["ref_image"],
-                    index=0,
-                    strength=req.anchor_strength,
-                )
-            )
+        cond_desc = f"{session['window'].shape[0]} trailing frames"
 
     seed = req.seed if req.seed is not None else int.from_bytes(
         os.urandom(4), "big",
@@ -232,14 +297,13 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
     generator = torch.Generator(device="cuda").manual_seed(seed)
 
     logger.info(
-        "Turn %d: generating %d frames (seed=%d, anchor=%.2f) …",
-        turn, num_frames, seed, req.anchor_strength,
+        "Turn %d: %d frames on %s (strength=%.2f, seed=%d, %d steps) …",
+        turn, num_frames, cond_desc, req.continuity_strength, seed, _steps,
     )
     t0 = time.monotonic()
 
-    # ── Run the pipeline ────────────────────────────────────────
     call_kwargs: dict = dict(
-        conditions=conditions,
+        conditions=[condition],
         prompt=req.prompt,
         negative_prompt=NEGATIVE,
         height=HEIGHT,
@@ -247,78 +311,59 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
         num_frames=num_frames,
         frame_rate=FRAME_RATE,
         generator=generator,
-        guidance_scale=3.0,
+        guidance_scale=_guidance,
+        stg_scale=_stg,
         output_type="np",
         return_dict=False,
     )
-
-    result = pipe(**call_kwargs)
-
-    # The pipeline returns (video, audio) — both as numpy arrays.
-    if isinstance(result, tuple) and len(result) >= 2:
-        video_np, audio_np = result[0], result[1]
+    if _sigmas is not None:
+        call_kwargs["sigmas"] = _sigmas
     else:
-        # Fallback if the pipeline returns a different structure.
-        video_np = result[0] if isinstance(result, tuple) else result.frames
-        audio_np = None
+        call_kwargs["num_inference_steps"] = _steps
 
+    video, audio = pipe(**call_kwargs)
     dt = time.monotonic() - t0
 
-    # video_np shape: (B, F, H, W, 3) or (F, H, W, 3) — normalise.
-    if video_np.ndim == 5:
-        video_np = video_np[0]
+    # output_type="np" → float [0, 1], shape (B, F, H, W, C).
+    frames = video[0] if getattr(video, "ndim", 0) == 5 else video
 
-    # Trim to requested frame count.
-    video_np = video_np[:req.num_frames]
+    # Keep the tail as uint8 [0, 255] for the next turn's condition.
+    # Conditions are mapped with `pixels / 127.5 - 1.0`, so the range
+    # matters; uint8 also satisfies the single-frame CRF path, which
+    # rejects non-uint8 input.
+    tail = min(req.continuity_frames, frames.shape[0])
+    session["window"] = (
+        np.clip(frames[-tail:], 0.0, 1.0) * 255.0
+    ).round().astype(np.uint8)
 
-    logger.info(
-        "Turn %d: generated in %.2fs, shape %s",
-        turn, dt, list(video_np.shape),
-    )
+    logger.info("Turn %d: generated in %.2fs, %s", turn, dt, list(frames.shape))
 
-    # Store the last frame for sliding-window conditioning.
-    last_frame = video_np[-1]  # (H, W, 3), float 0-1
-    if last_frame.max() <= 1.0:
-        last_frame = (last_frame * 255).astype(np.uint8)
-    session["last_frame"] = Image.fromarray(last_frame)
-
-    # ── Encode to MP4 ──────────────────────────────────────────
+    # ── Encode ────────────────────────────────────────────────────
+    # encode_video takes float [0, 1] for ndarray input — hand it the
+    # pipeline's output unchanged rather than pre-converting.
     tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
     tmp.close()
 
-    # Ensure frames are uint8 0-255 for encoding.
-    if video_np.dtype != np.uint8:
-        if video_np.max() <= 1.0:
-            video_np = (video_np * 255).astype(np.uint8)
-        else:
-            video_np = video_np.astype(np.uint8)
-
-    if audio_np is not None and _encode_video is not None:
-        # Use diffusers' encode_video which muxes audio natively.
-        audio_tensor = (
-            torch.from_numpy(audio_np[0]).float()
-            if isinstance(audio_np, np.ndarray) and audio_np.ndim > 1
-            else torch.from_numpy(audio_np).float()
-            if isinstance(audio_np, np.ndarray)
-            else audio_np[0].float().cpu()
+    audio_arg = None
+    if audio is not None:
+        a = audio[0] if getattr(audio, "ndim", 0) > 2 else audio
+        audio_arg = (
+            torch.from_numpy(a).float() if isinstance(a, np.ndarray)
+            else a.float().cpu()
         )
-        _encode_video(
-            video_np,
-            fps=FRAME_RATE,
-            audio=audio_tensor,
-            audio_sample_rate=_audio_sample_rate,
-            output_path=tmp.name,
-        )
-    else:
-        # No audio — fall back to imageio.
-        _save_video_imageio(video_np, tmp.name, fps=int(FRAME_RATE))
 
-    duration_s = video_np.shape[0] / FRAME_RATE
-    vram = torch.cuda.memory_allocated() / 1e9
+    _encode_video(
+        frames,
+        fps=int(FRAME_RATE),
+        output_path=tmp.name,
+        audio=audio_arg,
+        audio_sample_rate=_audio_sample_rate if audio_arg is not None else None,
+    )
 
+    duration_s = frames.shape[0] / FRAME_RATE
     logger.info(
         "Turn %d: %.2fs clip, %.1f GB VRAM → %s",
-        turn, duration_s, vram, tmp.name,
+        turn, duration_s, torch.cuda.memory_allocated() / 1e9, tmp.name,
     )
 
     return FileResponse(
@@ -328,9 +373,10 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
         headers={
             "X-Turn": str(turn),
             "X-Latency-S": f"{dt:.2f}",
-            "X-Num-Frames": str(video_np.shape[0]),
+            "X-Num-Frames": str(frames.shape[0]),
             "X-Duration-S": f"{duration_s:.3f}",
             "X-Frame-Rate": str(FRAME_RATE),
+            "X-Has-Audio": "1" if audio_arg is not None else "0",
         },
         background=BackgroundTask(_cleanup, tmp.name),
     )
@@ -338,21 +384,13 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
 
 # ── Helpers ───────────────────────────────────────────────────────
 
+def _snap_to_frame_grid(raw: int) -> int:
+    """Snap onto the VAE's causal (N*8 + 1) temporal grid."""
+    return ((max(raw, 1) - 2) // 8 + 1) * 8 + 1
+
+
 def _decode_image(b64: str) -> Image.Image:
-    """Decode a base64 PNG into a PIL Image."""
-    img_bytes = base64.b64decode(b64)
-    return Image.open(io.BytesIO(img_bytes)).convert("RGB")
-
-
-def _save_video_imageio(
-    frames_np: np.ndarray, path: str, fps: int = 24,
-) -> None:
-    """Save (F, H, W, 3) uint8 numpy array as an MP4 (no audio)."""
-    import imageio
-
-    with imageio.get_writer(path, fps=fps) as writer:
-        for frame in frames_np:
-            writer.append_data(frame)
+    return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
 
 
 def _cleanup(path: str) -> None:
@@ -361,8 +399,6 @@ def _cleanup(path: str) -> None:
     except OSError:
         pass
 
-
-# ── Entry point ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
     host = os.getenv("LTX2_HOST", "0.0.0.0")

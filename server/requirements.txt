@@ -1,4 +1,13 @@
-# Server-side deps (on top of the LTX-Video environment).
-# torch, diffusers, ltx_video, PIL, av are already installed there.
+# Dependencies for the resident LTX-2.5 inference server
+# (server/ltx2_server.py). Install on the GPU box, not locally.
+#
+# The LTX-2.5 weights are gated: accept the licence at
+# https://huggingface.co/Lightricks/LTX-2.5-Diffusers and export HF_TOKEN.
+
+diffusers[torch]>=0.36
+transformers>=4.50
+accelerate>=1.0
+sentencepiece>=0.2      # Gemma text-encoder tokenizer
+av>=12.0                # encode_video muxes video+audio via PyAV
 fastapi>=0.110
 uvicorn>=0.29

@@ -21,7 +21,8 @@ def build_i2v_backend(
     output_dir=None,
     audio: bool | None = None,
     server_url: str | None = None,
-    anchor_strength: float = 0.5,
+    continuity_strength: float = 1.0,
+    continuity_frames: int = 9,
 ) -> I2VBackend:
     """Construct an I2V backend from a config's `i2v_backend` string."""
     key = name.lower()
@@ -40,7 +41,8 @@ def build_i2v_backend(
             )
         return LtxvI2V(
             server_url=server_url,
-            anchor_strength=anchor_strength,
+            continuity_strength=continuity_strength,
+            continuity_frames=continuity_frames,
             output_dir=output_dir or "logs/video",
         )
     raise ValueError(f"Unknown i2v_backend: {name!r}")

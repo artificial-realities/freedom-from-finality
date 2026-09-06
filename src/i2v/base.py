@@ -17,6 +17,18 @@ class I2VBackend(ABC):
     resolution: str
     duration: int
 
+    #: True when the backend owns frame-to-frame continuity itself — a
+    #: resident server holding a sliding window of the previous chunk,
+    #: for example. The runner then skips extracting each clip's last
+    #: frame to re-seed the next render (wasted work, and a lossy
+    #: decode/re-encode round trip), and may pipeline the render: it
+    #: depends only on the prompt, so it can overlap with the next
+    #: turn's agent calls.
+    #:
+    #: False (the default) means the runner threads the seed image
+    #: forward itself, which is what stateless hosted APIs need.
+    manages_continuity: bool = False
+
     @abstractmethod
     async def synthesize(
         self,

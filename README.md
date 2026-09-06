@@ -66,7 +66,7 @@ ArtificialRealities/
 │   └── mas.mem0.yaml                # Mem0 episodic memory mode
 ├── server/
 │   ├── ltx2_server.py               # resident LTX-2.5 server (runs on GPU box)
-│   └── ltxv_server.py               # legacy LTX-Video 13b server
+│   └── requirements.txt             # GPU-box deps (not needed locally)
 ├── plans/                           # numbered evolution plans + workflow README
 ├── requirements.txt
 └── main.py
@@ -113,25 +113,37 @@ python main.py play --config configs/mas.live-ltxv.yaml
 
 ### LTX-2.5 video server
 
-The LTX-2.5 backend runs a resident inference server on a GPU box. The server holds the pipeline in memory and manages a sliding-window + reference-anchor loop that holds the subject's identity across turns. LTX-2.5 generates synchronized audio alongside video automatically.
+The LTX-2.5 backend runs a resident inference server on a GPU box. The server holds the pipeline in memory and owns the sliding window: it keeps the tail of each generated chunk and conditions the next one on it, so the client only ever sends a prompt. LTX-2.5 generates synchronized audio alongside the video, so clips arrive with an ambient/SFX track already on them.
+
+**The weights are gated.** One-time, while logged in to huggingface.co:
+
+1. Open [Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers) and click **Agree and access repository** (auto-approved, instant).
+2. Create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+
+Note the model id: `Lightricks/LTX-2.5` is the ComfyUI/ltx-pipelines layout and has no `model_index.json`, so `diffusers` cannot load it. The `-Diffusers` repo is the same 22B weights in the layout `from_pretrained()` expects.
 
 ```bash
 # On the GPU box:
-pip install diffusers[torch] transformers accelerate sentencepiece
-pip install fastapi uvicorn
+pip install -r server/requirements.txt
+export HF_TOKEN=hf_...
 
-# Copy the server script and run it:
+# Copy the server script over and run it:
 scp server/ltx2_server.py root@<gpu-box>:/root/
 python ltx2_server.py
-# → Downloads model (~66GB) on first run, then serves on :8000
+# -> Downloads weights on first run, then serves on :8000
 
-# For 24GB cards, use fp8 quantization:
-LTX2_QUANTIZE=fp8 python ltx2_server.py
+# When VRAM is tight:
+LTX2_OFFLOAD=cpu python ltx2_server.py      # offload the model between calls
+LTX2_VAE_TILING=1 python ltx2_server.py     # lower peak VRAM on decode
 
-# On your machine — SSH tunnel to the server:
+# On your machine -- SSH tunnel, then run the story loop:
 ssh -N -L 8000:localhost:8000 -p <PORT> root@<HOST>
 python main.py play --config configs/mas.live-ltxv.yaml
 ```
+
+By default the server applies the **distilled LoRA**: 8 sampling steps instead of 30, with CFG off (which also skips the negative forward pass). Set `LTX2_DISTILLED=0` to A/B against the base model, or `LTX2_STEPS` / `LTX2_STG` to trade quality against latency.
+
+`ltxv_continuity_strength` in the config is the steering knob. Each chunk is conditioned on the trailing frames of the previous one; at `1.0` continuity is maximal but a new prompt barely lands, and lower values let steering through at the cost of visual continuity.
 
 ## Tech Stack
 

@@ -53,9 +53,14 @@ class Config(BaseModel):
     i2v_audio: bool = False
     i2v_seed_image: str = "data/legoman.png"
 
-    # LTXV backend (when i2v_backend == "ltxv"):
+    # LTX-2.5 backend (when i2v_backend == "ltxv"):
     ltxv_server_url: str = ""
-    ltxv_anchor_strength: float = 0.5
+    # How hard each chunk holds the previous one. 1.0 = maximum visual
+    # continuity but the new prompt barely lands; lower lets steering
+    # through at the cost of continuity.
+    ltxv_continuity_strength: float = 1.0
+    # Trailing frames of the previous chunk used as the condition.
+    ltxv_continuity_frames: int = 9
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""

@@ -20,7 +20,13 @@ i2v_seed_image: "data/legoman.png"
 
 # Point this at the running LTX-2.5 server (server/ltx2_server.py).
 ltxv_server_url: "http://localhost:8000"
-ltxv_anchor_strength: 0.5               # identity-hold sweet spot from plan 04
+
+# How hard each chunk holds the previous one, 0..1. This is the
+# continuity-vs-steering knob (plan 04 finding): 1.0 maximises visual
+# continuity but a new prompt barely lands; lower lets steering through.
+ltxv_continuity_strength: 1.0
+# Trailing frames of the previous chunk used as the condition.
+ltxv_continuity_frames: 9
 
 # ── Audio (off — LTX-2.5 generates ambient audio natively in the
 #    video; Attenborough's spoken narration still needs ElevenLabs) ──

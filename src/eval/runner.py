@@ -294,7 +294,8 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         output_dir=video_dir,
         audio=config.i2v_audio,
         server_url=config.ltxv_server_url,
-        anchor_strength=config.ltxv_anchor_strength,
+        continuity_strength=config.ltxv_continuity_strength,
+        continuity_frames=config.ltxv_continuity_frames,
     )
 
 
@@ -348,8 +349,16 @@ async def _render_turn(
         )
         return seed_image, None, None
 
-    next_seed = frames_dir / f"turn_{state.turn_number:04d}_last.png"
-    extracted = await asyncio.to_thread(extract_last_frame, video_path, next_seed)
+    # Backends that own continuity (LTX-2.5's resident server keeps the
+    # window in GPU memory) need no client-side frame chaining — decoding
+    # the clip just to throw the frame away is pure waste.
+    if i2v.manages_continuity:
+        extracted = None
+    else:
+        next_seed = frames_dir / f"turn_{state.turn_number:04d}_last.png"
+        extracted = await asyncio.to_thread(
+            extract_last_frame, video_path, next_seed,
+        )
 
     playable_path: str | None = video_path
     muxed_path: str | None = None
@@ -653,7 +662,9 @@ async def run_live(
     # When the i2v backend manages sliding-window state server-side
     # (LTXV), we can overlap render(N) with agents(N+1).  The render
     # runs as a background task and enqueues the clip when done.
-    _pipeline_ok = config.i2v_backend.lower() == "ltxv"
+    # A backend that owns continuity depends only on the prompt, so its
+    # render can overlap with the next turn's agent calls.
+    _pipeline_ok = i2v.manages_continuity
 
     async def _bg_render_and_enqueue(
         prompt: str,
@@ -669,10 +680,6 @@ async def run_live(
             duration=duration,
         )
         if video_path:
-            # Extract last frame (non-critical for LTXV — server manages
-            # its own sliding window).
-            next_seed = frames_dir / f"turn_{turn_number:04d}_last.png"
-            await asyncio.to_thread(extract_last_frame, video_path, next_seed)
             await clip_queue.put(video_path)
         else:
             langfuse_event(
