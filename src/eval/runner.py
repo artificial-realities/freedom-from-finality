@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.graph import build_graph
-from src.i2v import build_i2v_backend, extract_last_frame
+from src.i2v import build_i2v_backend
 from src.i2v.base import I2VBackend
 from src.llm import build_backend
 from src.memory import StoryMemory
@@ -29,7 +29,6 @@ from src.playback import (
 )
 from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
-from src.ui.popup import StoryPopup
 from src.ui.terminal import TerminalUI
 from src.util.langfuse_setup import event as langfuse_event
 from src.util.langfuse_setup import flush as langfuse_flush
@@ -288,14 +287,10 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
     video_dir = Path(log_dir) / "video"
     return build_i2v_backend(
         config.i2v_backend,
-        model=config.i2v_model,
-        resolution=config.i2v_resolution,
-        duration=config.i2v_duration,
-        output_dir=video_dir,
-        audio=config.i2v_audio,
         server_url=config.ltxv_server_url,
         continuity_strength=config.ltxv_continuity_strength,
         continuity_frames=config.ltxv_continuity_frames,
+        output_dir=video_dir,
     )
 
 
@@ -332,8 +327,7 @@ async def _render_turn(
         return seed_image, None, None
 
     prompt = state.current_shot.i2v_prompt
-    # Pass Spielberg's per-shot duration to backends that support variable
-    # lengths (LTXV).  DashScope ignores it and uses its fixed default.
+    # Pass Spielberg's per-shot duration to the backend.
     shot_duration = state.current_shot.duration_seconds
     video_path = await i2v.synthesize(
         image_path=seed_image,
@@ -349,16 +343,9 @@ async def _render_turn(
         )
         return seed_image, None, None
 
-    # Backends that own continuity (LTX-2.5's resident server keeps the
-    # window in GPU memory) need no client-side frame chaining — decoding
-    # the clip just to throw the frame away is pure waste.
-    if i2v.manages_continuity:
-        extracted = None
-    else:
-        next_seed = frames_dir / f"turn_{state.turn_number:04d}_last.png"
-        extracted = await asyncio.to_thread(
-            extract_last_frame, video_path, next_seed,
-        )
+    # The LTXV backend owns continuity server-side (sliding window in GPU
+    # memory), so no client-side frame chaining is needed.
+    extracted = None
 
     playable_path: str | None = video_path
     muxed_path: str | None = None
@@ -765,7 +752,7 @@ async def run_live(
                             state.audio_seconds_owed = 0.0
                             state.silence_seconds += expected_dur
                         else:
-                            # ── Serial path (DashScope / audio / span) ──
+                            # ── Serial path (audio / span) ──
                             await _drain_prev()
                             seed_image, silent, _ = await _render_turn(
                                 state=state,
@@ -991,120 +978,4 @@ async def run_live(
                 print(f"Saved: {saved}", flush=True)
             else:
                 print("Could not save session video.", flush=True)
-    return state
-
-
-async def run_live_text(
-    *,
-    config: Config,
-    story: Story,
-    log_dir: Path | str = "logs",
-) -> StoryState:
-    """No-video live loop — story streams into a Tk popup, user types in terminal.
-
-    Same continuous shape as `run_live` (background stdin thread, drain
-    on each turn, never block on user input), but with no video render,
-    no TTS, and no clip queue. Each iteration: drain stdin → run graph
-    → push the turn into the popup → loop. Pacing is whatever the LLMs
-    deliver — no clip-duration gating.
-    """
-    state = StoryState.initialize(story, config_name=config.name)
-    session_id = _make_session_id(config.name, "live_text")
-    story_logger = StoryLogger(
-        session_id=session_id,
-        config_name=config.name,
-        scenario="live_text",
-        story_title=story.title,
-        log_dir=log_dir,
-    )
-
-    llm = build_backend(config.llm_backend, config.model)
-    # No TTS, no i2v — popup mode is text-only by design.
-    memory = _maybe_memory(config, log_dir, session_id, story)
-    graph = build_graph(config.graph, llm=llm, config=config, tts=None, memory=memory)
-
-    popup = StoryPopup(title=f"Artificial Realities — {story.title or config.name}")
-    popup.start()
-
-    print(
-        "Live (text) mode: story streams in the popup window; "
-        "type guidance here, Ctrl+C to quit.",
-        flush=True,
-    )
-
-    loop = asyncio.get_running_loop()
-    user_input_queue: asyncio.Queue[str] = asyncio.Queue()
-    stop_event = asyncio.Event()
-
-    def _stdin_loop() -> None:
-        sys.stdout.write("› ")
-        sys.stdout.flush()
-        while not stop_event.is_set():
-            try:
-                line = sys.stdin.readline()
-            except Exception:
-                return
-            if not line:  # EOF
-                return
-            line = line.strip()
-            asyncio.run_coroutine_threadsafe(user_input_queue.put(line), loop)
-            sys.stdout.write("› ")
-            sys.stdout.flush()
-
-    threading.Thread(target=_stdin_loop, daemon=True).start()
-
-    trace_tags = [config.name, "live_text"]
-
-    turn = 0
-    try:
-        while not stop_event.is_set():
-            turn += 1
-
-            # Drain pending input — keep the most recent non-empty entry.
-            user_input = ""
-            while not user_input_queue.empty():
-                candidate = await user_input_queue.get()
-                if candidate:
-                    user_input = candidate
-
-            state.turn_number = turn
-            state.user_input = user_input
-
-            with turn_span(
-                turn_number=turn,
-                session_id=session_id,
-                tags=trace_tags,
-                user_input=user_input,
-                metadata={"config": config.name, "user_input": user_input},
-            ):
-                result = await graph.ainvoke(state)
-                state = _coerce_state(result)
-                set_trace_output(_trace_output(state))
-
-            _commit_history(state)
-            _log_story_turn(story_logger, state)
-
-            popup.append_turn(
-                turn=state.turn_number,
-                user_input=state.user_input,
-                beat=state.current_beat,
-                shot=state.current_shot,
-                commentary=state.current_commentary,
-                world_state=state.world_state,
-                narrative_memory=state.narrative_memory,
-                context_brief=state.context_brief,
-            )
-
-            # If the user closed the popup, treat that as a quit signal.
-            if not popup.is_alive():
-                break
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        print("\n(quit)")
-    except Exception:
-        logger.exception("Live-text loop crashed on turn %s", turn)
-    finally:
-        stop_event.set()
-        popup.stop()
-        await graph.drain(state)
-        langfuse_flush()
     return state

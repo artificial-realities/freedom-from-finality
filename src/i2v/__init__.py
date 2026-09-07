@@ -1,39 +1,24 @@
 from src.i2v.base import I2VBackend
-from src.i2v.dashscope import DashScopeI2V
-from src.i2v.frame_extractor import extract_last_frame
 from src.i2v.ltxv import LtxvI2V
 
 __all__ = [
-    "DashScopeI2V",
     "I2VBackend",
     "LtxvI2V",
     "build_i2v_backend",
-    "extract_last_frame",
 ]
 
 
 def build_i2v_backend(
     name: str,
     *,
-    model: str,
-    resolution: str = "720P",
-    duration: int = 5,
-    output_dir=None,
-    audio: bool | None = None,
     server_url: str | None = None,
     continuity_strength: float = 1.0,
     continuity_frames: int = 9,
+    output_dir=None,
+    **_extra,
 ) -> I2VBackend:
     """Construct an I2V backend from a config's `i2v_backend` string."""
     key = name.lower()
-    if key == "dashscope":
-        return DashScopeI2V(
-            model=model,
-            resolution=resolution,
-            duration=duration,
-            output_dir=output_dir or "logs/video",
-            audio=audio,
-        )
     if key == "ltxv":
         if not server_url:
             raise ValueError(

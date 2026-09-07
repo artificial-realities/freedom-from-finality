@@ -23,18 +23,14 @@ class Config(BaseModel):
     context_window_history: int = 5
     narrative_memory_target_tokens: int = 800
 
-    # Episodic memory backend (plan 02):
-    #   "prose" — Spock rewrites the rolling narrative_memory every turn (legacy)
+    # Episodic memory backend:
+    #   "prose" — Spock rewrites the rolling narrative_memory every turn (default)
     #   "mem0"  — embedded Mem0 store; agents retrieve relevant memories per
     #             turn and Spock stops rewriting prose memory
     memory_backend: str = "prose"
 
-    # When True, dispatch to a continuous live loop instead of the
-    # turn-by-turn `run_play`. Combined with `video_enabled`:
-    #   live + video_enabled  → run_live      (clips + ffplay window)
-    #   live + !video_enabled → run_live_text (Tk popup, no clips)
-    # `play` (no scenario, !live) is the sequential terminal loop used
-    # for headless dev work.
+    # When True, dispatch to the continuous live loop (run_live) instead
+    # of the turn-by-turn `run_play`. Requires `video_enabled: true`.
     live: bool = False
 
     video_enabled: bool = False
@@ -42,15 +38,11 @@ class Config(BaseModel):
     # player by this many clips and the consumer waits for `lead_clips + 1`
     # clips to be queued before starting playback. 0 = no startup wait,
     # no enforced race-ahead (queue size 1, render and play overlap by one
-    # clip naturally). Bump above 0 to re-enable the "delay-as-feature"
-    # narrative smoothing once i2v latency drops enough that a sustained
-    # lead is realistic.
+    # clip naturally). Bump above 0 to re-enable sustained
+    # "delay-as-feature" narrative smoothing once i2v latency drops.
     lead_clips: int = 0
-    i2v_backend: str = "dashscope"
-    i2v_model: str = "wan2.6-i2v-flash"
-    i2v_resolution: str = "720P"
+    i2v_backend: str = "ltxv"
     i2v_duration: int = 5
-    i2v_audio: bool = False
     i2v_seed_image: str = "data/legoman.png"
 
     # LTX-2.5 backend (when i2v_backend == "ltxv"):
@@ -65,10 +57,8 @@ class Config(BaseModel):
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""
     # Minimum continuous silence required between voiceovers — the
-    # narrator-clock floor (plan 03). The turn engine only invokes
-    # Attenborough once `silence_seconds` reaches this floor, in every
-    # mode: with audio the live producer measures real playback time,
-    # without audio the engine counts story-time (one turn ≈ one clip).
+    # narrator-clock floor. The turn engine only invokes Attenborough
+    # once `silence_seconds` reaches this floor.
     min_pause_seconds: float = 5.0
 
     extra: dict = Field(default_factory=dict)

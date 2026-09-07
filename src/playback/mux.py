@@ -1,14 +1,13 @@
 """ffmpeg audio→video mux for Artificial Realities playback.
 
-DashScope clips are silent mp4; ElevenLabs gives us mp3. The player
-needs a single file with both streams so a one-shot subprocess can
-play the result. We do the mux with `ffmpeg` (subprocess) — it must
-be on PATH. If ffmpeg is missing or the mux fails, we fail soft and
-the caller falls back to playing the silent video.
-
-LTX-2.5 clips arrive with a native ambient/SFX track, so the mux
-*mixes* the voiceover over any existing audio rather than replacing
+LTX-2.5 clips arrive with a native ambient/SFX track. When
+Attenborough's voiceover needs to be layered on top, the mux *mixes*
+the voiceover over the existing audio (ducked) rather than replacing
 it — see `has_audio_stream`.
+
+The `ffmpeg` binary must be on PATH. If it's missing or the mux
+fails, we fail soft and the caller falls back to playing the silent
+(or ambient-only) video.
 """
 
 from __future__ import annotations
@@ -33,9 +32,9 @@ def is_ffmpeg_available() -> bool:
 async def has_audio_stream(path: Path | str) -> bool:
     """True when `path` already carries an audio stream.
 
-    LTX-2.5 renders native audio; DashScope clips are silent. Fails
-    closed (False) when ffprobe is unavailable, so the caller falls
-    back to a plain replace-mux.
+    LTX-2.5 renders native audio alongside video. Fails closed (False)
+    when ffprobe is unavailable, so the caller falls back to a plain
+    replace-mux.
     """
     if not shutil.which("ffprobe"):
         return False

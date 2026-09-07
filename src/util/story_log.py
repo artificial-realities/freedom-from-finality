@@ -3,7 +3,7 @@
 Contains per-turn agent outputs (Beat, Shot, Commentary, Memory) and
 nothing else — no prompts, no token counts, no parameters. The full
 LLM call detail lives in Langfuse; this file is for skimming the story
-flow and as the input format for the future LLM-judge pass.
+flow.
 """
 
 from __future__ import annotations
