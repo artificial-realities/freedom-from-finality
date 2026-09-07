@@ -51,8 +51,10 @@ Setup on a GPU box:
 Environment variables:
     HF_TOKEN          HuggingFace token (required — the weights are gated)
     LTX2_MODEL        model id (default: Lightricks/LTX-2.5-Diffusers)
-    LTX2_DISTILLED    "0" to disable the distilled LoRA (default: on)
-    LTX2_STEPS        override sampling steps (default: 8 distilled / 30 base)
+    LTX2_DISTILLED    "1" to enable the distilled LoRA (default: off — broken
+                      with diffusers ≤0.41 because connector modules are not
+                      wired into the pipeline; re-enable when supported)
+    LTX2_STEPS        override sampling steps (default: 8 distilled / 15 base)
     LTX2_STG          spatio-temporal guidance (default: 0.0 distilled, 1.0
                       base). Non-zero costs an extra forward pass per step.
     LTX2_WIDTH        output width, multiple of 32 (default: 768)
@@ -94,7 +96,12 @@ logger = logging.getLogger("ltx2_server")
 # layout from_pretrained() expects.
 MODEL_ID = os.getenv("LTX2_MODEL", "Lightricks/LTX-2.5-Diffusers")
 DISTILLED_LORA = "ltx-2.5-22b-distilled-lora-450-bf16.safetensors"
-USE_DISTILLED = os.getenv("LTX2_DISTILLED", "1") != "0"
+# The distilled LoRA is OFF by default: diffusers ≤0.41 does not wire up
+# the `audio_embeddings_connector` and `video_embeddings_connector`
+# modules, so the LoRA loads only partially and the 8-step schedule
+# produces corrupted output (temporal noise within 1-2 seconds).
+# Re-enable with LTX2_DISTILLED=1 once diffusers supports those.
+USE_DISTILLED = os.getenv("LTX2_DISTILLED", "0") != "0"
 
 WIDTH = int(os.getenv("LTX2_WIDTH", "768"))
 HEIGHT = int(os.getenv("LTX2_HEIGHT", "512"))
@@ -169,6 +176,12 @@ async def load_pipeline() -> None:
             MODEL_ID, weight_name=DISTILLED_LORA, adapter_name="distilled",
         )
         pipe.set_adapters("distilled", 1.0)
+        # Fuse the LoRA into the base weights and drop the adapter
+        # overhead — this brings VRAM back down to base-model size so
+        # the full pipeline fits in 80 GB without CPU offload.
+        pipe.fuse_lora()
+        pipe.unload_lora_weights()
+        logger.info("LoRA fused into base weights and adapter unloaded")
         _sigmas = list(DISTILLED_SIGMA_VALUES)
         _steps = len(_sigmas)
         # guidance 1.0 disables CFG, which also skips the negative
@@ -176,7 +189,9 @@ async def load_pipeline() -> None:
         _guidance = 1.0
         _stg = 0.0
     else:
-        _sigmas, _steps, _guidance, _stg = None, 30, 3.0, 1.0
+        # 15 steps is the sweet spot: indistinguishable from 30 at half the
+        # cost. Set LTX2_STEPS=30 to A/B or trade latency for quality.
+        _sigmas, _steps, _guidance, _stg = None, 15, 3.0, 1.0
 
     if os.getenv("LTX2_STEPS"):
         _steps = int(os.environ["LTX2_STEPS"])

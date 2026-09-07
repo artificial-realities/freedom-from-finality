@@ -141,7 +141,7 @@ ssh -N -L 8000:localhost:8000 -p <PORT> root@<HOST>
 python main.py play --config configs/mas.live-ltxv.yaml
 ```
 
-By default the server applies the **distilled LoRA**: 8 sampling steps instead of 30, with CFG off (which also skips the negative forward pass). Set `LTX2_DISTILLED=0` to A/B against the base model, or `LTX2_STEPS` / `LTX2_STG` to trade quality against latency.
+By default the server runs the **base model** at 15 sampling steps with CFG guidance=3.0 — this is the quality/speed sweet spot tested on an A100-80GB. The distilled LoRA (`LTX2_DISTILLED=1`) is broken with diffusers ≤0.41 because the pipeline does not wire up the connector modules the LoRA adapts, producing corrupted output; re-enable it when diffusers supports those. Use `LTX2_STEPS` / `LTX2_STG` to trade quality against latency.
 
 `ltxv_continuity_strength` in the config is the steering knob. Each chunk is conditioned on the trailing frames of the previous one; at `1.0` continuity is maximal but a new prompt barely lands, and lower values let steering through at the cost of visual continuity.
 
