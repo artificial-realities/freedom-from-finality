@@ -24,6 +24,18 @@ ssh -N -L 8000:localhost:8000 -p <PORT> root@<HOST>
 python main.py play --config configs/mas.live.yaml
 ```
 
+## Renting a GPU on Vast.ai
+
+`server/vast_run.sh` automates the whole loop: rent the cheapest matching 80 GB offer, install the dependencies and start the server with CPU offload, open the tunnel, wait for `/health`, run the client, destroy the instance.
+
+```bash
+server/vast_run.sh up                                                        # ~5-15 min, prints "server ready"
+server/vast_run.sh run configs/director.live.yaml data/live_scenario.json    # renders into logs/live/
+server/vast_run.sh down                                                      # always, or the meter keeps running
+```
+
+Needs `VAST_API_KEY` and `HF_TOKEN` in `.env`, the `vastai` CLI, credit on the account, and your ssh key registered on Vast.
+
 ## Notes
 
 The server runs the **base model** at 15 sampling steps — the quality/speed sweet spot tested on A100-80GB (~170s/clip with CPU offload). The distilled LoRA (`LTX2_DISTILLED=1`) is currently broken in diffusers ≤0.41 (missing connector modules cause corrupted output); leave it off until a future diffusers release wires those up.
