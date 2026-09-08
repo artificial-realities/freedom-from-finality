@@ -28,6 +28,7 @@ Opening direction from the blueprint: {short_term_narrative}
 - Escalate. Later scenes build on what earlier scenes established; callbacks to dormant props and open threads are the cheapest way to make the film feel like one film.
 - Keep the arc short: a few acts, one sentence each. Update it only when the story has genuinely moved.
 - Summaries are for a writer who will not see the raw events: keep names, props and payoffs; drop phrasing.
+- `entity_notes` record facts learned during the film (a skill, a fear, a running gag, a change in appearance, an attachment to a prop). Never restate the blueprint; the Director already has it.
 - A scene is a few dozen seconds of film, not a chapter. Its exit condition must be something visible.
 
 # What you return

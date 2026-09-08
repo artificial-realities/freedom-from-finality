@@ -23,6 +23,28 @@ class Report:
     changed: bool = False
 
 
+_LOCATION_PREFIXES = ("at ", "in ", "on ", "inside ", "the ")
+
+
+def resolve_location(world: WorldModel, ref: str):
+    """Resolve a location reference leniently: ids, names, and prefixed
+    forms such as "at the_white_void". Returns an Entity or None."""
+    text = " ".join(ref.split()).strip()
+    candidates = [text]
+    low = text.lower()
+    for prefix in _LOCATION_PREFIXES:
+        if low.startswith(prefix):
+            candidates.append(text[len(prefix):])
+    for cand in candidates:
+        ent = world.resolve(cand)
+        if ent is not None and ent.kind == "location":
+            return ent
+    for ent in world.by_kind("location"):
+        if ent.id in slugify(text):
+            return ent
+    return None
+
+
 def check(segment: Segment, world: WorldModel, *, max_shots: int = 3) -> Report:
     """Pure check: nothing is mutated."""
     r = Report()
@@ -60,9 +82,12 @@ def check(segment: Segment, world: WorldModel, *, max_shots: int = 3) -> Report:
             if holder is None or holder.kind != "character":
                 r.violations.append(f"holder '{op.holder}' is not a known character id")
         if op.location:
-            loc = world.resolve(op.location)
-            if (loc is None or loc.kind != "location") and slugify(op.location) not in introduced:
-                r.violations.append(f"location '{op.location}' is not a known location id")
+            loc = resolve_location(world, op.location)
+            if loc is None and slugify(op.location) not in introduced:
+                r.warnings.append(
+                    f"location '{op.location}' is not a known location id; ignored "
+                    "(use `status` for where something sits within the location)",
+                )
 
     for line in segment.dialogue:
         speaker = world.resolve(line.speaker)
@@ -106,8 +131,11 @@ def apply(segment: Segment, world: WorldModel, *, segment_no: int, max_shots: in
             if op.kind == "character" and world.cast_locked:
                 continue
             eid = world._unique_id(slugify(op.entity))
+            name = op.entity.strip()
+            if "_" in name and " " not in name:
+                name = name.replace("_", " ")  # the model sent an id-like name
             ent = Entity(
-                id=eid, name=op.entity.strip(), kind=op.kind,
+                id=eid, name=name, kind=op.kind,
                 description=op.description.strip(),
                 look=op.description.strip() if op.kind != "location" else "",
                 first_seen=seg,
@@ -155,8 +183,8 @@ def apply(segment: Segment, world: WorldModel, *, segment_no: int, max_shots: in
                 changes.append(f"holder={new_holder or 'nobody'}")
                 r.changed = True
         if op.location:
-            loc = world.resolve(op.location)
-            if loc is not None and loc.kind == "location" and loc.id != ent.location:
+            loc = resolve_location(world, op.location)
+            if loc is not None and loc.id != ent.location:
                 ent.location = loc.id
                 changes.append(f"location={loc.id}")
                 r.changed = True

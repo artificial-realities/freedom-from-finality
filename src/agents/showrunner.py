@@ -42,7 +42,7 @@ INSTRUCTIONS = {
     "bootstrap": (
         "The film has not started; there is nothing to summarize. Write the arc "
         "and the opening scene card from the blueprint (`replan` = true, "
-        "`scene_summary` empty)."
+        "`scene_summary` and `act_summary` empty, no `entity_notes`)."
     ),
     "replan": (
         "This is a scene boundary or a stalled scene. Compact the events since "

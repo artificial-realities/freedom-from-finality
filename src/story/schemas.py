@@ -80,7 +80,10 @@ class Segment(BaseModel):
     def action_text(self) -> str:
         beats: list[str] = []
         for shot in self.shots:
-            beats.extend(b.strip() for b in shot.action_beats if b.strip())
+            for b in shot.action_beats:
+                b = " ".join(b.split())
+                if b:
+                    beats.append(b if b[-1] in ".!?" else b + ".")
         return " ".join(beats)
 
 

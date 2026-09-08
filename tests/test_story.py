@@ -79,6 +79,15 @@ def test_validator_introduce_update_remove():
     r = check(seg, w)
     assert any("unknown entity" in v for v in r.violations)
 
+    # Locations resolve leniently; an unknown one is a warning, not a re-ask.
+    seg = _segment(entity_ops=[EntityOp(op="update", entity="lego_man", location="at the_white_void")])
+    r = check(seg, w)
+    assert not r.violations and not r.warnings
+    seg = _segment(entity_ops=[EntityOp(op="update", entity="lego_man", location="on_skateboard")])
+    r = apply(seg, w, segment_no=6)
+    assert not r.violations and any("not a known location" in x for x in r.warnings)
+    assert w.entities["lego_man"].location == "the_white_void"
+
 
 def test_validator_cast_lock_and_mute_dialogue():
     w = _world()
@@ -144,7 +153,7 @@ def test_compiler_prompt():
     assert "Cut to a wide shot, static camera." in prompt
     assert "Lego Man (the most default LEGO minifigure" in prompt, "character re-identified from the sheet"
     assert "soccer ball (a studded LEGO ball)" in prompt
-    assert "The shot ends on Lego Man mid-kick." in prompt
+    assert "Final frame: Lego Man mid-kick." in prompt
     assert 'voice-over (English, warm) says: "A kick, at last."' in prompt
     assert duration == 7
     prompt_tts, _ = compile_prompt(seg, w, visual_style="", narration_mode="tts")

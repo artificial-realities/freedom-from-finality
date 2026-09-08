@@ -32,7 +32,7 @@ def _tail(text: str) -> str:
 
 
 def describe(entity: Entity) -> str:
-    look = " ".join(entity.render_look().split())
+    look = " ".join(entity.render_look().split()).rstrip(".")
     if look and look.lower() != entity.name.lower():
         return f"{entity.name} ({look})"
     return entity.name
@@ -79,7 +79,7 @@ def compile_prompt(
                 text = line.line.strip().replace('"', "'")
                 parts.append(f'{name} says{delivery}: "{text}"')
         if shot.end_state.strip():
-            parts.append("The shot ends on " + _tail(shot.end_state))
+            parts.append("Final frame: " + _tail(shot.end_state))
         paragraphs.append(" ".join(p for p in parts if p))
         total += shot.duration_seconds
 

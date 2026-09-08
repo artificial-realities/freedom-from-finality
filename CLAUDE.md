@@ -59,4 +59,4 @@ Default to the headless config. Live runs need an LTX-2.5 server reachable at `l
 - **`ltxv_continuity_strength`** trades continuity against steering for `continue` shots. At `1.0` new prompts barely land; lower values let steering through at the cost of visual continuity.
 - **The distilled LoRA is broken** in diffusers ≤0.41 (missing connector modules corrupt output). The server runs the base model at 15 steps, ~170s/clip on A100-80GB.
 - **LTX-2.5 renders native ambient audio**, so clips already carry an audio track; with `narration: "tts"` the ElevenLabs line is mixed over it (ducked), not substituted.
-- **The A/B against the legacy engine has not been run yet** (no API credits at the time of the change). Run `data/ab_scenario.json` under `configs/director.yaml` and `configs/mas.yaml` before deleting the legacy engine.
+- **The legacy engine is kept only until a long run confirms the new one.** A 30-turn A/B (`docs/reviews/2026-09-08-ab-results.md`) favoured the Director engine on speed, calls, prop ledger and progression; run 100+ segments under `configs/director.yaml` before deleting `graph: "mas_graph"`, Mem0 and the legacy prompts.
