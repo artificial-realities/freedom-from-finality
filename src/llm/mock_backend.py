@@ -51,7 +51,7 @@ class MockBackend(LLMBackend):
         elif name == "ShowrunnerUpdate":
             payload = self._showrunner(messages)
         else:
-            payload = self._legacy(name)
+            raise ValueError(f"MockBackend has no script for schema {name!r}")
         return json.dumps(payload), {"prompt": 0, "completion": 0, "total": 0}
 
     # ── Director script ─────────────────────────────────────────────
@@ -150,18 +150,3 @@ class MockBackend(LLMBackend):
             },
             "rationale": "Scripted mock.",
         }
-
-    # ── Legacy four-role shapes (so the old engine can run offline too) ─
-
-    @staticmethod
-    def _legacy(name: str) -> dict:
-        if name == "Beat":
-            return {"narration": "Mock beat.", "action": "Mock action.", "outcome": "Mock outcome.",
-                    "short_term_narrative": "Mock direction.", "long_term_narrative": None}
-        if name == "Shot":
-            return {"i2v_prompt": "Mock prompt.", "on_screen": ["Lego Man"], "camera": "medium",
-                    "motion": "static", "end_frame_description": "Mock end frame.", "duration_seconds": 5}
-        if name == "Commentary":
-            return {"voiceover": ""}
-        return {"world_state_delta": {"characters": {}, "protagonist_location": "", "inventory": None},
-                "narrative_memory": "Mock memory.", "context_brief": ""}

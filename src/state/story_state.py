@@ -1,15 +1,16 @@
-"""Shared state for an interactive storytelling session.
+"""Runner-facing session state.
 
-Lean and text-first. Structured portions are small and mergeable.
-Blueprint fields are set once at initialization; rolling memory is
-maintained by Spock; narrative direction is maintained by Tolkien.
+The engine owns the story (see `src.story.world.WorldModel`); this
+object is the surface the runner, playback and transcript work with:
+the blueprint, the current segment's views, pacing bookkeeping and
+history. Blueprint fields are set once at initialization.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from src.models.responses import Beat, Commentary, Shot, WorldStateDelta
+from src.models.responses import Beat, Commentary, Shot
 from src.models.story import Character, Location, Story
 
 
@@ -28,19 +29,19 @@ class StoryState(BaseModel):
     current_beat: Beat | None = None
     current_shot: Shot | None = None
     current_commentary: Commentary | None = None
-    current_audio_path: str = ""  # Set by Attenborough when TTS produced audio
+    current_audio_path: str = ""  # Set when TTS produced audio for the voice-over
     current_transition: str = "continue"  # "cut" → the renderer re-seeds from the reference
     turn_notes: str = ""  # engine-specific markdown appended to the transcript
 
-    # Persistent memory — maintained by Spock
+    # Compact views of the world model for the transcript (the engine
+    # writes them; the world model itself is the source of truth).
     world_state: dict = Field(default_factory=dict)
-    narrative_memory: str = ""
     context_brief: str = ""
 
     # Narrator-clock pacing (gating decisions live in the turn engine).
     # `audio_seconds_owed`: unplayed seconds of the most recent voiceover that
-    # still need to play across upcoming clips. While > 0, Attenborough is
-    # not invoked (the producer concatenates silent clips behind the audio).
+    # still need to play across upcoming clips. While > 0, the voice-over
+    # gate stays closed (the producer concatenates silent clips behind the audio).
     # `silence_seconds`: continuous silence since the last voiceover finished.
     # Used to enforce a minimum cinematic pause between lines.
     # `last_clip_duration`: measured length of the most recently rendered clip.
@@ -52,7 +53,7 @@ class StoryState(BaseModel):
     last_clip_duration: float = 0.0
     pacing_managed: bool = False
 
-    # Narrative direction — maintained by Tolkien
+    # Narrative direction (views of the segment's next_direction)
     long_term_narrative: str = ""
     short_term_narrative: str = ""
 
@@ -77,27 +78,6 @@ class StoryState(BaseModel):
         if count <= 0:
             return []
         return self.history[-count:]
-
-    def apply_world_delta(self, delta: WorldStateDelta) -> None:
-        """Merge a `WorldStateDelta` into `world_state` in place.
-
-        Partial semantics per docs/ARCHITECTURE.md:
-        - `protagonist_location`: empty = unchanged.
-        - `inventory`: None = unchanged; list = replacement.
-        - `characters`: per-name partial merge.
-        """
-        if delta.protagonist_location:
-            self.world_state["protagonist_location"] = delta.protagonist_location
-
-        if delta.inventory is not None:
-            self.world_state["inventory"] = list(delta.inventory)
-
-        if delta.characters:
-            existing = self.world_state.setdefault("characters", {})
-            for name, updates in delta.characters.items():
-                if not isinstance(updates, dict):
-                    continue
-                existing.setdefault(name, {}).update(updates)
 
     @classmethod
     def initialize(cls, story: Story, config_name: str) -> "StoryState":

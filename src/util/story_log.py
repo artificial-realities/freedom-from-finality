@@ -1,6 +1,6 @@
 """Markdown story transcript — agent outputs only, for narrative review.
 
-Contains per-turn agent outputs (Beat, Shot, Commentary, Memory) and
+Contains per-turn outputs (Beat, Shot, Commentary, World) and
 nothing else — no prompts, no token counts, no parameters. The full
 LLM call detail lives in Langfuse; this file is for skimming the story
 flow.
@@ -61,7 +61,6 @@ class StoryLogger:
         shot: Shot | None,
         commentary: Commentary | None,
         world_state: dict,
-        narrative_memory: str,
         context_brief: str,
         extra: str = "",
     ) -> None:
@@ -72,7 +71,6 @@ class StoryLogger:
             shot=shot,
             commentary=commentary,
             world_state=world_state,
-            narrative_memory=narrative_memory,
             context_brief=context_brief,
             extra=extra,
         )
@@ -91,7 +89,6 @@ class StoryLogger:
         shot: Shot | None,
         commentary: Commentary | None,
         world_state: dict,
-        narrative_memory: str,
         context_brief: str,
         extra: str = "",
     ) -> str:
@@ -143,8 +140,6 @@ class StoryLogger:
             out.append(f"- Location: {location}\n")
         if characters:
             out.append(f"- Characters: {characters}\n")
-        if narrative_memory:
-            out.append(f"- Narrative memory: {narrative_memory}\n")
         if context_brief:
             out.append(f"- Context brief (next turn): {context_brief}\n")
         if extra:

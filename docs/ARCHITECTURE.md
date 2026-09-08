@@ -1,6 +1,6 @@
 # Architecture
 
-Artificial Realities generates a film as a sequence of short segments while a viewer watches and steers. This document describes the current orchestration, the **Director engine** (`graph: "director"`). The previous four-role engine is kept as `graph: "mas_graph"` for A/B comparison and is documented under [`docs/legacy/`](legacy/). The review that motivated the change is [`docs/reviews/2026-09-08-orchestration-review.md`](reviews/2026-09-08-orchestration-review.md).
+Artificial Realities generates a film as a sequence of short segments while a viewer watches and steers. This document describes the current orchestration, the **Director engine** (`graph: "director"`). The previous four-role engine was removed after a 30-turn A/B and a 180-segment run; its design is documented under [`docs/legacy/`](legacy/). The review that motivated the change is [`docs/reviews/2026-09-08-orchestration-review.md`](reviews/2026-09-08-orchestration-review.md).
 
 ## Design in one paragraph
 
@@ -99,11 +99,11 @@ director_model: ""             # optional per-role model overrides
 showrunner_model: ""
 ```
 
-`configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5. The `mas.*.yaml` configs run the legacy engine.
+`configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5.
 
 ## Testing
 
-`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus end-to-end runs of both engines on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, cuts, multi-shot segments, deferred interventions, compaction and replanning without an API key.
+`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, cuts, multi-shot segments, deferred interventions, compaction and replanning without an API key.
 
 ## Not built yet, by design
 

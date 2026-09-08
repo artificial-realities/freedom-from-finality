@@ -15,19 +15,11 @@ from pydantic import BaseModel, Field
 class Config(BaseModel):
     name: str
     description: str = ""
-    graph: str  # "mas_graph"
+    graph: str = "director"
     llm_backend: str  # "openai"
     model: str
     temperature: float = 0.7
     max_tokens_per_agent: int = 1024
-    context_window_history: int = 5
-    narrative_memory_target_tokens: int = 800
-
-    # Episodic memory backend:
-    #   "prose" — Spock rewrites the rolling narrative_memory every turn (default)
-    #   "mem0"  — embedded Mem0 store; agents retrieve relevant memories per
-    #             turn and Spock stops rewriting prose memory
-    memory_backend: str = "prose"
 
     # When True, dispatch to the continuous live loop (run_live) instead
     # of the turn-by-turn `run_play`. Requires `video_enabled: true`.
@@ -56,9 +48,9 @@ class Config(BaseModel):
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""
-    # Minimum continuous silence required between voiceovers — the
-    # narrator-clock floor. The turn engine only invokes Attenborough
-    # once `silence_seconds` reaches this floor.
+    # Minimum continuous silence required between voice-over lines. The
+    # Director may only fill `voiceover` once `silence_seconds` reaches
+    # this floor.
     min_pause_seconds: float = 5.0
 
     # ── Director engine (graph: "director") ────────────────────────

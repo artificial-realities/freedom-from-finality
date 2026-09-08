@@ -321,7 +321,6 @@ class DirectorEngine:
         }
         card = world.plan.scene
         state.context_brief = f"scene {card.id}: {card.goal}" if card else ""
-        state.narrative_memory = ""
 
     def _format_notes(
         self, segment: Segment, report: Report, notes: list[str], *,

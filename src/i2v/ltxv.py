@@ -56,7 +56,7 @@ class LtxvI2V(I2VBackend):
         self.continuity_frames = continuity_frames
         self.model = "ltx-2.5"
         self.resolution = "512x768"
-        self.duration = 5  # default seconds when Spielberg doesn't specify
+        self.duration = 5  # default seconds when the segment doesn't specify
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._seed_image_path: str | None = None

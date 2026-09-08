@@ -1,7 +1,7 @@
 """ffmpeg audio→video mux for Artificial Realities playback.
 
 LTX-2.5 clips arrive with a native ambient/SFX track. When
-Attenborough's voiceover needs to be layered on top, the mux *mixes*
+a TTS voice-over needs to be layered on top, the mux *mixes*
 the voiceover over the existing audio (ducked) rather than replacing
 it — see `has_audio_stream`.
 
@@ -152,7 +152,7 @@ async def concat_videos_and_mux_audio(
     """Concatenate `video_paths` in order and overlay `audio_path` onto the
     result. Returns the output path on success, None on any failure.
 
-    Used for Attenborough's spanning commentary: one voiceover plays
+    Used for a spanning voice-over: one line plays
     over multiple back-to-back clips. The single audio is muxed across
     the whole concatenated unit so the player sees one continuous file.
     """

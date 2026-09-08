@@ -2,7 +2,7 @@
 
 Artificial Realities is an interactive generative movie platform — a continuously streaming AI-generated film whose story responds to viewer input while it plays. See [README.md](README.md) for the vision and the open problems.
 
-The current prototype reaches that through a deterministic engine that drives **two LLM roles on two clocks** (a per-segment Director and a slow-clock Showrunner) over a **typed world model**, and renders each segment with LTX-2.5. The previous four-role engine is kept behind `graph: "mas_graph"` for A/B comparison only. **The orchestration is one mechanism under exploration, not the definition of the project** — treat it as replaceable.
+The current prototype reaches that through a deterministic engine that drives **two LLM roles on two clocks** (a per-segment Director and a slow-clock Showrunner) over a **typed world model**, and renders each segment with LTX-2.5. **The orchestration is one mechanism under exploration, not the definition of the project** — treat it as replaceable.
 
 ## Layout
 
@@ -10,25 +10,22 @@ The current prototype reaches that through a deterministic engine that drives **
 main.py                  # play command; --config, --story, --scenario, --log-dir
 src/
   graph/director_engine.py   # DirectorEngine — current design (graph: "director")
-  graph/mas_graph.py         # legacy four-role TurnEngine (graph: "mas_graph")
   agents/director.py         # one structured call per segment (Segment)
   agents/showrunner.py       # slow-clock compaction + planning (ShowrunnerUpdate)
-  agents/                    # tolkien, spielberg, attenborough, spock — legacy engine only
-  prompts/                   # director.*.md, showrunner.*.md (+ legacy templates)
+  prompts/                   # director.*.md, showrunner.*.md
   story/                     # typed world model (world), schemas, validator, context, compiler, pacing
   state/story_state.py       # StoryState — runner-facing surface shared by both engines
   models/                    # config, story (blueprint), responses (legacy views)
   i2v/                       # image-to-video backends (base, ltxv); `reset` = cut
-  llm/                       # LLM backends (openai, mock)
-  memory/mem0_store.py       # legacy engine only
+  llm/                       # LLM backends (openai, mock for offline tests)
   tts/elevenlabs.py          # opt-in voice-over TTS (narration: "tts")
   playback/mux.py            # ffmpeg concat + audio mux
   eval/runner.py             # run_play / run_live / run_scenario
   ui/terminal.py             # free-text input between clips
   util/                      # json sanitizer, langfuse, media, prompt loader, story log
 tests/                       # python -m tests.run (no pytest needed)
-configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5) · mas.*.yaml (legacy)
-data/                        # story.json blueprint · demo_scenario.json · ab_scenario.json · legoman.png
+configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5)
+data/                        # story.json blueprint · scenarios (demo, ab, benchmark) · legoman.png
 docs/                        # ARCHITECTURE.md · reviews/ · legacy/
 server/                      # LTX-2.5 inference server (runs on a GPU box; see server/README.md)
 ```
@@ -59,4 +56,4 @@ Default to the headless config. Live runs need an LTX-2.5 server reachable at `l
 - **`ltxv_continuity_strength`** trades continuity against steering for `continue` shots. At `1.0` new prompts barely land; lower values let steering through at the cost of visual continuity.
 - **The distilled LoRA is broken** in diffusers ≤0.41 (missing connector modules corrupt output). The server runs the base model at 15 steps, ~170s/clip on A100-80GB.
 - **LTX-2.5 renders native ambient audio**, so clips already carry an audio track; with `narration: "tts"` the ElevenLabs line is mixed over it (ducked), not substituted.
-- **The legacy four-role engine is retired in place.** A 30-turn A/B and a 180-segment run (`docs/reviews/`) confirmed the Director engine; `graph: "mas_graph"`, the Mem0 path and the legacy prompts remain only until they are deleted and should not be extended.
+- **The previous four-role engine was deleted on 2026-09-08** after a 30-turn A/B and a 180-segment run (`docs/reviews/`). Its design is documented under `docs/legacy/` for reference only.

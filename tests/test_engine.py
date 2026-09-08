@@ -1,5 +1,5 @@
-"""End-to-end engine runs on the scripted mock backend: both engines
-drive the real runner, transcript, persistence and history."""
+"""End-to-end engine run on the scripted mock backend through the real
+runner, transcript, persistence and history."""
 
 from __future__ import annotations
 
@@ -59,14 +59,3 @@ async def test_director_engine_end_to_end():
         assert "Showrunner spawned: scene_done" in transcript
         assert "showrunner (bootstrap" in transcript and "scene 1 card" in transcript
         assert "**World**" in transcript
-
-
-async def test_legacy_engine_still_runs():
-    story = Story.from_json("data/story.json")
-    with tempfile.TemporaryDirectory() as d:
-        scenario = Path(d) / "scenario.json"
-        scenario.write_text(json.dumps(SCENARIO[:3]))
-        state = await run_scenario(config=_config(graph="mas_graph"), story=story, scenario_path=scenario, log_dir=d)
-        assert len(state.history) == 3
-        assert state.history[0].beat.narration == "Mock beat."
-        assert state.narrative_memory == "Mock memory."

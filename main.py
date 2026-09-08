@@ -1,9 +1,9 @@
 """Entry point for Artificial Realities.
 
 Usage:
-    python main.py play --config configs/mas.yaml
-    python main.py play --config configs/mas.yaml --scenario data/demo_scenario.json
-    python main.py play --config configs/mas.live.yaml   # live with LTX-2.5 video+audio
+    python main.py play --config configs/director.yaml
+    python main.py play --config configs/director.yaml --scenario data/demo_scenario.json
+    python main.py play --config configs/director.live.yaml   # live with LTX-2.5 video+audio
 """
 
 from __future__ import annotations

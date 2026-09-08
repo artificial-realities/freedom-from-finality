@@ -16,7 +16,7 @@ from langfuse.openai import AsyncOpenAI
 # Private SDK helper, but it is the exact transform the SDK's own
 # `chat.completions.parse()` uses internally. We call `create()` instead
 # of `parse()` because `parse()` forces strict mode, which free-form-dict
-# schemas (e.g. MemoryUpdate) can't satisfy — see plans/01-structured-outputs.md.
+# schemas can't satisfy.
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel
 

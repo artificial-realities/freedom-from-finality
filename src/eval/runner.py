@@ -20,7 +20,6 @@ from src.graph import build_graph
 from src.i2v import build_i2v_backend
 from src.i2v.base import I2VBackend
 from src.llm import build_backend
-from src.memory import StoryMemory
 from src.models.config import Config
 from src.models.story import Story
 from src.playback import (
@@ -82,9 +81,8 @@ async def run_scenario(
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
 
-    memory = _maybe_memory(config, log_dir, session_id, story)
     graph = build_graph(
-        config.graph, llm=llm, config=config, tts=tts, memory=memory,
+        config.graph, llm=llm, config=config, tts=tts,
         session_dir=Path(log_dir) / "sessions" / session_id,
     )
 
@@ -95,7 +93,7 @@ async def run_scenario(
     trace_tags = [config.name, "scenario", scenario_stem]
     played_clips: list[str] = []
     # Voiceover spanning state — when audio runs past one clip, the next
-    # silent clip is concatenated behind it and Attenborough is held quiet
+    # silent clip is concatenated behind it and the voice-over gate is held closed
     # via audio_seconds_owed. Shape mirrors run_live's producer.
     pending_span: dict | None = None
 
@@ -140,7 +138,7 @@ async def run_scenario(
 
             if silent is None:
                 # Render failed — abort any open span and reset owed so the
-                # next Attenborough turn isn't artificially held.
+                # next voice-over decision isn't artificially held.
                 if pending_span is not None:
                     langfuse_event(
                         "playback_span_abort",
@@ -156,7 +154,7 @@ async def run_scenario(
             clip_dur = await _get_clip_duration(silent, fallback=float(config.i2v_duration))
             state.last_clip_duration = clip_dur
 
-            # Mid-span: this turn's Attenborough was held silent because
+            # Mid-span: this turn's voice-over was held silent because
             # the previous voiceover still owes audio. Pay it down.
             if pending_span is not None:
                 pending_span["clips"].append(silent)
@@ -232,8 +230,7 @@ async def run_scenario(
 
         return state
     finally:
-        # Join the in-flight editor task so the final ledger/brief and
-        # the last Mem0 write land before flush.
+        # Join the in-flight Showrunner task so its update lands before flush.
         await graph.drain(state)
 
         # Drain any still-open span so its audio isn't lost when the
@@ -268,19 +265,6 @@ def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
     return ElevenLabsTTS(
         voice_id=config.elevenlabs_voice_id,
         audio_dir=audio_dir,
-    )
-
-
-def _maybe_memory(
-    config: Config, log_dir: Path | str, session_id: str, story: Story,
-) -> StoryMemory | None:
-    if config.memory_backend != "mem0":
-        return None
-    return StoryMemory(
-        model=config.model,
-        session_id=session_id,
-        story_id=story.title or "story",
-        data_dir=Path(log_dir) / "memory",
     )
 
 
@@ -330,7 +314,7 @@ async def _render_turn(
         return seed_image, None, None
 
     prompt = state.current_shot.i2v_prompt
-    # Pass Spielberg's per-shot duration to the backend.
+    # Pass the segment's duration to the backend.
     shot_duration = state.current_shot.duration_seconds
     video_path = await i2v.synthesize(
         image_path=seed_image,
@@ -417,7 +401,6 @@ def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
         shot=state.current_shot,
         commentary=state.current_commentary,
         world_state=state.world_state,
-        narrative_memory=state.narrative_memory,
         context_brief=state.context_brief,
         extra=state.turn_notes,
     )
@@ -500,9 +483,8 @@ async def run_play(
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
 
-    memory = _maybe_memory(config, log_dir, session_id, story)
     graph = build_graph(
-        config.graph, llm=llm, config=config, tts=tts, memory=memory,
+        config.graph, llm=llm, config=config, tts=tts,
         session_dir=Path(log_dir) / "sessions" / session_id,
     )
 
@@ -594,9 +576,8 @@ async def run_live(
             "run_live requires video_enabled: true in the config; otherwise use run_play."
         )
 
-    memory = _maybe_memory(config, log_dir, session_id, story)
     graph = build_graph(
-        config.graph, llm=llm, config=config, tts=tts, memory=memory,
+        config.graph, llm=llm, config=config, tts=tts,
         session_dir=Path(log_dir) / "sessions" / session_id,
     )
 
@@ -648,7 +629,7 @@ async def run_live(
     threading.Thread(target=_stdin_loop, daemon=True).start()
 
     # The producer mutates these state fields directly so the next turn's
-    # Attenborough call sees up-to-date pacing. Mark the loop as managing
+    # voice-over gate sees up-to-date pacing. Mark the loop as managing
     # pacing and open the gate for turn 1 by setting silence at the floor.
     state.pacing_managed = True
     state.silence_seconds = config.min_pause_seconds
@@ -760,7 +741,7 @@ async def run_live(
                             )
                             # Set pacing state immediately with the
                             # expected clip duration so the next
-                            # Attenborough decision is correct.
+                            # voice-over decision is correct.
                             expected_dur = float(shot_dur)
                             state.last_clip_duration = expected_dur
                             state.audio_seconds_owed = 0.0
@@ -796,7 +777,7 @@ async def run_live(
                     # Render failed or skipped — nothing to enqueue. Abort any
                     # pending span (the audio would no longer line up with the
                     # visual continuity anyway) and reset owed so the next
-                    # turn's Attenborough is not artificially held.
+                    # turn's voice-over gate is not artificially held.
                     if pending_span is not None:
                         langfuse_event(
                             "playback_span_abort",
@@ -818,7 +799,7 @@ async def run_live(
                 clip_dur = await _get_clip_duration(silent, fallback=float(config.i2v_duration))
                 state.last_clip_duration = clip_dur
 
-                # Mid-span: this turn's Attenborough was held silent because
+                # Mid-span: this turn's voice-over was held silent because
                 # the previous voiceover still owes audio. Add the silent
                 # clip to the span and pay it down.
                 if pending_span is not None:

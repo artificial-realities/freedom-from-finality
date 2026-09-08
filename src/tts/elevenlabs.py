@@ -1,4 +1,4 @@
-"""ElevenLabs TTS — fail-soft voiceover for Attenborough.
+"""ElevenLabs TTS — fail-soft rendering of the voice-over line.
 
 Only invoked when `audio_enabled: true`. If anything goes wrong, log
 and continue: the text is already captured, and TTS must never break
