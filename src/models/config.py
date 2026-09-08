@@ -45,6 +45,12 @@ class Config(BaseModel):
     ltxv_continuity_strength: float = 1.0
     # Trailing frames of the previous chunk used as the condition.
     ltxv_continuity_frames: int = 9
+    # How the seed image is fitted to the render frame: "pad" letterboxes it
+    # at the server's aspect ratio (so a square reference is not cropped),
+    # "none" sends it unchanged. The fill is a colour name, or "auto" to
+    # continue the image's own border colour so no seam is introduced.
+    i2v_reference_fit: str = "pad"
+    i2v_reference_fill: str = "auto"
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""

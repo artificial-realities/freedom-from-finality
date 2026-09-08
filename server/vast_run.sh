@@ -39,7 +39,7 @@ up() {
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
   scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
   ssh_cmd "chmod +x /root/remote_setup.sh; nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu} /root/remote_setup.sh > /root/setup.log 2>&1 &"
-  ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes \
+  ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"
   echo "tunnel open on localhost:8000; waiting for the server (install + weights + load, ~5-15 min)"
   for _ in $(seq 1 120); do

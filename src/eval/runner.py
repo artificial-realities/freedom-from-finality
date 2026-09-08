@@ -278,6 +278,8 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         continuity_strength=config.ltxv_continuity_strength,
         continuity_frames=config.ltxv_continuity_frames,
         output_dir=video_dir,
+        reference_fit=config.i2v_reference_fit,
+        reference_fill=config.i2v_reference_fill,
     )
 
 

@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import logging
 from datetime import datetime
 from pathlib import Path
 
 import requests
+from PIL import Image
 
 from src.i2v.base import I2VBackend
 
@@ -32,8 +34,13 @@ REQUEST_TIMEOUT_S = 600
 # Short timeout for the one-off capability probe.
 PROBE_TIMEOUT_S = 10
 
-# Fallback when the server can't be probed; LTX-2.5 renders at 24fps.
+# Fallbacks when the server can't be probed: LTX-2.5 renders at 24fps and
+# the server defaults to 768x512.
 DEFAULT_FRAME_RATE = 24
+DEFAULT_SIZE = (768, 512)
+# Fraction of the frame height the reference subject is scaled to when
+# letterboxed: a wide product shot with margins, not a crop.
+REFERENCE_SCALE = 0.8
 
 
 class LtxvI2V(I2VBackend):
@@ -50,10 +57,18 @@ class LtxvI2V(I2VBackend):
         continuity_strength: float = 1.0,
         continuity_frames: int = 9,
         output_dir: Path | str = "logs/video",
+        reference_fit: str = "pad",
+        reference_fill: str = "auto",
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.continuity_strength = continuity_strength
         self.continuity_frames = continuity_frames
+        # "pad": letterbox the seed image onto a `reference_fill` canvas at
+        # the server's render size so nothing is cropped (a square reference
+        # sent to a 3:2 render otherwise loses the top of the subject and the
+        # model invents a new head). "none": send the file as-is.
+        self.reference_fit = reference_fit
+        self.reference_fill = reference_fill
         self.model = "ltx-2.5"
         self.resolution = "512x768"
         self.duration = 5  # default seconds when the segment doesn't specify
@@ -62,8 +77,9 @@ class LtxvI2V(I2VBackend):
         self._seed_image_path: str | None = None
         self._initialized = False
         # Probed from the server on first use so client and server can't
-        # silently disagree about the frame rate.
+        # silently disagree about the frame rate or the render size.
         self._frame_rate: int | None = None
+        self._size: tuple[int, int] | None = None
 
     # ── Frame-count helpers ──────────────────────────────────────────
 
@@ -77,17 +93,38 @@ class LtxvI2V(I2VBackend):
         return self._frame_rate or DEFAULT_FRAME_RATE
 
     def _probe_frame_rate(self) -> int | None:
+        health = self._probe_health()
+        if not health:
+            return None
+        rate = int(float(health.get("frame_rate", DEFAULT_FRAME_RATE)))
+        logger.info("LTX-2.5 server frame rate: %dfps", rate)
+        return rate
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """Server render size (width, height); probed once."""
+        if self._size is None:
+            health = self._probe_health()
+            if health and health.get("width") and health.get("height"):
+                self._size = (int(health["width"]), int(health["height"]))
+        return self._size or DEFAULT_SIZE
+
+    def _probe_health(self) -> dict | None:
         try:
-            resp = requests.get(
-                f"{self.server_url}/health", timeout=PROBE_TIMEOUT_S,
-            )
+            resp = requests.get(f"{self.server_url}/health", timeout=PROBE_TIMEOUT_S)
             if resp.status_code == 200:
-                rate = int(float(resp.json().get("frame_rate", DEFAULT_FRAME_RATE)))
-                logger.info("LTX-2.5 server frame rate: %dfps", rate)
-                return rate
+                return resp.json()
         except Exception:
-            logger.debug("Could not probe server frame rate", exc_info=True)
+            logger.debug("Could not probe server health", exc_info=True)
         return None
+
+    def _encode_reference(self, path: str) -> str:
+        if self.reference_fit == "pad":
+            width, height = self.size
+            return base64.b64encode(
+                letterbox_reference(path, width, height, fill=self.reference_fill),
+            ).decode()
+        return _encode_image(path)
 
     def seconds_to_frames(self, seconds: int) -> int:
         """Seconds → a frame count on the VAE's causal (N*8 + 1) grid."""
@@ -135,7 +172,7 @@ class LtxvI2V(I2VBackend):
             "reset_window": reset,
         }
         if not self._initialized:
-            payload["reference_image"] = _encode_image(self._seed_image_path)
+            payload["reference_image"] = self._encode_reference(self._seed_image_path)
 
         url = f"{self.server_url}/generate"
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
@@ -143,7 +180,7 @@ class LtxvI2V(I2VBackend):
         # Server lost its session (restart / reset) — re-seed and retry once.
         if resp.status_code == 400 and "reference_image" in resp.text:
             logger.warning("LTX-2.5 server lost state — re-seeding reference")
-            payload["reference_image"] = _encode_image(self._seed_image_path)
+            payload["reference_image"] = self._encode_reference(self._seed_image_path)
             resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
 
         if resp.status_code != 200:
@@ -178,3 +215,43 @@ def snap_to_frame_grid(raw_frames: int) -> int:
 def _encode_image(path: str) -> str:
     """Read a local image and return its base64 encoding."""
     return base64.b64encode(Path(path).read_bytes()).decode()
+
+
+def border_color(img: Image.Image, band: int = 4) -> tuple[int, int, int]:
+    """Median colour of the outer `band` pixels: the background the image
+    itself was shot on, so padding continues it instead of adding a seam."""
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    px = rgb.load()
+    samples = [px[x, y] for y in range(h) for x in range(w)
+               if x < band or y < band or x >= w - band or y >= h - band]
+    channels = list(zip(*samples))
+    return tuple(sorted(c)[len(c) // 2] for c in channels)
+
+
+def letterbox_reference(
+    path: Path | str, width: int, height: int, *, fill: str = "auto",
+    scale: float = REFERENCE_SCALE,
+) -> bytes:
+    """Fit a reference image into a `width`x`height` frame without cropping.
+
+    The subject is scaled to `scale` of the frame height (or width, if it
+    is wider than the frame allows) and centred on a canvas. `fill` is a
+    colour name, or "auto" to continue the image's own border colour, which
+    avoids a visible rectangle the video model would render as a picture
+    frame. Transparent images are composited onto the fill. Returns PNG bytes.
+    """
+    img = Image.open(path).convert("RGBA")
+    if fill == "auto":
+        fill = border_color(img)
+    img = Image.alpha_composite(Image.new("RGBA", img.size, fill), img).convert("RGB")
+    ratio = (height * scale) / img.height
+    if img.width * ratio > width * scale:
+        ratio = (width * scale) / img.width
+    new_size = (max(1, round(img.width * ratio)), max(1, round(img.height * ratio)))
+    img = img.resize(new_size, Image.LANCZOS)
+    canvas = Image.new("RGB", (width, height), fill)
+    canvas.paste(img, ((width - new_size[0]) // 2, (height - new_size[1]) // 2))
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()

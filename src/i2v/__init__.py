@@ -15,6 +15,8 @@ def build_i2v_backend(
     continuity_strength: float = 1.0,
     continuity_frames: int = 9,
     output_dir=None,
+    reference_fit: str = "pad",
+    reference_fill: str = "auto",
     **_extra,
 ) -> I2VBackend:
     """Construct an I2V backend from a config's `i2v_backend` string."""
@@ -29,5 +31,7 @@ def build_i2v_backend(
             continuity_strength=continuity_strength,
             continuity_frames=continuity_frames,
             output_dir=output_dir or "logs/video",
+            reference_fit=reference_fit,
+            reference_fill=reference_fill,
         )
     raise ValueError(f"Unknown i2v_backend: {name!r}")

@@ -40,6 +40,8 @@ Needs `VAST_API_KEY` and `HF_TOKEN` in `.env`, the `vastai` CLI, credit on the a
 
 The server runs the **base model** at 15 sampling steps — the quality/speed sweet spot tested on A100-80GB (~170s/clip with CPU offload). The distilled LoRA (`LTX2_DISTILLED=1`) is currently broken in diffusers ≤0.41 (missing connector modules cause corrupted output); leave it off until a future diffusers release wires those up.
 
+The client letterboxes the seed image at the server's render size before sending it (`i2v_reference_fit: pad`, fill `auto` continues the image's own border colour); a reference at a different aspect ratio would otherwise be cropped and the model invents what is missing.
+
 A request with `reset_window: true` is a cut: the server conditions on the reference image instead of the previous chunk's tail, which bounds identity drift. The Director engine sends it for shots marked `transition: cut`.
 
 `ltxv_continuity_strength` in the client config controls the continuity-vs-steering trade-off. At `1.0` continuity is maximal but new prompts barely land; lower values let steering through at the cost of visual continuity.

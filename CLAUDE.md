@@ -52,8 +52,8 @@ Default to the headless config. Live runs need an LTX-2.5 server reachable at `l
 
 ## Current constraints
 
-- **Identity drift** across clips is the main open problem. `transition: cut` re-seeds the renderer from the reference image; continuous shots still carry state only through the server's sliding window. Observation of rendered frames is not built yet.
+- **Identity drift** across clips is the main open problem. `transition: cut` re-seeds the renderer from the reference image (first shot of a segment only); continuous shots carry state only through the server's sliding window. The seed image is letterboxed to the render size by the client (a cropped reference made the model invent a new head); what remains is generation-level colour, expression and background drift within clips (`docs/reviews/2026-09-08-live-run.md`). Observation of rendered frames is not built yet.
 - **`ltxv_continuity_strength`** trades continuity against steering for `continue` shots. At `1.0` new prompts barely land; lower values let steering through at the cost of visual continuity.
-- **The distilled LoRA is broken** in diffusers ≤0.41 (missing connector modules corrupt output). The server runs the base model at 15 steps, ~170s/clip on A100-80GB.
+- **The distilled LoRA is broken** in diffusers ≤0.41 (missing connector modules corrupt output). The server runs the base model at 15 steps, ~200 s per 7 s clip on an A100-80GB with CPU offload. `server/vast_run.sh` rents and tears down a GPU on Vast.ai.
 - **LTX-2.5 renders native ambient audio**, so clips already carry an audio track; with `narration: "tts"` the ElevenLabs line is mixed over it (ducked), not substituted.
 - **The previous four-role engine was deleted on 2026-09-08** after a 30-turn A/B and a 180-segment run (`docs/reviews/`). Its design is documented under `docs/legacy/` for reference only.
