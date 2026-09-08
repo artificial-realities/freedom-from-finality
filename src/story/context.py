@@ -24,6 +24,8 @@ def format_cast(world: WorldModel) -> str:
         bits = [f"- `{ent.id}`: {ent.name}. {ent.description}".rstrip()]
         if ent.look:
             bits.append(f"  Look (verbatim for shots): {ent.look}")
+        if ent.reference_pose:
+            bits.append(f"  Reference image shows: {ent.reference_pose}. A segment that opens with a cut starts from exactly this; begin the action there.")
         if not ent.speaks:
             bits.append("  Never speaks: no dialogue lines for this character.")
         for note in ent.notes[-6:]:

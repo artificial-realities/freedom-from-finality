@@ -15,7 +15,8 @@
       "description": "The protagonist and only character in this world. The most default minifigure imaginable: plain yellow head with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands, short black classic-hair piece. He never speaks — only acts, reacts, and emotes through posture, body language, head tilts, and physical comedy.",
       "look": "the most default LEGO minifigure: plain yellow head with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands, short black classic hair piece",
       "speaks": false,
-      "reference_image": "data/legoman.png"
+      "reference_image": "data/legoman.png",
+      "reference_pose": "standing upright in a wide product shot, facing the camera, arms straight at his sides, feet together, centred on a white background"
     }
   ],
   "world_constraints": [

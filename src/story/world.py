@@ -45,6 +45,7 @@ class Entity(BaseModel):
     notes: list[str] = Field(default_factory=list)   # durable facts (Showrunner)
     speaks: bool = True
     reference_image: str = ""
+    reference_pose: str = ""
     # Visual memory from frame observation: what the renderer last showed.
     observed_look: str = ""
     observed_at: int = 0
@@ -166,6 +167,7 @@ class WorldModel(BaseModel):
                 look=getattr(ch, "look", "") or "",
                 speaks=getattr(ch, "speaks", True),
                 reference_image=getattr(ch, "reference_image", "") or "",
+                reference_pose=getattr(ch, "reference_pose", "") or "",
                 present=(i == 0), location=home if i == 0 else "",
             )
             if i == 0:

@@ -67,7 +67,7 @@ One JSON object with these fields:
 
 - Every prop that appears, changes hands, moves, breaks or leaves gets an `entity_op`. The world is only as true as your ops.
 - Use entity ids exactly as listed. Introduce new things by name with a visual description.
-- Continue physically from the last segment's end state unless you cut.
+- Continue physically from the last segment's end state unless you cut. A cut, and the very first segment, start from the reference image: open the action from the pose the cast sheet says the reference shows, then move.
 - Do not repeat a bit from the recent segments. Escalate, vary, or pay off.
 - Never break the fourth wall in narration, dialogue or voice-over.
 

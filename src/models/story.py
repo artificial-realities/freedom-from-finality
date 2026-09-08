@@ -23,6 +23,7 @@ class Character(BaseModel):
     look: str = ""              # visual descriptor for the renderer (falls back to description)
     speaks: bool = True         # False → dialogue from this character is rejected
     reference_image: str = ""   # optional identity anchor for the video model
+    reference_pose: str = ""    # what the reference image shows (pose, framing); cuts start from it
 
 
 class Story(BaseModel):
