@@ -15,12 +15,15 @@ import argparse
 import asyncio
 import json
 import subprocess
+import sys
 from pathlib import Path
 
-import requests
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root, so `src` imports
 
-from src.i2v.ltxv import LtxvI2V
-from src.models.story import Story
+import requests  # noqa: E402
+
+from src.i2v.ltxv import LtxvI2V  # noqa: E402
+from src.models.story import Story  # noqa: E402
 
 STORY = Story.from_json("data/story.json")
 LOOK = STORY.characters[0].look
