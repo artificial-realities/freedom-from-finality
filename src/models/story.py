@@ -20,6 +20,9 @@ class Location(BaseModel):
 class Character(BaseModel):
     name: str
     description: str
+    look: str = ""              # visual descriptor for the renderer (falls back to description)
+    speaks: bool = True         # False → dialogue from this character is rejected
+    reference_image: str = ""   # optional identity anchor for the video model
 
 
 class Story(BaseModel):
@@ -33,6 +36,7 @@ class Story(BaseModel):
     narrative_premise: str
     long_term_narrative: str = ""
     short_term_narrative: str = ""
+    cast_locked: bool = False   # True → no new characters may be introduced (props are fine)
 
     @classmethod
     def from_json(cls, path: Path | str) -> "Story":

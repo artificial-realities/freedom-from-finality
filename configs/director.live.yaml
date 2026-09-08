@@ -1,0 +1,32 @@
+name: "director-ltxv"
+description: "Director engine with LTX-2.5 video: Director → compiled prompt → LTX-2.5 render → ffplay; Showrunner async"
+graph: "director"
+llm_backend: "openai"
+model: "gpt-4.1"
+temperature: 0.7
+max_tokens_per_agent: 1024
+
+live: true
+video_enabled: true
+lead_clips: 0
+
+# ── LTX-2.5 video backend ──────────────────────────────────────────
+i2v_backend: "ltxv"
+i2v_duration: 5                          # fallback seconds; the Director sets per-segment duration
+i2v_seed_image: "data/legoman.png"
+ltxv_server_url: "http://localhost:8000"
+ltxv_continuity_strength: 1.0
+ltxv_continuity_frames: 9
+
+# ── Narration ──────────────────────────────────────────────────────
+# LTX-2.5 renders the voice-over natively from the compiled prompt. Set
+# narration: "tts" plus audio_enabled/elevenlabs_voice_id for a fixed voice.
+narration: "ltx"
+audio_enabled: false
+min_pause_seconds: 15.0
+
+recent_beats: 4
+max_shots_per_segment: 3
+max_segments_per_scene: 12
+compaction_interval: 10
+stagnation_threshold: 5

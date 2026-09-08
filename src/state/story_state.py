@@ -29,6 +29,8 @@ class StoryState(BaseModel):
     current_shot: Shot | None = None
     current_commentary: Commentary | None = None
     current_audio_path: str = ""  # Set by Attenborough when TTS produced audio
+    current_transition: str = "continue"  # "cut" → the renderer re-seeds from the reference
+    turn_notes: str = ""  # engine-specific markdown appended to the transcript
 
     # Persistent memory — maintained by Spock
     world_state: dict = Field(default_factory=dict)
@@ -69,6 +71,7 @@ class StoryState(BaseModel):
     characters: list[Character] = Field(default_factory=list)
     world_constraints: list[str] = Field(default_factory=list)
     narrative_premise: str = ""
+    cast_locked: bool = False
 
     def get_recent_history(self, count: int = 5) -> list[HistoryEntry]:
         if count <= 0:
@@ -107,6 +110,7 @@ class StoryState(BaseModel):
             characters=list(story.characters),
             world_constraints=list(story.world_constraints),
             narrative_premise=story.narrative_premise,
+            cast_locked=story.cast_locked,
             long_term_narrative=story.long_term_narrative,
             short_term_narrative=story.short_term_narrative,
             config_name=config_name,

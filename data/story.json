@@ -12,7 +12,10 @@
   "characters": [
     {
       "name": "Lego Man",
-      "description": "The protagonist and only character in this world. The most default minifigure imaginable: plain yellow head with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands, short black classic-hair piece. He never speaks — only acts, reacts, and emotes through posture, body language, head tilts, and physical comedy."
+      "description": "The protagonist and only character in this world. The most default minifigure imaginable: plain yellow head with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands, short black classic-hair piece. He never speaks — only acts, reacts, and emotes through posture, body language, head tilts, and physical comedy.",
+      "look": "the most default LEGO minifigure: plain yellow head with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands, short black classic hair piece",
+      "speaks": false,
+      "reference_image": "data/legoman.png"
     }
   ],
   "world_constraints": [
@@ -26,5 +29,6 @@
   ],
   "narrative_premise": "A minifigure alone in a white void does whatever comes to mind — dance, play, try tricks, fail, try again. Props and bits come and go. The fun comes from callbacks: the soccer ball from early on reappears, the hat changes, gags escalate. Earnest, warm, physical-comedy humor. Never cynical.",
   "long_term_narrative": "Bits escalate in absurdity across the session, and props introduced earlier are remembered and revisited — the longer the session goes, the more the minifigure's world of accumulated toys and running gags has to build on.",
-  "short_term_narrative": "The minifigure wakes up in the empty white space and starts figuring out what to do with himself."
+  "short_term_narrative": "The minifigure wakes up in the empty white space and starts figuring out what to do with himself.",
+  "cast_locked": true
 }

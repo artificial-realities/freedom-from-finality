@@ -63,6 +63,7 @@ class StoryLogger:
         world_state: dict,
         narrative_memory: str,
         context_brief: str,
+        extra: str = "",
     ) -> None:
         section = self._format_turn(
             turn=turn,
@@ -73,6 +74,7 @@ class StoryLogger:
             world_state=world_state,
             narrative_memory=narrative_memory,
             context_brief=context_brief,
+            extra=extra,
         )
         try:
             with self.log_file.open("a", encoding="utf-8") as f:
@@ -91,6 +93,7 @@ class StoryLogger:
         world_state: dict,
         narrative_memory: str,
         context_brief: str,
+        extra: str = "",
     ) -> str:
         heading_input = f'"{user_input}"' if user_input.strip() else "_(silent)_"
         out = [f"## Turn {turn} — {heading_input}\n\n"]
@@ -144,6 +147,8 @@ class StoryLogger:
             out.append(f"- Narrative memory: {narrative_memory}\n")
         if context_brief:
             out.append(f"- Context brief (next turn): {context_brief}\n")
+        if extra:
+            out.append("\n" + extra.rstrip("\n") + "\n")
         out.append("\n---\n\n")
 
         return "".join(out)

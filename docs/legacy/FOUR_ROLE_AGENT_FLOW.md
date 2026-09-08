@@ -1,3 +1,5 @@
+> **Legacy.** This document describes the four-role engine (`graph: "mas_graph"`), kept for A/B comparison. The current design is the Director engine in [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md); the reasoning behind the change is in [`docs/reviews/2026-09-08-orchestration-review.md`](../reviews/2026-09-08-orchestration-review.md).
+
 # Agent Flow
 
 A focused walkthrough of the turn engine: which agent runs when, what each

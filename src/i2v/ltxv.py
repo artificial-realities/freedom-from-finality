@@ -102,10 +102,11 @@ class LtxvI2V(I2VBackend):
         prompt: str,
         turn: int,
         duration: int | None = None,
+        reset: bool = False,
     ) -> str | None:
         try:
             return await asyncio.to_thread(
-                self._synthesize_sync, image_path, prompt, turn, duration,
+                self._synthesize_sync, image_path, prompt, turn, duration, reset,
             )
         except Exception as exc:
             logger.exception("LTX-2.5 render failed on turn %s: %s", turn, exc)
@@ -117,6 +118,7 @@ class LtxvI2V(I2VBackend):
         prompt: str,
         turn: int,
         duration: int | None = None,
+        reset: bool = False,
     ) -> str | None:
         # Remember the original seed image so we can re-init after a
         # server restart. Always the reference, never a later frame.
@@ -128,6 +130,9 @@ class LtxvI2V(I2VBackend):
             "continuity_strength": self.continuity_strength,
             "continuity_frames": self.continuity_frames,
             "num_frames": self.seconds_to_frames(duration or self.duration),
+            # A cut: the server conditions on the reference image instead of
+            # the sliding window, which bounds identity drift.
+            "reset_window": reset,
         }
         if not self._initialized:
             payload["reference_image"] = _encode_image(self._seed_image_path)

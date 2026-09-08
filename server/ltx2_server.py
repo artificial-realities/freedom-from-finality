@@ -133,6 +133,8 @@ class GenerateRequest(BaseModel):
     continuity_frames: int = Field(default=9, ge=1)
     seed: int | None = None
     num_frames: int = Field(default=121, ge=9)
+    # A cut: condition on the reference image, not the previous chunk's tail.
+    reset_window: bool = False
 
 
 # ── Startup ───────────────────────────────────────────────────────
@@ -293,11 +295,11 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
 
     # Exactly one first-frame condition — see the module docstring for
     # why a second one at index 0 cannot work.
-    if session["window"] is None:
+    if session["window"] is None or req.reset_window:
         condition = LTX2VideoCondition(
             frames=session["ref_image"], index=0, strength=1.0,
         )
-        cond_desc = "reference image"
+        cond_desc = "reference image (cut)" if req.reset_window else "reference image"
     else:
         condition = LTX2VideoCondition(
             frames=session["window"],  # uint8 (F, H, W, 3)

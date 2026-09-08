@@ -83,7 +83,10 @@ async def run_scenario(
     i2v = _maybe_i2v(config, log_dir)
 
     memory = _maybe_memory(config, log_dir, session_id, story)
-    graph = build_graph(config.graph, llm=llm, config=config, tts=tts, memory=memory)
+    graph = build_graph(
+        config.graph, llm=llm, config=config, tts=tts, memory=memory,
+        session_dir=Path(log_dir) / "sessions" / session_id,
+    )
 
     seed_image: str = config.i2v_seed_image
     video_dir = Path(log_dir) / "video"
@@ -334,6 +337,7 @@ async def _render_turn(
         prompt=prompt,
         turn=state.turn_number,
         duration=shot_duration,
+        reset=state.current_transition == "cut",
     )
     if not video_path:
         langfuse_event(
@@ -415,6 +419,7 @@ def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
         world_state=state.world_state,
         narrative_memory=state.narrative_memory,
         context_brief=state.context_brief,
+        extra=state.turn_notes,
     )
 
 
@@ -496,7 +501,10 @@ async def run_play(
     i2v = _maybe_i2v(config, log_dir)
 
     memory = _maybe_memory(config, log_dir, session_id, story)
-    graph = build_graph(config.graph, llm=llm, config=config, tts=tts, memory=memory)
+    graph = build_graph(
+        config.graph, llm=llm, config=config, tts=tts, memory=memory,
+        session_dir=Path(log_dir) / "sessions" / session_id,
+    )
 
     ui = ui or TerminalUI()
 
@@ -587,7 +595,10 @@ async def run_live(
         )
 
     memory = _maybe_memory(config, log_dir, session_id, story)
-    graph = build_graph(config.graph, llm=llm, config=config, tts=tts, memory=memory)
+    graph = build_graph(
+        config.graph, llm=llm, config=config, tts=tts, memory=memory,
+        session_dir=Path(log_dir) / "sessions" / session_id,
+    )
 
     queue_size = max(1, config.lead_clips + 1)
     if config.lead_clips > 0:
@@ -658,6 +669,7 @@ async def run_live(
         turn_number: int,
         seed_image: str,
         duration: int | None = None,
+        reset: bool = False,
     ) -> None:
         """Render one clip in the background and enqueue it."""
         video_path = await i2v.synthesize(
@@ -665,6 +677,7 @@ async def run_live(
             prompt=prompt,
             turn=turn_number,
             duration=duration,
+            reset=reset,
         )
         if video_path:
             await clip_queue.put(video_path)
@@ -742,6 +755,7 @@ async def run_live(
                                     turn_number=turn,
                                     seed_image=seed_image,
                                     duration=shot_dur,
+                                    reset=state.current_transition == "cut",
                                 )
                             )
                             # Set pacing state immediately with the
@@ -750,7 +764,12 @@ async def run_live(
                             expected_dur = float(shot_dur)
                             state.last_clip_duration = expected_dur
                             state.audio_seconds_owed = 0.0
-                            state.silence_seconds += expected_dur
+                            if state.current_commentary and state.current_commentary.voiceover:
+                                # A line was produced this turn (rendered natively
+                                # or logged): the silence floor re-arms from here.
+                                state.silence_seconds = 0.0
+                            else:
+                                state.silence_seconds += expected_dur
                         else:
                             # ── Serial path (audio / span) ──
                             await _drain_prev()

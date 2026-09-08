@@ -61,6 +61,19 @@ class Config(BaseModel):
     # once `silence_seconds` reaches this floor.
     min_pause_seconds: float = 5.0
 
+    # ── Director engine (graph: "director") ────────────────────────
+    narration: str = "ltx"              # "ltx" (native audio prompt) | "tts" (ElevenLabs) | "off"
+    voiceover_style: str = "warm, unhurried documentary narrator"
+    director_model: str = ""            # override `model` for the Director call
+    showrunner_model: str = ""          # override `model` for the Showrunner call
+    max_tokens_director: int = 2048
+    max_tokens_showrunner: int = 2048
+    recent_beats: int = 4               # verbatim recent segments in the Director prompt
+    max_shots_per_segment: int = 3
+    max_segments_per_scene: int = 12    # hard cap; forces scene_done → Showrunner replan
+    compaction_interval: int = 10       # segments between Showrunner compaction passes
+    stagnation_threshold: int = 5       # segments without structural change before pressure
+
     extra: dict = Field(default_factory=dict)
 
     @classmethod

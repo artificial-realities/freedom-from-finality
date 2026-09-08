@@ -9,4 +9,7 @@ def build_backend(name: str, model: str) -> LLMBackend:
     key = name.lower()
     if key in {"openai", "gpt-4o", "gpt-4.1", "gpt"}:
         return OpenAIBackend(model=model)
+    if key == "mock":
+        from src.llm.mock_backend import MockBackend
+        return MockBackend(model=model)
     raise ValueError(f"Unknown llm_backend: {name!r}")

@@ -23,14 +23,14 @@ None of these is fully solved here. The prototype is one attempt at attacking th
 
 ## Current prototype
 
-The prototype generates the film as a sequence of short clips that are stitched into a continuous stream. An LLM layer decides what happens next and how to shoot it; an image-to-video model renders it; the viewer types free-text guidance between clips, and the story keeps moving whether they do or not.
+The prototype generates the film as a sequence of short segments that are stitched into a continuous stream. An LLM layer decides what happens next and how to shoot it; an image-to-video model renders it; the viewer types free-text guidance between clips, and the story keeps moving whether they do or not.
 
 Concretely, as of today:
 
-- **Narrative orchestration** is split across four LLM roles on different clocks — a beat writer and a shot composer on the per-turn critical path, a voice-over commentator on the audio clock, and a memory curator running async behind the turn. This is one mechanism being explored for coordinating generation, not a fixed part of the design.
-- **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which is what currently carries visual state forward between clips. It also renders a native ambient/SFX track alongside the video.
+- **Narrative orchestration** is two LLM roles on two clocks over a typed world model. A **Director** makes one structured call per segment: what happens, how it is shot, what is said, what changed in the world, and how the viewer's input was handled. A **Showrunner** runs off the critical path on triggers to compact the event log into summaries and write the next scene card. Code owns the world model, validation, the prompt compiler, pacing and persistence. This is one mechanism being explored for coordinating generation, not a fixed part of the design; the previous four-role engine is kept for A/B comparison.
+- **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which carries visual state forward between continuous shots; a cut re-seeds from the reference image. It also renders a native ambient/SFX track, and narration when the Director writes a line.
 - **Playback** muxes and concatenates clips with ffmpeg.
-- **Memory** (Mem0) and **spoken voice-over** (ElevenLabs TTS) are opt-in; both video and audio generation can be disabled entirely for headless development.
+- **Spoken voice-over** can alternatively go through ElevenLabs TTS for a fixed narrator voice; both video and audio generation can be disabled entirely for headless development.
 
 The current test story is deliberately minimal — a single LEGO minifigure alone in a white void, no dialogue, no locations, no other characters. It strips away every variable except long-horizon continuity, which is the hard part.
 
@@ -38,18 +38,19 @@ The current test story is deliberately minimal — a single LEGO minifigure alon
 
 Working: end-to-end generation from user input to stitched, narrated video. Open:
 
-- **Identity drift.** Characters do not hold their appearance reliably across clips. This is the main obstacle to a film that feels like one film.
+- **Identity drift.** Characters do not hold their appearance reliably across continuous clips. Cuts bound it by re-seeding from the reference; observation of rendered frames is the next step.
 - **Continuity vs. steering.** The sliding window trades one against the other directly (`ltxv_continuity_strength`). High continuity means new input barely lands; low means the picture jumps. A better mechanism is needed, not a better setting.
 - **Latency.** Roughly 170s per clip on an A100-80GB at 15 sampling steps. Far from streaming.
 
 ## Repository
 
-`main.py` runs the prototype against a config in `configs/`. `docs/ARCHITECTURE.md` and `docs/AGENT_FLOW.md` describe the current orchestration in detail; `server/README.md` covers the LTX-2.5 inference server.
+`main.py` runs the prototype against a config in `configs/`. `docs/ARCHITECTURE.md` describes the current orchestration; `docs/reviews/` holds the architectural review that motivated it; `docs/legacy/` documents the previous four-role engine; `server/README.md` covers the LTX-2.5 inference server.
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
 
-python main.py play --config configs/mas.yaml       # headless, no video or audio
-python main.py play --config configs/mas.live.yaml  # live video (needs the LTX-2.5 server)
+python main.py play --config configs/director.yaml       # headless, no video or audio
+python main.py play --config configs/director.live.yaml  # live video (needs the LTX-2.5 server)
+python -m tests.run                                      # offline test suite
 ```
