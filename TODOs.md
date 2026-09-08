@@ -1,4 +1,3 @@
-- Make Fable go through the MAS and check if it is over-engineered or lacking some key aspects for the project to work. Make it recommend changes if any.
 - Give Fable the documentation sent to me from LTX and check if we have done everything the right way.
 - Why are my videos not as good as quality as the videos shown at LTX's website?
 - Ask Fable to tell me what their impression is of the proejct, what it is, what it is misisng to become what i want it to become, and etc.
