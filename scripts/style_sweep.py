@@ -47,27 +47,41 @@ BODY2 = (f"Medium shot, straight-on, eye level, static camera. On screen: Lego M
          "himself up to standing, brushes off his torso with both claw hands, takes two careful steps forward "
          "and stops, arms at his sides. Final frame: Lego Man standing still, facing the camera.")
 
+BODY1_STAND = (f"Wide shot, straight-on, eye level, static camera. On screen: Lego Man ({LOOK}). Lego Man stands "
+               "facing the camera with his arms at his sides. He turns his head left, then right, taking in the "
+               "emptiness, then lifts one claw hand and looks at it. Final frame: Lego Man standing, looking at his hand.")
+
 VARIANTS = {
-    # name: (style, negative, continuity_strength, continuity_frames)
-    "base":      (S0, N0, 1.0, 9),
-    "s1":        (S1, N0, 1.0, 9),
-    "s1n1":      (S1, N1, 1.0, 9),
-    "s1n1_085":  (S1, N1, 0.85, 9),
-    "s1n1_070":  (S1, N1, 0.7, 9),
-    "s1n1_f17":  (S1, N1, 1.0, 17),
-    "s2n1":      (S2, N1, 1.0, 9),
+    # name: dict(style, negative, strength, frames[, body1, seed, clips])
+    "base":      dict(style=S0, negative=N0, strength=1.0, frames=9),
+    "s1":        dict(style=S1, negative=N0, strength=1.0, frames=9),
+    "s1n1":      dict(style=S1, negative=N1, strength=1.0, frames=9),
+    "s1n1_085":  dict(style=S1, negative=N1, strength=0.85, frames=9),
+    "s1n1_070":  dict(style=S1, negative=N1, strength=0.7, frames=9),
+    "s1n1_f17":  dict(style=S1, negative=N1, strength=1.0, frames=17),
+    "s2n1":      dict(style=S2, negative=N1, strength=1.0, frames=9),
+    # Opening pose and seed: does starting from the reference pose, or a
+    # different seed, remove the halo and the invented hair?
+    "stand_s1234": dict(style=S1, negative=N1, strength=1.0, frames=9, body1=BODY1_STAND, seed=1234, clips=1),
+    "stand_s7":    dict(style=S1, negative=N1, strength=1.0, frames=9, body1=BODY1_STAND, seed=7, clips=1),
+    "stand_s99":   dict(style=S1, negative=N1, strength=1.0, frames=9, body1=BODY1_STAND, seed=99, clips=1),
+    "lie_s7":      dict(style=S1, negative=N1, strength=1.0, frames=9, seed=7, clips=1),
 }
 
 
 async def run_variant(name: str, server: str, seed: int, duration: int) -> list[str]:
-    style, negative, strength, frames = VARIANTS[name]
+    v = VARIANTS[name]
+    style, negative, strength, frames = v["style"], v["negative"], v["strength"], v["frames"]
+    seed = v.get("seed", seed)
+    body1 = v.get("body1", BODY1)
+    plan = [(1, body1, True), (2, BODY2, False)][: v.get("clips", 2)]
     out = Path("logs/sweep") / name
     out.mkdir(parents=True, exist_ok=True)
     requests.post(f"{server}/reset", timeout=30)
     i2v = LtxvI2V(server_url=server, continuity_strength=strength, continuity_frames=frames,
                   output_dir=out, negative_prompt=negative, seed=seed)
     clips = []
-    for turn, body, reset in ((1, BODY1, True), (2, BODY2, False)):
+    for turn, body, reset in plan:
         path = await i2v.synthesize(image_path="data/legoman.png", prompt=f"{style} {body}",
                                     turn=turn, duration=duration, reset=reset)
         print(f"[{name}] clip {turn}: {path}", flush=True)
@@ -75,7 +89,7 @@ async def run_variant(name: str, server: str, seed: int, duration: int) -> list[
             clips.append(path)
     (out / "variant.json").write_text(json.dumps(
         {"style": style, "negative": negative or "(server default)", "continuity_strength": strength,
-         "continuity_frames": frames, "seed": seed, "clips": clips}, indent=2))
+         "continuity_frames": frames, "seed": seed, "body1": body1, "clips": clips}, indent=2))
     return clips
 
 
@@ -122,14 +136,15 @@ def contact_sheet(names: list[str], out: Path) -> None:
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--server", default="http://localhost:8000")
-    ap.add_argument("--only", default="")
+    ap.add_argument("--only", default="", help="comma-separated variant names (default: the seven style/continuity variants)")
+    ap.add_argument("--sheet", default="logs/sweep/contact.png")
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--duration", type=int, default=5)
     args = ap.parse_args()
-    names = [n for n in args.only.split(",") if n] or list(VARIANTS)
+    names = [n for n in args.only.split(",") if n] or list(VARIANTS)[:7]
     for name in names:
         await run_variant(name, args.server, args.seed, args.duration)
-    contact_sheet(names, Path("logs/sweep/contact.png"))
+    contact_sheet(names, Path(args.sheet))
 
 
 if __name__ == "__main__":
