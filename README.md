@@ -1,130 +1,55 @@
 # Artificial Realities
 
-A four-role LLM workflow for interactive storytelling. A beat writer (**Tolkien**) and shot composer (**Spielberg**) form the per-turn critical path, a voice-over commentator (**Attenborough**) runs on the audio clock, and a memory curator (**Spock**) runs as an async editor behind the turn — orchestrated by a deterministic turn engine that turns user steering between clips into a continuous flowing video story.
+An interactive generative movie platform: a continuously streaming AI-generated film whose story responds to the viewer while it plays.
 
-This is a workflow, not an agent system — no tool use, no LLM-directed control flow.
+## The vision
 
-## How it works
+A movie starts and keeps going. The viewer watches, and while watching can express what they want the story to do — a direction, a turn, an idea. The system reads that as intent and reflects it in what happens next, provided it fits the story's underlying constraints. No pausing, no menus, no branching tree of pre-authored paths. One continuous film that listens.
 
-The story plays as a flowing sequence of short video clips. Each clip's visual state carries forward through a sliding-window continuity scheme on the LTX-2.5 server, giving the story a continuous visual feel. A voice-over commentator speaks over the clips when silence has built up. The user types guidance between clips — but the story keeps flowing even when they don't.
+The goal is not a clip generator with a text box on it. It is a system that can hold a story together across a long runtime while remaining open to influence.
 
-The default story is a single LEGO minifigure alone in an infinite white void, doing whatever comes to mind. No protagonist dialogue, no locations, no other characters. It strips away every variable except long-horizon memory.
+## The problem
 
-Four roles collaborate behind the scenes, split by clock:
+Getting there means solving several things at once:
 
-- **Tolkien** (narrator) — writes what happens next: prose narration, action, and outcome. *Per-turn critical path.*
-- **Spielberg** (shot composer) — translates the beat into an image-to-video prompt: camera, composition, motion, and an end-frame description. *Per-turn critical path.*
-- **Attenborough** (voice-over) — invoked only when silence exceeds a threshold, reads the accumulated beats and writes a spoken line. Optionally routed through ElevenLabs TTS. *Audio clock.*
-- **Spock** (memory curator) — runs as an async background task, updates structured world state and rolling narrative memory, hands Tolkien a filtered context brief. *Async editor.*
+- **Continuous generation** — produce and present video without the stream stopping to think.
+- **Continuity over time** — keep story, characters, world, and narrative thread coherent as the runtime grows.
+- **Influence** — accept user input and interpret it as story intent rather than as a raw prompt.
+- **Translation** — turn that intent into concrete changes in future scenes.
+- **Constraints** — preserve higher-level story guidelines while still letting influence matter. Steering should bend the story, not break it.
+- **Cinematic cohesion** — connect scenes so the result reads as one film, not a reel of isolated AI clips.
 
-Video and audio generation are both opt-out. Every agent always produces complete output, so the system behaves as if rendering were live even when video/TTS are disabled (the default for headless dev).
+None of these is fully solved here. The prototype is one attempt at attacking them together.
 
-## Architecture
+## Current prototype
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design philosophy, state schema, agent specs, turn execution order.
-- [docs/AGENT_FLOW.md](docs/AGENT_FLOW.md) — per-agent walkthrough of the pipeline.
+The prototype generates the film as a sequence of short clips that are stitched into a continuous stream. An LLM layer decides what happens next and how to shoot it; an image-to-video model renders it; the viewer types free-text guidance between clips, and the story keeps moving whether they do or not.
 
-## Project structure
+Concretely, as of today:
 
-```
-ArtificialRealities/
-├── main.py                              # Entry point (play command)
-├── CLAUDE.md                            # Claude Code working instructions
-├── docs/
-│   ├── ARCHITECTURE.md                  # Design, agent specs, state schema, turn order
-│   └── AGENT_FLOW.md                    # Per-agent pipeline walkthrough
-├── data/
-│   ├── story.json                       # Story blueprint
-│   ├── demo_scenario.json               # Scripted demo input
-│   └── legoman.png                      # Seed image
-├── src/
-│   ├── agents/                          # tolkien, spielberg, attenborough, spock
-│   ├── state/                           # StoryState and related Pydantic models
-│   ├── models/                          # config, story, response schemas
-│   ├── graph/                           # TurnEngine (asyncio, clock-split orchestration)
-│   ├── i2v/                             # LTX-2.5 image-to-video backend
-│   ├── llm/                             # OpenAI backend
-│   ├── memory/                          # Mem0 episodic memory store (opt-in)
-│   ├── tts/                             # ElevenLabs adapter
-│   ├── playback/                        # clip muxing (ffmpeg)
-│   ├── prompts/                         # system + user template per agent
-│   ├── eval/                            # scenario runner, interactive + live loops
-│   ├── ui/                              # terminal input
-│   └── util/                            # json sanitizer, langfuse, media, logging
-├── configs/
-│   ├── mas.yaml                         # headless dev (video + audio off)
-│   ├── mas.live.yaml                    # live with LTX-2.5 video
-│   └── mas.mem0.yaml                    # opt-in Mem0 episodic memory
-├── server/
-│   ├── ltx2_server.py                   # Resident LTX-2.5 inference server (GPU box)
-│   └── requirements.txt                 # GPU-box deps
-└── requirements.txt                     # Local deps
-```
+- **Narrative orchestration** is split across four LLM roles on different clocks — a beat writer and a shot composer on the per-turn critical path, a voice-over commentator on the audio clock, and a memory curator running async behind the turn. This is one mechanism being explored for coordinating generation, not a fixed part of the design.
+- **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which is what currently carries visual state forward between clips. It also renders a native ambient/SFX track alongside the video.
+- **Playback** muxes and concatenates clips with ffmpeg.
+- **Memory** (Mem0) and **spoken voice-over** (ElevenLabs TTS) are opt-in; both video and audio generation can be disabled entirely for headless development.
 
-## Quick start
+The current test story is deliberately minimal — a single LEGO minifigure alone in a white void, no dialogue, no locations, no other characters. It strips away every variable except long-horizon continuity, which is the hard part.
 
-### Prerequisites
+## Where it stands
 
-- Python 3.10+
-- OpenAI API key
-- (Optional) LTX-2.5 server on a GPU box — for live video (see below)
-- (Optional) ElevenLabs API key — for spoken voice-over
-- (Optional) `ffmpeg` on PATH — for muxing TTS audio onto clips
+Working: end-to-end generation from user input to stitched, narrated video. Open:
 
-### Installation
+- **Identity drift.** Characters do not hold their appearance reliably across clips. This is the main obstacle to a film that feels like one film.
+- **Continuity vs. steering.** The sliding window trades one against the other directly (`ltxv_continuity_strength`). High continuity means new input barely lands; low means the picture jumps. A better mechanism is needed, not a better setting.
+- **Latency.** Roughly 170s per clip on an A100-80GB at 15 sampling steps. Far from streaming.
+
+## Repository
+
+`main.py` runs the prototype against a config in `configs/`. `docs/ARCHITECTURE.md` and `docs/AGENT_FLOW.md` describe the current orchestration in detail; `server/README.md` covers the LTX-2.5 inference server.
 
 ```bash
-git clone <repo-url>
-cd ArtificialRealities
 pip install -r requirements.txt
-cp .env.example .env   # fill in the keys you need
+cp .env.example .env
+
+python main.py play --config configs/mas.yaml       # headless, no video or audio
+python main.py play --config configs/mas.live.yaml  # live video (needs the LTX-2.5 server)
 ```
-
-### Running
-
-```bash
-# Headless dev — sequential terminal loop, no video or audio
-python main.py play --config configs/mas.yaml
-
-# Scripted scenario — non-interactive
-python main.py play --config configs/mas.yaml --scenario data/demo_scenario.json
-
-# Live with LTX-2.5 video (needs a running LTX-2.5 server)
-python main.py play --config configs/mas.live.yaml
-```
-
-### LTX-2.5 video server
-
-The video backend runs a resident inference server on a GPU box. It holds the pipeline in memory and owns the sliding window: it keeps the tail of each generated chunk and conditions the next one on it, so the client only ever sends a prompt. LTX-2.5 generates synchronized audio alongside the video, so clips arrive with an ambient/SFX track already on them.
-
-**The weights are gated.** One-time setup:
-
-1. Open [Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers) and click **Agree and access repository**.
-2. Create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
-
-```bash
-# On the GPU box:
-pip install -r server/requirements.txt
-export HF_TOKEN=hf_...
-python ltx2_server.py          # downloads weights on first run, serves on :8000
-
-# Lower VRAM usage:
-LTX2_OFFLOAD=cpu python ltx2_server.py     # CPU offload between calls
-LTX2_VAE_TILING=1 python ltx2_server.py    # lower peak VRAM on decode
-
-# On your machine — tunnel and run:
-ssh -N -L 8000:localhost:8000 -p <PORT> root@<HOST>
-python main.py play --config configs/mas.live.yaml
-```
-
-The server runs the **base model** at 15 sampling steps — the quality/speed sweet spot tested on A100-80GB (~170s/clip with CPU offload). The distilled LoRA (`LTX2_DISTILLED=1`) is currently broken in diffusers ≤0.41 (missing connector modules cause corrupted output); leave it off until a future diffusers release wires those up.
-
-`ltxv_continuity_strength` in the config controls the continuity-vs-steering trade-off. At `1.0` continuity is maximal but new prompts barely land; lower values let steering through at the cost of visual continuity.
-
-## Tech stack
-
-- **Plain asyncio** — deterministic turn engine with clock-split orchestration
-- **Pydantic v2** — validated models for state, config, story, and all LLM responses
-- **OpenAI** — backbone model for every agent (configurable per run)
-- **LTX-2.5** — 22B image-to-video model with native audio generation
-- **ElevenLabs** — optional TTS for Attenborough's voice-over
