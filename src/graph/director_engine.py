@@ -135,6 +135,7 @@ class DirectorEngine:
             and picture is not None
             and picture.drift >= self.config.drift_cut_threshold
             and picture.segment > world.last_cut
+            and seg - world.last_cut >= self.config.min_segments_between_cuts
             and segment.shots[0].transition != "cut"
         ):
             segment.shots[0].transition = "cut"

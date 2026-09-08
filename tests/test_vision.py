@@ -28,7 +28,8 @@ def _tiny_video(path: Path) -> Path:
 
 def _config(**over) -> Config:
     base = dict(name="t", graph="director", llm_backend="mock", model="mock",
-                observe_frames=True, vision_model="mock", drift_cut_threshold=2)
+                observe_frames=True, vision_model="mock", drift_cut_threshold=2,
+                min_segments_between_cuts=1)
     base.update(over)
     return Config(**base)
 

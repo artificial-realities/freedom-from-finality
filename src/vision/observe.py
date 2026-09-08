@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are the continuity supervisor on a generated film. You are shown frames from the clip that was just rendered, the description of how each character or prop on screen is supposed to look, and the intended visual style. Compare what you see with what was intended.
 
-Be literal and specific. Report a deviation when a colour, a shape, a printed face, hair, clothing, a prop's form, or the background differs from the description. Ignore pose, expression intensity and motion blur. Score drift 0 when everything matches, 1 for a small deviation a viewer would barely notice, 2 for a clear deviation (wrong colour, added hair, changed background), 3 when the subject or the setting is no longer what was described.
+Be literal and specific. Report a deviation when a colour, a shape, a printed face, hair, clothing, a prop's form, or the background differs from the description. Ignore pose, motion blur, shading and reflections from the lighting. Score drift 0 when everything matches, 1 for a small deviation a viewer would barely notice, 2 for a clear deviation (a changed printed face, added or missing hair, a wrong colour on one part, a background that is no longer the described one), 3 only when the subject is a different character or the setting is a different place from what was described.
 
 Return one JSON object: `entities` (one entry per expected entity with `entity` id, `visible`, `matches`, `deviations`), `background_ok`, `background_note`, `drift` (0-3), `summary` (one sentence)."""
 
