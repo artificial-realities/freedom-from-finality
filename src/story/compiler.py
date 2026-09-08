@@ -38,6 +38,9 @@ def describe(entity: Entity) -> str:
     return entity.name
 
 
+DESCRIBED_IN_FULL = 6   # on-screen entities re-identified with their look; the rest by name
+
+
 def compile_prompt(
     segment: Segment,
     world: WorldModel,
@@ -61,11 +64,10 @@ def compile_prompt(
             parts.append(_sentence(f"{framing}, {motion} camera"))
         else:
             parts.append(_sentence(f"Cut to a {framing}, {motion} camera"))
-        named = []
-        for eid in shot.on_screen:
-            ent = world.resolve(eid)
-            if ent is not None and ent.kind != "location":
-                named.append(describe(ent))
+        ents = [e for e in (world.resolve(eid) for eid in shot.on_screen)
+                if e is not None and e.kind != "location"]
+        ents.sort(key=lambda e: e.kind != "character")  # characters always described
+        named = [describe(e) for e in ents[:DESCRIBED_IN_FULL]] + [e.name for e in ents[DESCRIBED_IN_FULL:]]
         if named:
             parts.append("On screen: " + "; ".join(named) + ".")
         for beat in shot.action_beats:

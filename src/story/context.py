@@ -64,16 +64,35 @@ def format_plan(world: WorldModel, config: Config) -> str:
     return "\n".join(out)
 
 
+PRESENT_IN_FULL = 12      # most recently seen present entities get a full line
+STATUS_CHARS = 120        # status text is clipped in the prompt, not in the model
+GONE_LISTED = 12
+
+
+def _clip(text: str, n: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
 def format_world_now(world: WorldModel) -> str:
     out: list[str] = []
     here = world.current_location()
     out.append(f"Location: `{here.id}` {here.name}" if here else "Location: (none)")
     present = world.present_entities()
     if present:
+        # Characters first, then props by recency; a long-running film can
+        # have dozens of props in play and the prompt must stay bounded.
+        present.sort(key=lambda e: (e.kind != "character", -e.last_seen))
+        full, rest = present[:PRESENT_IN_FULL], present[PRESENT_IN_FULL:]
         out.append("Present in the scene:")
-        for ent in present:
-            look = f" · looks: {ent.render_look()}" if ent.kind == "prop" and ent.render_look() != ent.name else ""
-            out.append(f"- {ent.line()}{look}")
+        for ent in full:
+            status = f" · status: {_clip(ent.status, STATUS_CHARS)}" if ent.status else ""
+            where = f" · held by {ent.holder}" if ent.holder else (
+                f" · at {ent.location}" if ent.location and ent.kind != "location" else "")
+            look = f" · looks: {_clip(ent.render_look(), STATUS_CHARS)}" if ent.kind == "prop" and ent.render_look() != ent.name else ""
+            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{status}{where}{look}")
+        if rest:
+            out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))
     else:
         out.append("Present in the scene: (nothing but the location)")
     dormant = world.dormant_props()
@@ -84,7 +103,9 @@ def format_world_now(world: WorldModel) -> str:
         )
     gone = world.gone_props()
     if gone:
-        out.append("Gone for good: " + ", ".join(f"`{e.id}`" for e in gone))
+        shown = gone[-GONE_LISTED:]
+        more = f" (+{len(gone) - len(shown)} more)" if len(gone) > len(shown) else ""
+        out.append("Gone for good: " + ", ".join(f"`{e.id}`" for e in shown) + more)
     return "\n".join(out)
 
 
@@ -135,11 +156,18 @@ def format_interventions_all(world: WorldModel) -> str:
 
 
 def format_summaries(world: WorldModel, scene_limit: int = 3) -> str:
+    """Act summary, the opening scene (pinned: the start of a film is what
+    viewers refer back to), and the most recent scene summaries."""
     out: list[str] = []
+    scenes = [s for s in world.summaries if s.scope == "scene"]
+    if scenes:
+        first = scenes[0]
+        out.append(f"Opening (segments {first.first_segment}-{first.last_segment}): {first.text}")
     if world.act_summary:
         out.append(f"Act so far: {world.act_summary}")
-    scenes = [s for s in world.summaries if s.scope == "scene"][-scene_limit:]
-    for s in scenes:
+    for s in scenes[-scene_limit:]:
+        if s is scenes[0]:
+            continue
         out.append(f"Segments {s.first_segment}-{s.last_segment}: {s.text}")
     return "\n\n".join(out) if out else "(nothing compacted yet; the recent segments are the whole story)"
 

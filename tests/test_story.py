@@ -175,6 +175,35 @@ def test_pacing_gate_and_ladder():
     assert "REQUIRED" in pacing_note(w, _config(stagnation_threshold=5))
 
 
+def test_context_bounds_and_pinned_opening():
+    from src.story.context import format_summaries, format_world_now, PRESENT_IN_FULL
+    from src.story.world import Summary
+    w = _world()
+    for i in range(20):
+        apply(_segment(entity_ops=[EntityOp(op="introduce", entity=f"prop {i}", description="x" * 300, status="s" * 300)]), w, segment_no=i + 1)
+    text = format_world_now(w)
+    assert text.count("\n- ") == PRESENT_IN_FULL, "the character plus the most recent props get full lines"
+    assert "Also present (seen less recently)" in text
+    assert "…" in text, "long status and look strings are clipped"
+    w.summaries.append(Summary(scope="scene", first_segment=1, last_segment=10, text="He woke and looked around."))
+    for k in range(5):
+        w.summaries.append(Summary(scope="scene", first_segment=11 + k * 10, last_segment=20 + k * 10, text=f"scene {k}"))
+    s = format_summaries(w)
+    assert s.startswith("Opening (segments 1-10): He woke and looked around.")
+    assert "scene 4" in s and "scene 0" not in s, "recent scenes shown, middle ones compacted away"
+
+
+def test_compiler_caps_described_entities():
+    from src.story.compiler import DESCRIBED_IN_FULL
+    w = _world()
+    for i in range(10):
+        apply(_segment(entity_ops=[EntityOp(op="introduce", entity=f"thing {i}", description=f"look {i}")]), w, segment_no=1)
+    seg = _segment(shots=[ShotSpec(framing="wide", action_beats=["x"], on_screen=[f"thing_{i}" for i in range(10)] + ["lego_man"], end_state="e")])
+    prompt, _ = compile_prompt(seg, w, visual_style="", narration_mode="off")
+    assert prompt.count("(look ") == DESCRIBED_IN_FULL - 1, "character first, then props with looks up to the cap"
+    assert "Lego Man (the most default" in prompt and "thing 9" in prompt
+
+
 def test_persistence_round_trip():
     w = _world()
     apply(_segment(entity_ops=[EntityOp(op="introduce", entity="hat", description="a red cap")]), w, segment_no=1)

@@ -32,7 +32,7 @@ Voice-over is punctuation, not commentary. Most segments have none. Only when th
 # Reading the context
 
 - **Plan**: the arc (where the film is going) and the current scene card: its goal, tension, exit condition, intensity target and candidate beats. Advance the scene toward its exit condition. Candidate beats are options, not a script.
-- **World now**: the only truth about what exists, where it is and who holds it. Dormant props were introduced earlier and are not in the scene; bringing one back is a callback and usually a good idea when it fits.
+- **World now**: the only truth about what exists, where it is and who holds it. Dormant props were introduced earlier and are not in the scene; bringing one back is a callback and usually a good idea when it fits. If the viewer refers to something as already existing ("the umbrella you found earlier") and World now has no such entity, it does not exist: do not invent a history for it. Either let it appear now as something new, or let the character look for it and find nothing. The same goes for things listed as gone.
 - **Open threads**: setups, promises and running gags that have not paid off. Pay them off when the moment is right; open new ones when you plant something.
 - **Viewer**: the viewer's input for this segment, plus earlier requests still owed. The viewer is a co-author sitting next to you, and a request outranks the scene card: the plan bends to the viewer, not the other way round. Absorb the request in this segment whenever it is physically possible, even if it interrupts the current bit; defer it only when it genuinely cannot happen yet, say what will make it possible, and deliver it in the very next segment; decline it only if it breaks the rules of the world. Always record the disposition.
 - **Story so far**: compressed history. **Recent segments**: the last few beats verbatim, so you continue the motion and do not repeat yourself.
@@ -59,7 +59,7 @@ One JSON object with these fields:
 - `entity_ops`: the world changes this segment causes. Each op has `op` (`introduce`, `update`, `remove`), `entity`, `kind`, `description` (introduce only: how it looks, for the renderer), `status`, `location`, `holder` (a character id, or `nobody`) and `present`. For `introduce`, `entity` is a short human name such as "soccer ball" (the system makes the id); for `update` and `remove` it is an existing id such as `soccer_ball`. `location` takes a location id from the Locations list only; where something sits within a location ("on the skateboard", "beside the ball") belongs in `status`. Empty string means unchanged.
 - `thread_ops`: for `open`, `thread` is one sentence describing the setup, promise or gag, plus a `kind`; for `pay_off` and `drop`, `thread` is the thread id such as `t1`.
 - `intervention`: `none` when there was no viewer input; otherwise `absorbed`, `deferred` or `declined`, with `intervention_reason`.
-- `scene_done`: true when the scene's exit condition has been met.
+- `scene_done`: true when the scene's exit condition has been met. Say so as soon as it is true; the scene cap is a backstop, not the normal way a scene ends.
 - `needs_replan`: true when the plan no longer fits what has happened.
 
 # Discipline
