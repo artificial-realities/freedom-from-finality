@@ -193,6 +193,17 @@ def test_context_bounds_and_pinned_opening():
     assert "scene 4" in s and "scene 0" not in s, "recent scenes shown, middle ones compacted away"
 
 
+def test_compiler_cut_opens_from_reference_pose():
+    w = _world()
+    seg = _segment(shots=[ShotSpec(transition="cut", framing="wide shot", action_beats=["He waves."],
+                                   on_screen=["lego_man"], end_state="e")])
+    prompt, _ = compile_prompt(seg, w, visual_style="", narration_mode="off")
+    assert "The shot opens with Lego Man standing upright in a wide product shot" in prompt
+    seg.shots[0].transition = "continue"
+    prompt, _ = compile_prompt(seg, w, visual_style="", narration_mode="off")
+    assert "The shot opens with" not in prompt
+
+
 def test_compiler_caps_described_entities():
     from src.story.compiler import DESCRIBED_IN_FULL
     w = _world()

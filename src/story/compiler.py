@@ -70,6 +70,14 @@ def compile_prompt(
         named = [describe(e) for e in ents[:DESCRIBED_IN_FULL]] + [e.name for e in ents[DESCRIBED_IN_FULL:]]
         if named:
             parts.append("On screen: " + "; ".join(named) + ".")
+        # A cut re-seeds the renderer from the reference image, so the shot
+        # must open from what that image shows; a pose mismatch in the first
+        # frames is what drags the picture off the sheet (2026-09-08 sweep).
+        if shot.transition == "cut":
+            for ent in ents:
+                if ent.reference_pose:
+                    parts.append(f"The shot opens with {ent.name} {ent.reference_pose.strip().rstrip('.')}, then the action begins.")
+                    break
         # Visual memory: when the last observation saw a deviation, say what
         # must NOT be there, positively, so the prompt pulls back to the sheet.
         for ent in ents[:DESCRIBED_IN_FULL]:
