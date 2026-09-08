@@ -70,6 +70,14 @@ def compile_prompt(
         named = [describe(e) for e in ents[:DESCRIBED_IN_FULL]] + [e.name for e in ents[DESCRIBED_IN_FULL:]]
         if named:
             parts.append("On screen: " + "; ".join(named) + ".")
+        # Visual memory: when the last observation saw a deviation, say what
+        # must NOT be there, positively, so the prompt pulls back to the sheet.
+        for ent in ents[:DESCRIBED_IN_FULL]:
+            if ent.drift >= 2 and ent.observed_look and ent.observed_look != "matches the sheet":
+                parts.append(f"{ent.name} is exactly as described, not {ent.observed_look}.")
+        picture = world.picture
+        if picture is not None and not picture.background_ok and picture.background_note:
+            parts.append(f"The setting is exactly as described above, not {picture.background_note.strip()}.")
         for beat in shot.action_beats:
             if beat.strip():
                 parts.append(_sentence(beat))

@@ -17,6 +17,8 @@ def build_i2v_backend(
     output_dir=None,
     reference_fit: str = "pad",
     reference_fill: str = "auto",
+    negative_prompt: str = "",
+    seed=None,
     **_extra,
 ) -> I2VBackend:
     """Construct an I2V backend from a config's `i2v_backend` string."""
@@ -33,5 +35,7 @@ def build_i2v_backend(
             output_dir=output_dir or "logs/video",
             reference_fit=reference_fit,
             reference_fill=reference_fill,
+            negative_prompt=negative_prompt,
+            seed=seed,
         )
     raise ValueError(f"Unknown i2v_backend: {name!r}")

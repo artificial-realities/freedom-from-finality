@@ -14,6 +14,7 @@ src/
   agents/showrunner.py       # slow-clock compaction + planning (ShowrunnerUpdate)
   prompts/                   # director.*.md, showrunner.*.md
   story/                     # typed world model (world), schemas, validator, context, compiler, pacing
+  vision/observe.py          # frame observation → visual memory → Picture section + forced cuts
   state/story_state.py       # StoryState — runner-facing surface shared by both engines
   models/                    # config, story (blueprint), responses (legacy views)
   i2v/                       # image-to-video backends (base, ltxv); `reset` = cut
@@ -24,6 +25,7 @@ src/
   ui/terminal.py             # free-text input between clips
   util/                      # json sanitizer, langfuse, media, prompt loader, story log
 tests/                       # python -m tests.run (no pytest needed)
+scripts/style_sweep.py       # style / negative-prompt / continuity sweep against a running server
 configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5)
 data/                        # story.json blueprint · scenarios (demo, ab, benchmark) · legoman.png
 docs/                        # ARCHITECTURE.md · reviews/ · legacy/
@@ -52,7 +54,7 @@ Default to the headless config. Live runs need an LTX-2.5 server reachable at `l
 
 ## Current constraints
 
-- **Identity drift** across clips is the main open problem. `transition: cut` re-seeds the renderer from the reference image (first shot of a segment only); continuous shots carry state only through the server's sliding window. The seed image is letterboxed to the render size by the client (a cropped reference made the model invent a new head); what remains is generation-level colour, expression and background drift within clips (`docs/reviews/2026-09-08-live-run.md`). Observation of rendered frames is not built yet.
+- **Identity drift** across clips is the main open problem. `transition: cut` re-seeds the renderer from the reference image (first shot of a segment only); continuous shots carry state only through the server's sliding window. The seed image is letterboxed to the render size by the client (a cropped reference made the model invent a new head); what remains is generation-level colour, expression and background drift within clips (`docs/reviews/2026-09-08-live-run.md`). The observation loop (`src/vision/`) checks every rendered clip against the sheets and forces a cut on drift.
 - **`ltxv_continuity_strength`** trades continuity against steering for `continue` shots. At `1.0` new prompts barely land; lower values let steering through at the cost of visual continuity.
 - **The distilled LoRA is broken** in diffusers ≤0.41 (missing connector modules corrupt output). The server runs the base model at 15 steps, ~200 s per 7 s clip on an A100-80GB with CPU offload. `server/vast_run.sh` rents and tears down a GPU on Vast.ai.
 - **LTX-2.5 renders native ambient audio**, so clips already carry an audio track; with `narration: "tts"` the ElevenLabs line is mixed over it (ducked), not substituted.

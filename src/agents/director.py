@@ -23,6 +23,7 @@ from src.story.context import (
     format_gates,
     format_interventions,
     format_locations,
+    format_picture,
     format_plan,
     format_recent,
     format_rules,
@@ -91,6 +92,7 @@ async def run(
         interventions=format_interventions(world, state.user_input),
         summaries=format_summaries(world),
         recent=format_recent(world, config.recent_beats),
+        picture=format_picture(world, config.drift_cut_threshold),
         gates=format_gates(
             voiceover_open=voiceover_open,
             pacing=pacing_note,

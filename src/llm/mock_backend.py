@@ -50,6 +50,14 @@ class MockBackend(LLMBackend):
             payload = self._segment(messages)
         elif name == "ShowrunnerUpdate":
             payload = self._showrunner(messages)
+        elif name == "Observation":
+            payload = {
+                "segment": 0,
+                "entities": [{"entity": "lego_man", "visible": True, "matches": False,
+                              "deviations": "green head with black hair"}],
+                "background_ok": False, "background_note": "grey speckled floor under a spotlight",
+                "drift": 3, "summary": "The figure has drifted from the sheet and the void is grey.",
+            }
         else:
             raise ValueError(f"MockBackend has no script for schema {name!r}")
         return json.dumps(payload), {"prompt": 0, "completion": 0, "total": 0}

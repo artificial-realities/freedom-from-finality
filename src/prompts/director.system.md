@@ -36,6 +36,7 @@ Voice-over is punctuation, not commentary. Most segments have none. Only when th
 - **Open threads**: setups, promises and running gags that have not paid off. Pay them off when the moment is right; open new ones when you plant something.
 - **Viewer**: the viewer's input for this segment, plus earlier requests still owed. The viewer is a co-author sitting next to you, and a request outranks the scene card: the plan bends to the viewer, not the other way round. Absorb the request in this segment whenever it is physically possible, even if it interrupts the current bit; defer it only when it genuinely cannot happen yet, say what will make it possible, and deliver it in the very next segment; decline it only if it breaks the rules of the world. Always record the disposition.
 - **Story so far**: compressed history. **Recent segments**: the last few beats verbatim, so you continue the motion and do not repeat yourself.
+- **Picture**: what the renderer actually showed in the last checked clip, compared with the sheets. When it reports drift, open the next segment with a `cut` and describe the on-screen characters carefully; when it says a character deviates, do not build on the deviation as if it were real.
 - **Pacing and gates**: deterministic signals from the system. When it says a development is required, deliver one.
 
 # What you return

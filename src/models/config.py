@@ -51,6 +51,10 @@ class Config(BaseModel):
     # continue the image's own border colour so no seam is introduced.
     i2v_reference_fit: str = "pad"
     i2v_reference_fill: str = "auto"
+    # Negative prompt sent with every clip ("" → the server's default) and an
+    # optional fixed seed for reproducible renders.
+    ltxv_negative_prompt: str = ""
+    ltxv_seed: int | None = None
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""
@@ -71,6 +75,13 @@ class Config(BaseModel):
     max_segments_per_scene: int = 12    # hard cap; forces scene_done → Showrunner replan
     compaction_interval: int = 10       # segments between Showrunner compaction passes
     stagnation_threshold: int = 5       # segments without structural change before pressure
+    # Frame observation: after each render, a vision model checks the clip
+    # against the sheets; drift at or above the threshold forces the next
+    # segment to open with a cut. Needs video_enabled.
+    observe_frames: bool = True
+    vision_model: str = "gpt-4.1-mini"
+    drift_cut_threshold: int = 2
+    observe_wait_seconds: float = 15.0  # how long a segment waits for a pending observation
 
     extra: dict = Field(default_factory=dict)
 

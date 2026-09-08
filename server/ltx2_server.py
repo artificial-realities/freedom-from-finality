@@ -135,6 +135,8 @@ class GenerateRequest(BaseModel):
     num_frames: int = Field(default=121, ge=9)
     # A cut: condition on the reference image, not the previous chunk's tail.
     reset_window: bool = False
+    # Override the server's default negative prompt for this request.
+    negative_prompt: str | None = None
 
 
 # ── Startup ───────────────────────────────────────────────────────
@@ -322,7 +324,7 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
     call_kwargs: dict = dict(
         conditions=[condition],
         prompt=req.prompt,
-        negative_prompt=NEGATIVE,
+        negative_prompt=req.negative_prompt or NEGATIVE,
         height=HEIGHT,
         width=WIDTH,
         num_frames=num_frames,

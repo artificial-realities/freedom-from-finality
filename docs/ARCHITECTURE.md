@@ -43,7 +43,8 @@ viewer input ─▶ Engine (deterministic, asyncio)
 | Context assembler | `src/story/context.py` | code | Every prompt section, so the prompt budget is decided in one place |
 | Prompt compiler | `src/story/compiler.py` | code | `Segment` → LTX-2.5 prompt text and total duration |
 | Pacing | `src/story/pacing.py` | code | Voice-over gate, story clock, stagnation ladder, scene cap |
-| Schemas | `src/story/schemas.py` | code | `Segment`, `ShotSpec`, `EntityOp`, `ThreadOp`, `DialogueLine`, `ShowrunnerUpdate` |
+| Schemas | `src/story/schemas.py` | code | `Segment`, `ShotSpec`, `EntityOp`, `ThreadOp`, `DialogueLine`, `ShowrunnerUpdate`, `Observation` |
+| Frame observation | `src/vision/observe.py` | vision LLM, off-path | Checks two frames of each rendered clip against the sheets; lands as visual memory |
 
 ## The segment, step by step
 
@@ -72,6 +73,12 @@ viewer input ─▶ Engine (deterministic, asyncio)
 
 Entities carry `kind` (character, prop, location), `description` (for the writer), `look` (verbatim for the renderer), `status`, `location`, `holder`, `present`, `gone`, `first_seen`/`last_seen`, `notes` (durable facts added by the Showrunner), `speaks`, and `reference_image`. `cast_locked` on the story makes introducing characters a hard violation; creatures and objects are props.
 
+## Visual memory: the observation loop
+
+The LLM layer otherwise never sees a frame. After each render the runner hands the clip to the engine, which spawns a vision call off the critical path: the middle and end frames, the sheets of the entities that were supposed to be on screen, and the visual style go to a small vision model that returns an `Observation` (per-entity match and deviations, a background check, a 0–3 drift score). The next segment waits at most `observe_wait_seconds` for it, then lands it: each entity's `observed_look`, `observed_at` and `drift` are updated, the latest observation becomes `world.picture`, and everything is persisted.
+
+Two things feed back. The Director sees a **Picture** section describing what the renderer actually showed and is told to open with a `cut` when it drifted. Code enforces it: drift at or above `drift_cut_threshold`, observed after the last cut, forces the next segment's first shot to `cut`, so the renderer re-seeds from the reference. The compiler also states, positively, what a deviating entity or setting is *not* ("Lego Man is exactly as described, not green head with black hair"), which pulls the prompt back to the sheet. `observe_frames: false` turns the loop off; it only runs when video is enabled.
+
 ## Viewer influence
 
 Input is absorbed at the lowest level that fits. The Director classifies each request as `absorbed` (it happens now), `deferred` (it needs setup; the reason is recorded and the request stays visible as owed), or `declined` (only when it breaks the rules of the world). A later segment can absorb a deferred request without new input. The Showrunner sees the whole intervention list and is told to make room for deferred requests in the next scene. Structural rule checks (cast lock, entity existence, mute characters) are the validator's; judgment calls stay with the Director, which is told to bend toward the spirit of a request rather than refuse.
@@ -97,6 +104,12 @@ compaction_interval: 10        # Showrunner compaction cadence
 stagnation_threshold: 5        # segments without structural change before pressure
 director_model: ""             # optional per-role model overrides
 showrunner_model: ""
+observe_frames: true           # vision check of every rendered clip (video runs only)
+vision_model: "gpt-4.1-mini"
+drift_cut_threshold: 2         # observed drift at or above this forces a cut
+observe_wait_seconds: 15       # bounded wait for a pending observation before the Director call
+ltxv_negative_prompt: ""       # "" → the server's default; see scripts/style_sweep.py
+ltxv_seed: null                # fixed seed for reproducible renders
 ```
 
 `configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5.
@@ -107,4 +120,4 @@ showrunner_model: ""
 
 ## Not built yet, by design
 
-Observation of rendered frames feeding an entity-level visual memory; per-character reference images and keyframe conditioning at cuts; semantic retrieval over the event log; character knowledge and relationship graphs; a cinematic-language rewriter; multi-viewer input aggregation. See the review for the reasoning and the order.
+Per-character reference images and keyframe conditioning at cuts; semantic retrieval over the event log; character knowledge and relationship graphs; a cinematic-language rewriter; multi-viewer input aggregation. See the review for the reasoning and the order.

@@ -87,6 +87,24 @@ class Segment(BaseModel):
         return " ".join(beats)
 
 
+class EntityCheck(BaseModel):
+    entity: str
+    visible: bool = True
+    matches: bool = True
+    deviations: str = ""
+
+
+class Observation(BaseModel):
+    """What the vision check saw in a rendered clip, against the sheets."""
+
+    segment: int = 0
+    entities: list[EntityCheck] = Field(default_factory=list)
+    background_ok: bool = True
+    background_note: str = ""
+    drift: int = Field(default=0, ge=0, le=3)
+    summary: str = ""
+
+
 class EntityNote(BaseModel):
     entity: str
     note: str

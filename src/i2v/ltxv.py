@@ -59,6 +59,8 @@ class LtxvI2V(I2VBackend):
         output_dir: Path | str = "logs/video",
         reference_fit: str = "pad",
         reference_fill: str = "auto",
+        negative_prompt: str = "",
+        seed: int | None = None,
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.continuity_strength = continuity_strength
@@ -69,6 +71,8 @@ class LtxvI2V(I2VBackend):
         # model invents a new head). "none": send the file as-is.
         self.reference_fit = reference_fit
         self.reference_fill = reference_fill
+        self.negative_prompt = negative_prompt  # "" → the server's default
+        self.seed = seed                        # None → random per clip
         self.model = "ltx-2.5"
         self.resolution = "512x768"
         self.duration = 5  # default seconds when the segment doesn't specify
@@ -171,6 +175,10 @@ class LtxvI2V(I2VBackend):
             # the sliding window, which bounds identity drift.
             "reset_window": reset,
         }
+        if self.negative_prompt:
+            payload["negative_prompt"] = self.negative_prompt
+        if self.seed is not None:
+            payload["seed"] = self.seed
         if not self._initialized:
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
 

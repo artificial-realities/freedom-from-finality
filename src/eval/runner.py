@@ -127,6 +127,8 @@ async def run_scenario(
                         video_dir=video_dir,
                         mux_inline=False,  # we own muxing for span handling
                     )
+                    if silent and hasattr(graph, "observe"):
+                        graph.observe(silent, turn_number)
 
                 set_trace_output(_trace_output(state))
 
@@ -280,6 +282,8 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         output_dir=video_dir,
         reference_fit=config.i2v_reference_fit,
         reference_fill=config.i2v_reference_fill,
+        negative_prompt=config.ltxv_negative_prompt,
+        seed=config.ltxv_seed,
     )
 
 
@@ -524,6 +528,8 @@ async def run_play(
                         frames_dir=frames_dir,
                         video_dir=video_dir,
                     )
+                    if _silent and hasattr(graph, "observe"):
+                        graph.observe(_silent, turn_number)
 
                 set_trace_output(_trace_output(state))
 
@@ -664,6 +670,8 @@ async def run_live(
         )
         if video_path:
             await clip_queue.put(video_path)
+            if hasattr(graph, "observe"):
+                graph.observe(video_path, turn_number)
         else:
             langfuse_event(
                 "i2v_render_failed",
@@ -764,6 +772,8 @@ async def run_live(
                                 video_dir=video_dir,
                                 mux_inline=False,  # live loop owns muxing
                             )
+                            if silent and hasattr(graph, "observe"):
+                                graph.observe(silent, turn)
 
                     set_trace_output(_trace_output(state))
 
