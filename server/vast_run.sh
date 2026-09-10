@@ -6,12 +6,14 @@
 #                                                        install, start the server, open the tunnel,
 #                                                        wait for /health to say ready
 #   server/vast_run.sh run <config> [scenario] [log_dir]  run the client against the tunnel
+#   server/vast_run.sh restart                           restart the server on the same box (e.g. with
+#                                                        LTX2_VARIANT=full) and wait for /health
 #   server/vast_run.sh status                            instance state + server health
 #   server/vast_run.sh down                              close the tunnel and destroy the instance
 #
 # Needs VAST_API_KEY and HF_TOKEN in .env, the `vastai` CLI, and your ssh
 # public key registered on Vast (`vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"`).
-# Override VAST_IMAGE, VAST_QUERY or LTX2_OFFLOAD in the environment if needed.
+# Override VAST_IMAGE, VAST_QUERY, LTX2_OFFLOAD or LTX2_VARIANT (distilled|full) in the environment.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
@@ -38,16 +40,29 @@ up() {
   field ssh_host > "$STATE/host"; field ssh_port > "$STATE/port"
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
   scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
-  ssh_cmd "chmod +x /root/remote_setup.sh; nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu} /root/remote_setup.sh > /root/setup.log 2>&1 &"
+  ssh_cmd "chmod +x /root/remote_setup.sh; nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} /root/remote_setup.sh > /root/setup.log 2>&1 &"
   ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"
   echo "tunnel open on localhost:8000; waiting for the server (install + weights + load, ~5-15 min)"
-  for _ in $(seq 1 120); do
-    if curl -s -m 5 localhost:8000/health | grep -q '"ready"'; then echo "server ready"; return; fi
+  wait_ready 120 || exit 1
+}
+wait_ready() {
+  for _ in $(seq 1 "$1"); do
+    if curl -s -m 5 localhost:8000/health | grep -q '"ready"'; then
+      echo "server ready: $(curl -s -m 5 localhost:8000/health)"; return 0
+    fi
     sleep 15
   done
-  echo "server not ready after 30 min. Inspect with: $0 status  and  ssh -p $(cat "$STATE/port") root@$(cat "$STATE/host") tail /root/setup.log /root/server.log"
-  exit 1
+  echo "server not ready. Inspect with: $0 status  and  ssh -p $(cat "$STATE/port") root@$(cat "$STATE/host") tail /root/setup.log /root/server.log"
+  return 1
+}
+restart() {
+  # Same box, new server process: switch LTX2_VARIANT / LTX2_STEPS / size without re-renting.
+  # The weights are cached on the box, so this is load time only (a few minutes).
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py "root@$(cat "$STATE/host"):/root/"
+  ssh_cmd "pkill -f ltx2_server.py || true; sleep 2; cd /root && HF_HUB_ENABLE_HF_TRANSFER=1 nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} ${LTX2_STEPS:+LTX2_STEPS=$LTX2_STEPS} ${LTX2_WIDTH:+LTX2_WIDTH=$LTX2_WIDTH} ${LTX2_HEIGHT:+LTX2_HEIGHT=$LTX2_HEIGHT} python ltx2_server.py > server.log 2>&1 &"
+  echo "server restarting as ${LTX2_VARIANT:-distilled}; waiting for /health"
+  wait_ready 80 || exit 1
 }
 run() { python main.py play --config "${1:?config}" ${2:+--scenario "$2"} --log-dir "${3:-logs/live}"; }
 status() {
@@ -60,6 +75,6 @@ down() {
   echo "tunnel closed, instance destroyed"
 }
 case "${1:-}" in
-  up) shift; up "$@";; run) shift; run "$@";; status) status;; down) down;;
+  up) shift; up "$@";; run) shift; run "$@";; restart) restart;; status) status;; down) down;;
   *) sed -n '2,15p' "$0"; exit 1;;
 esac

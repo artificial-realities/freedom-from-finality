@@ -4,61 +4,62 @@ Holds the LTX-2.5 pipeline in GPU memory and serves /generate requests.
 The client sends only a prompt; this server owns the sliding window that
 carries the story from one chunk to the next.
 
+Which weights, which recipe
+---------------------------
+`Lightricks/LTX-2.5-Diffusers` ships two transformers. `transformer/`
+(what `from_pretrained` loads by default) is the **distilled** DiT and
+must run unguided on the fixed `DISTILLED_SIGMA_VALUES` schedule (8
+steps, one forward each). `transformer_full/` is the full / SFT DiT and
+runs 30 steps with the pipeline's default guidance (which are the SFT
+values) and a shifted schedule. Until 2026-09-09 this server ran the
+distilled weights with the full recipe (15 linear steps, CFG 3, STG),
+which the model card says will "quietly cost quality"; the "broken
+distilled LoRA" was that LoRA stacked on already-distilled weights.
+
+    LTX2_VARIANT=distilled   (default) transformer/, DISTILLED_SIGMA_VALUES, all guidance off
+    LTX2_VARIANT=full        transformer_full/, 30 steps, SFT guidance defaults, dynamic shifting
+
 Continuity model
 ----------------
-LTX-2.5's `LTX2ConditionPipeline` applies a first-frame condition by
-*overwriting* latent tokens:
+`LTX2ConditionPipeline` takes a list of `LTX2VideoCondition(frames,
+index, strength)`. A condition at latent index 0 overwrites the leading
+tokens; a condition at any other index is appended as a guiding keyframe
+(its own tokens, blended in by `strength` at every step). We send:
 
-    latents[:, start:end] = cond
-    conditioning_mask[:, start:end] = strength
-
-Conditions are applied in list order, so two conditions at `index=0`
-overlap and the later one wins over the earlier one's leading tokens.
-There is therefore no way to blend a second "identity anchor" image on
-top of a continuity window the way LTX-Video 0.9's `ConditioningItem`
-allowed — a low-strength anchor at index 0 would just clobber the front
-of the window. So we send exactly one first-frame condition:
-
-  * turn 1  — the reference image, strength 1.0, which seeds the chain
-  * turn N  — the trailing `continuity_frames` of the previous chunk,
-              at `continuity_strength`
+  * index 0 — the reference image on turn 1 and on a cut (`reset_window`),
+    otherwise the trailing `continuity_frames` of the previous chunk at
+    `continuity_strength`;
+  * optionally, the reference image again as a keyframe at `anchor_index`
+    (default -1, the last latent frame) with `anchor_strength`. This is
+    the identity anchor: the clip has to arrive back at the sheet, so
+    mid-clip drift has to be reversible. diffusers' own long-form recipe
+    uses anchor keyframes at strength 0.95. 0.0 (default) = off.
 
 `continuity_strength` is the steering knob: 1.0 holds the previous chunk
 hard (and largely ignores a new prompt), lower values let the prompt
 through at the cost of visual continuity.
 
 Frames are kept in memory as uint8 [0, 255] and handed straight back as
-the next condition — no PNG round trip, no decode/re-encode loss. The
-pipeline maps conditions with `pixels / 127.5 - 1.0`, so the [0, 255]
-range matters; float [0, 1] would condition on near-black.
+the next condition. The pipeline maps conditions with
+`pixels / 127.5 - 1.0` and re-compresses single images at the CRF the
+model was trained with, so no PNG round trip is needed here.
 
 Native audio: LTX-2.5 generates a synchronized audio track, so the MP4
 this server returns already carries ambient sound and effects.
 
-Setup on a GPU box:
-
-    pip install "diffusers[torch]" transformers accelerate sentencepiece av
-    pip install fastapi uvicorn
-
-    # The weights are GATED. One-time, on huggingface.co:
-    #   1. Log in, open https://huggingface.co/Lightricks/LTX-2.5-Diffusers
-    #   2. Click "Agree and access repository" (auto-approved, instant)
-    #   3. Make a token at https://huggingface.co/settings/tokens
-    export HF_TOKEN=hf_...
-
-    python ltx2_server.py
+Setup on a GPU box: see server/remote_setup.sh (diffusers from main; the
+LTX-2.5 pipelines are not in a release yet). The weights are gated:
+accept the licence on the model page and export HF_TOKEN.
 
 Environment variables:
     HF_TOKEN          HuggingFace token (required — the weights are gated)
     LTX2_MODEL        model id (default: Lightricks/LTX-2.5-Diffusers)
-    LTX2_DISTILLED    "1" to enable the distilled LoRA (default: off — broken
-                      with diffusers ≤0.41 because connector modules are not
-                      wired into the pipeline; re-enable when supported)
-    LTX2_STEPS        override sampling steps (default: 8 distilled / 15 base)
-    LTX2_STG          spatio-temporal guidance (default: 0.0 distilled, 1.0
-                      base). Non-zero costs an extra forward pass per step.
-    LTX2_WIDTH        output width, multiple of 32 (default: 768)
-    LTX2_HEIGHT       output height, multiple of 32 (default: 512)
+    LTX2_VARIANT      "distilled" (default) or "full"
+    LTX2_STEPS        full variant only: sampling steps (default 30)
+    LTX2_GUIDANCE     full variant only: override guidance_scale
+    LTX2_STG          full variant only: override stg_scale
+    LTX2_WIDTH        output width, multiple of 32 (default: 960)
+    LTX2_HEIGHT       output height, multiple of 32 (default: 544)
     LTX2_OFFLOAD      "cpu" or "sequential" when VRAM is tight
     LTX2_VAE_TILING   "1" to enable VAE tiling (lower peak VRAM on decode)
     LTX2_HOST/PORT    bind address (default: 0.0.0.0:8000)
@@ -95,33 +96,26 @@ logger = logging.getLogger("ltx2_server")
 # diffusers cannot load it. "-Diffusers" is the same 22B weights in the
 # layout from_pretrained() expects.
 MODEL_ID = os.getenv("LTX2_MODEL", "Lightricks/LTX-2.5-Diffusers")
-DISTILLED_LORA = "ltx-2.5-22b-distilled-lora-450-bf16.safetensors"
-# The distilled LoRA is OFF by default: diffusers ≤0.41 does not wire up
-# the `audio_embeddings_connector` and `video_embeddings_connector`
-# modules, so the LoRA loads only partially and the 8-step schedule
-# produces corrupted output (temporal noise within 1-2 seconds).
-# Re-enable with LTX2_DISTILLED=1 once diffusers supports those.
-USE_DISTILLED = os.getenv("LTX2_DISTILLED", "0") != "0"
+VARIANT = os.getenv("LTX2_VARIANT", "distilled").lower()
+if VARIANT not in ("distilled", "full"):
+    raise SystemExit(f"LTX2_VARIANT must be 'distilled' or 'full', got {VARIANT!r}")
 
-WIDTH = int(os.getenv("LTX2_WIDTH", "768"))
-HEIGHT = int(os.getenv("LTX2_HEIGHT", "512"))
+# 960x544 is the resolution the model card recommends for LTX-2.5.
+WIDTH = int(os.getenv("LTX2_WIDTH", "960"))
+HEIGHT = int(os.getenv("LTX2_HEIGHT", "544"))
 FRAME_RATE = 24.0
-NEGATIVE = (
-    "worst quality, inconsistent motion, blurry, jittery, distorted, static"
-)
 
 # ── Server state ──────────────────────────────────────────────────
 app = FastAPI(title="LTX-2.5 Inference Server")
 pipe = None
 _encode_video = None
-_sigmas: list[float] | None = None
-_steps: int = 30
-_guidance: float = 3.0
-_stg: float = 1.0
-_audio_sample_rate: int = 24000
+_negative_default: str = "blurry, out of focus, low contrast, flickering, motion blur"
+_call_defaults: dict = {}   # recipe: sigmas / steps and guidance for the variant
+_steps: int = 0
+_audio_sample_rate: int = 48000
 
-# Session: the reference image (PIL, seeds turn 1) and the tail of the
-# last generated chunk (uint8 ndarray, shape (F, H, W, 3)).
+# Session: the reference image (PIL, seeds turn 1 and anchors) and the
+# tail of the last generated chunk (uint8 ndarray, shape (F, H, W, 3)).
 session: dict = {}
 _lock = asyncio.Lock()
 
@@ -137,20 +131,25 @@ class GenerateRequest(BaseModel):
     reset_window: bool = False
     # Override the server's default negative prompt for this request.
     negative_prompt: str | None = None
+    # Identity anchor: the reference image as a guiding keyframe at
+    # `anchor_index` (latent frames; -1 = last) with this strength. 0 = off.
+    anchor_strength: float = Field(default=0.0, ge=0.0, le=1.0)
+    anchor_index: int = -1
 
 
 # ── Startup ───────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def load_pipeline() -> None:
-    global pipe, _encode_video, _sigmas, _steps, _guidance, _stg
+    global pipe, _encode_video, _negative_default, _call_defaults, _steps
     global _audio_sample_rate
 
     from diffusers import LTX2ConditionPipeline
-    from diffusers.pipelines.ltx2.utils import DISTILLED_SIGMA_VALUES
+    from diffusers.pipelines.ltx2.utils import DEFAULT_NEGATIVE_PROMPT, DISTILLED_SIGMA_VALUES
     from diffusers.utils import encode_video
 
     _encode_video = encode_video
+    _negative_default = DEFAULT_NEGATIVE_PROMPT
 
     if not (os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")):
         logger.warning(
@@ -159,12 +158,52 @@ async def load_pipeline() -> None:
             MODEL_ID,
         )
 
-    logger.info("Loading %s …", MODEL_ID)
+    logger.info("Loading %s (%s) …", MODEL_ID, VARIANT)
     t0 = time.monotonic()
     try:
-        pipe = LTX2ConditionPipeline.from_pretrained(
-            MODEL_ID, torch_dtype=torch.bfloat16,
-        )
+        if VARIANT == "full":
+            from diffusers import FlowMatchEulerDiscreteScheduler, LTX2VideoTransformer3DModel
+
+            # transformer_full/ is not in model_index.json: load it explicitly.
+            # Passing transformer= also keeps from_pretrained from fetching
+            # the distilled folder.
+            transformer = LTX2VideoTransformer3DModel.from_pretrained(
+                MODEL_ID, subfolder="transformer_full", dtype=torch.bfloat16,
+            )
+            pipe = LTX2ConditionPipeline.from_pretrained(
+                MODEL_ID, transformer=transformer, dtype=torch.bfloat16,
+            )
+            # The shipped scheduler is configured for the distilled schedule
+            # (no shifting); the full DiT needs the shifting back on.
+            pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+                pipe.scheduler.config, use_dynamic_shifting=True, shift_terminal=0.1,
+            )
+            _steps = int(os.getenv("LTX2_STEPS", "30"))
+            # Guidance stays at the pipeline defaults (the SFT values:
+            # guidance 3.0, STG 1.0, modality 3.0, rescale 0.7, audio 7.0)
+            # unless overridden for an experiment.
+            _call_defaults = {"num_inference_steps": _steps}
+            if os.getenv("LTX2_GUIDANCE"):
+                _call_defaults["guidance_scale"] = float(os.environ["LTX2_GUIDANCE"])
+            if os.getenv("LTX2_STG"):
+                _call_defaults["stg_scale"] = float(os.environ["LTX2_STG"])
+        else:
+            pipe = LTX2ConditionPipeline.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
+            # Distilled recipe from the model card: the fixed sigma schedule,
+            # unguided, STG and modality guidance off, one forward per step.
+            _steps = len(DISTILLED_SIGMA_VALUES)
+            _call_defaults = {
+                "sigmas": list(DISTILLED_SIGMA_VALUES),
+                "guidance_scale": 1.0,
+                "audio_guidance_scale": 1.0,
+                "stg_scale": 0.0,
+                "audio_stg_scale": 0.0,
+                "modality_scale": 1.0,
+                "audio_modality_scale": 1.0,
+            }
+            for var in ("LTX2_STEPS", "LTX2_GUIDANCE", "LTX2_STG"):
+                if os.getenv(var):
+                    logger.warning("%s is ignored for the distilled variant (fixed recipe)", var)
     except Exception as exc:
         logger.error(
             "Failed to load %s: %s\nIf this is a 401/403 the weights are "
@@ -172,36 +211,6 @@ async def load_pipeline() -> None:
             "export HF_TOKEN.", MODEL_ID, exc, MODEL_ID,
         )
         raise
-
-    # ── Distilled schedule: 8 steps, CFG off ───────────────────────
-    if USE_DISTILLED:
-        logger.info("Applying distilled LoRA %s", DISTILLED_LORA)
-        pipe.load_lora_weights(
-            MODEL_ID, weight_name=DISTILLED_LORA, adapter_name="distilled",
-        )
-        pipe.set_adapters("distilled", 1.0)
-        # Fuse the LoRA into the base weights and drop the adapter
-        # overhead — this brings VRAM back down to base-model size so
-        # the full pipeline fits in 80 GB without CPU offload.
-        pipe.fuse_lora()
-        pipe.unload_lora_weights()
-        logger.info("LoRA fused into base weights and adapter unloaded")
-        _sigmas = list(DISTILLED_SIGMA_VALUES)
-        _steps = len(_sigmas)
-        # guidance 1.0 disables CFG, which also skips the negative
-        # forward pass — roughly halves the work per step.
-        _guidance = 1.0
-        _stg = 0.0
-    else:
-        # 15 steps is the sweet spot: indistinguishable from 30 at half the
-        # cost. Set LTX2_STEPS=30 to A/B or trade latency for quality.
-        _sigmas, _steps, _guidance, _stg = None, 15, 3.0, 1.0
-
-    if os.getenv("LTX2_STEPS"):
-        _steps = int(os.environ["LTX2_STEPS"])
-        _sigmas = None  # an explicit step count overrides the fixed schedule
-    if os.getenv("LTX2_STG"):
-        _stg = float(os.environ["LTX2_STG"])
 
     # ── Placement ──────────────────────────────────────────────────
     offload = os.getenv("LTX2_OFFLOAD", "").lower()
@@ -218,16 +227,15 @@ async def load_pipeline() -> None:
 
     if getattr(pipe, "vocoder", None) is not None:
         _audio_sample_rate = getattr(
-            pipe.vocoder.config, "output_sampling_rate", 24000,
+            pipe.vocoder.config, "output_sampling_rate", _audio_sample_rate,
         )
 
     vram = torch.cuda.memory_allocated() / 1e9 if torch.cuda.is_available() else 0
     logger.info(
-        "Ready in %.1fs — %s, %d steps, guidance=%.1f, stg=%.1f, "
-        "%dx%d @%.0ffps, audio@%dHz, %.1f GB VRAM",
-        time.monotonic() - t0, "distilled" if USE_DISTILLED else "base",
-        _steps, _guidance, _stg, WIDTH, HEIGHT, FRAME_RATE,
-        _audio_sample_rate, vram,
+        "Ready in %.1fs — %s, %d steps, recipe=%s, %dx%d @%.0ffps, audio@%dHz, %.1f GB VRAM",
+        time.monotonic() - t0, VARIANT, _steps,
+        {k: v for k, v in _call_defaults.items() if k != "sigmas"},
+        WIDTH, HEIGHT, FRAME_RATE, _audio_sample_rate, vram,
     )
 
 
@@ -255,11 +263,14 @@ async def health():
     return {
         "status": "ready" if pipe is not None else "loading",
         "model": MODEL_ID,
-        "distilled": USE_DISTILLED,
+        "variant": VARIANT,
+        "distilled": VARIANT == "distilled",
         "steps": _steps,
+        "recipe": {k: v for k, v in _call_defaults.items() if k != "sigmas"},
         "frame_rate": FRAME_RATE,
         "width": WIDTH,
         "height": HEIGHT,
+        "anchor": True,
         "turn_count": session.get("turn_count", 0),
         "has_reference": "ref_image" in session,
         "vram_allocated_gb": round(torch.cuda.memory_allocated() / 1e9, 1)
@@ -295,20 +306,29 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
 
     num_frames = _snap_to_frame_grid(req.num_frames)
 
-    # Exactly one first-frame condition — see the module docstring for
-    # why a second one at index 0 cannot work.
+    # Exactly one condition at index 0: the reference (turn 1 / cut) or the
+    # previous chunk's tail. Two index-0 conditions would overwrite each
+    # other's leading tokens.
     if session["window"] is None or req.reset_window:
-        condition = LTX2VideoCondition(
+        conditions = [LTX2VideoCondition(
             frames=session["ref_image"], index=0, strength=1.0,
-        )
+        )]
         cond_desc = "reference image (cut)" if req.reset_window else "reference image"
     else:
-        condition = LTX2VideoCondition(
+        conditions = [LTX2VideoCondition(
             frames=session["window"],  # uint8 (F, H, W, 3)
             index=0,
             strength=req.continuity_strength,
-        )
+        )]
         cond_desc = f"{session['window'].shape[0]} trailing frames"
+
+    # Identity anchor: a guiding keyframe (appended tokens, not an
+    # overwrite), so it composes with either index-0 condition.
+    if req.anchor_strength > 0.0:
+        conditions.append(LTX2VideoCondition(
+            frames=session["ref_image"], index=req.anchor_index, strength=req.anchor_strength,
+        ))
+        cond_desc += f" + reference anchor @{req.anchor_index} ×{req.anchor_strength:.2f}"
 
     seed = req.seed if req.seed is not None else int.from_bytes(
         os.urandom(4), "big",
@@ -322,23 +342,18 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
     t0 = time.monotonic()
 
     call_kwargs: dict = dict(
-        conditions=[condition],
+        conditions=conditions,
         prompt=req.prompt,
-        negative_prompt=req.negative_prompt or NEGATIVE,
+        negative_prompt=req.negative_prompt or _negative_default,
         height=HEIGHT,
         width=WIDTH,
         num_frames=num_frames,
         frame_rate=FRAME_RATE,
         generator=generator,
-        guidance_scale=_guidance,
-        stg_scale=_stg,
         output_type="np",
         return_dict=False,
+        **_call_defaults,
     )
-    if _sigmas is not None:
-        call_kwargs["sigmas"] = _sigmas
-    else:
-        call_kwargs["num_inference_steps"] = _steps
 
     video, audio = pipe(**call_kwargs)
     dt = time.monotonic() - t0
@@ -396,6 +411,7 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
             "X-Duration-S": f"{duration_s:.3f}",
             "X-Frame-Rate": str(FRAME_RATE),
             "X-Has-Audio": "1" if audio_arg is not None else "0",
+            "X-Variant": VARIANT,
         },
         background=BackgroundTask(_cleanup, tmp.name),
     )

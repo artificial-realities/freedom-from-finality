@@ -21,7 +21,7 @@ LTX2_VAE_TILING=1 python ltx2_server.py    # lower peak VRAM on decode
 
 # On the client machine — tunnel, then run:
 ssh -N -L 8000:localhost:8000 -p <PORT> root@<HOST>
-python main.py play --config configs/mas.live.yaml
+python main.py play --config configs/director.live.yaml --player web
 ```
 
 ## Renting a GPU on Vast.ai
@@ -38,10 +38,21 @@ Needs `VAST_API_KEY` and `HF_TOKEN` in `.env`, the `vastai` CLI, credit on the a
 
 ## Notes
 
-The server runs the **base model** at 15 sampling steps — the quality/speed sweet spot tested on A100-80GB (~170s/clip with CPU offload). The distilled LoRA (`LTX2_DISTILLED=1`) is currently broken in diffusers ≤0.41 (missing connector modules cause corrupted output); leave it off until a future diffusers release wires those up.
+**Two transformers, two recipes.** `Lightricks/LTX-2.5-Diffusers` ships `transformer/` (the **distilled** DiT, what `from_pretrained` loads by default) and `transformer_full/` (the full / SFT DiT). They need different recipes, and the server picks one with `LTX2_VARIANT`:
+
+| `LTX2_VARIANT` | Weights | Recipe | Cost per clip |
+|---|---|---|---|
+| `distilled` (default) | `transformer/` | `sigmas=DISTILLED_SIGMA_VALUES` (8 steps), `guidance_scale=1.0`, STG and modality guidance off, one forward per step | 8 forwards |
+| `full` | `transformer_full/` | 30 steps (`LTX2_STEPS`), the pipeline's default SFT guidance (CFG 3.0, STG 1.0, modality 3.0, rescale 0.7), `use_dynamic_shifting=True, shift_terminal=0.1` | 90 forwards |
+
+Until 2026-09-09 the server ran the distilled weights with the full recipe (15 linear steps, CFG 3, STG 1), which the model card says will "quietly cost quality"; every live run and sweep before that date used this mismatched configuration. The "broken distilled LoRA" of 2026-09-07 was `ltx-2.5-22b-distilled-lora-450-bf16.safetensors` applied on top of the already-distilled `transformer/`; that LoRA is for distilling `transformer_full/` and is not needed here, so the `LTX2_DISTILLED` switch is gone. The default render size is now the model card's 960×544 (`LTX2_WIDTH`/`LTX2_HEIGHT`); the client letterboxes the seed image to whatever the server reports.
+
+**Identity anchor.** `LTX2ConditionPipeline` accepts several `LTX2VideoCondition`s: one at latent index 0 overwrites the leading tokens (the reference on a cut, the previous chunk's tail on a continue), and any other index is a *guiding keyframe* appended as its own tokens. A request with `anchor_strength > 0` adds the reference image at `anchor_index` (default -1, the last latent frame), so the clip has to return to the sheet; diffusers' long-form recipe uses anchor keyframes at 0.95. The client sets it from `ltxv_anchor_strength` / `ltxv_anchor_index`; `scripts/style_sweep.py` compares off, 0.95 at the end, 0.70 at the end and 0.95 mid-clip.
 
 The client letterboxes the seed image at the server's render size before sending it (`i2v_reference_fit: pad`, fill `auto` continues the image's own border colour); a reference at a different aspect ratio would otherwise be cropped and the model invents what is missing.
 
 A request with `reset_window: true` is a cut: the server conditions on the reference image instead of the previous chunk's tail, which bounds identity drift. The Director engine sends it for shots marked `transition: cut`.
 
 `ltxv_continuity_strength` in the client config controls the continuity-vs-steering trade-off. At `1.0` continuity is maximal but new prompts barely land; lower values let steering through at the cost of visual continuity.
+
+**Not wired yet.** Two-stage distilled generation (stage 1 at half size, ×2 latent upsample, a 3-sigma tail at full size; the model card's "better quality" path) and the Ingredients IC-LoRA (`Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients`, a reference sheet of characters and props read in-context; Lightricks say it works on 2.5 at LoRA strength ~1.3, via `reference_conditions=` in the in-context / modular pipelines).

@@ -288,6 +288,8 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         reference_fill=config.i2v_reference_fill,
         negative_prompt=config.ltxv_negative_prompt,
         seed=config.ltxv_seed,
+        anchor_strength=config.ltxv_anchor_strength,
+        anchor_index=config.ltxv_anchor_index,
         replay_dir=config.i2v_replay_dir,
         replay_delay=config.i2v_replay_delay,
     )

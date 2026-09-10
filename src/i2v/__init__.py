@@ -21,6 +21,8 @@ def build_i2v_backend(
     reference_fill: str = "auto",
     negative_prompt: str = "",
     seed=None,
+    anchor_strength: float = 0.0,
+    anchor_index: int = -1,
     replay_dir: str = "",
     replay_delay: float = 0.0,
     **_extra,
@@ -41,6 +43,8 @@ def build_i2v_backend(
             reference_fill=reference_fill,
             negative_prompt=negative_prompt,
             seed=seed,
+            anchor_strength=anchor_strength,
+            anchor_index=anchor_index,
         )
     if key == "replay":
         if not replay_dir:

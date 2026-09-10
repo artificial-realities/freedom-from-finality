@@ -56,6 +56,12 @@ class Config(BaseModel):
     # optional fixed seed for reproducible renders.
     ltxv_negative_prompt: str = ""
     ltxv_seed: int | None = None
+    # Identity anchor: the server also conditions on the reference image as
+    # a guiding keyframe at `ltxv_anchor_index` (latent frames, -1 = the
+    # last) with this strength, so every clip has to return to the sheet.
+    # 0.0 = off. diffusers' long-form recipe uses 0.95.
+    ltxv_anchor_strength: float = 0.0
+    ltxv_anchor_index: int = -1
     # Replay backend (i2v_backend == "replay"): pre-rendered clips served
     # in order from a directory, for developing the player without a GPU.
     i2v_replay_dir: str = ""

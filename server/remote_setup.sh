@@ -15,5 +15,6 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "cgroup memory limit: $(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"; free -g | sed -n 2p; df -h /root | tail -1
 export HF_HUB_ENABLE_HF_TRANSFER=1
 export LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu}
+export LTX2_VARIANT=${LTX2_VARIANT:-distilled}
 nohup python ltx2_server.py > server.log 2>&1 &
-echo "server started pid $! (offload=$LTX2_OFFLOAD)"
+echo "server started pid $! (variant=$LTX2_VARIANT offload=$LTX2_OFFLOAD)"

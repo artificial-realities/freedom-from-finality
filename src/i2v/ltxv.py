@@ -35,9 +35,9 @@ REQUEST_TIMEOUT_S = 600
 PROBE_TIMEOUT_S = 10
 
 # Fallbacks when the server can't be probed: LTX-2.5 renders at 24fps and
-# the server defaults to 768x512.
+# the server defaults to 960x544 (the model card's recommended size).
 DEFAULT_FRAME_RATE = 24
-DEFAULT_SIZE = (768, 512)
+DEFAULT_SIZE = (960, 544)
 # Fraction of the frame height the reference subject is scaled to when
 # letterboxed: a wide product shot with margins, not a crop.
 REFERENCE_SCALE = 0.8
@@ -61,10 +61,17 @@ class LtxvI2V(I2VBackend):
         reference_fill: str = "auto",
         negative_prompt: str = "",
         seed: int | None = None,
+        anchor_strength: float = 0.0,
+        anchor_index: int = -1,
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.continuity_strength = continuity_strength
         self.continuity_frames = continuity_frames
+        # Identity anchor: the server also conditions on the reference image
+        # as a guiding keyframe at `anchor_index` (latent frames, -1 = last)
+        # with this strength, so the clip has to return to the sheet. 0 = off.
+        self.anchor_strength = anchor_strength
+        self.anchor_index = anchor_index
         # "pad": letterbox the seed image onto a `reference_fill` canvas at
         # the server's render size so nothing is cropped (a square reference
         # sent to a 3:2 render otherwise loses the top of the subject and the
@@ -179,6 +186,9 @@ class LtxvI2V(I2VBackend):
             payload["negative_prompt"] = self.negative_prompt
         if self.seed is not None:
             payload["seed"] = self.seed
+        if self.anchor_strength > 0.0:
+            payload["anchor_strength"] = self.anchor_strength
+            payload["anchor_index"] = self.anchor_index
         if not self._initialized:
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
 
