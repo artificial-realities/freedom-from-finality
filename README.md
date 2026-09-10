@@ -38,9 +38,9 @@ The current test story is deliberately minimal — a single LEGO minifigure alon
 
 Working: end-to-end generation from user input to stitched, narrated video. Open:
 
-- **Identity drift.** Characters do not hold their appearance reliably across continuous clips. Cuts bound it by re-seeding from the reference; observation of rendered frames is the next step.
+- **Identity drift.** Every cut now opens on the right character (reference image, reference pose, a sheet that matches the image), but within a clip the figure redraws itself as soon as it moves: printed face and torso, textured ground, glow. Prompt-level fixes are exhausted; the observation loop measures the drift and the Director cuts on it, which keeps identity at the cost of continuity. The next lever is conditioning that persists through the clip.
 - **Continuity vs. steering.** The sliding window trades one against the other directly (`ltxv_continuity_strength`). High continuity means new input barely lands; low means the picture jumps. A better mechanism is needed, not a better setting.
-- **Latency.** Roughly 170s per clip on an A100-80GB at 15 sampling steps. Far from streaming.
+- **Latency.** 130–200 s per 7 s clip at 15 sampling steps (H100 PCIe to A100, with CPU offload), about 17–30× real time. Far from streaming.
 
 ## Repository
 
