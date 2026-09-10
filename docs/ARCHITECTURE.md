@@ -28,7 +28,8 @@ viewer input ─▶ Engine (deterministic, asyncio)
         entities · threads · interventions · plan · event log · summaries
                      │ segment spec
                      ▼
-        Prompt compiler (code) ─▶ LTX-2.5 server (continue / cut, native audio) ─▶ player
+        Prompt compiler (code) ─▶ LTX-2.5 server (continue / cut, native audio) ─▶ Player (web / ffplay)
+                                                                                    ▲ viewer types here, mid-stream
 ```
 
 ## Components
@@ -45,6 +46,8 @@ viewer input ─▶ Engine (deterministic, asyncio)
 | Pacing | `src/story/pacing.py` | code | Voice-over gate, story clock, stagnation ladder, scene cap |
 | Schemas | `src/story/schemas.py` | code | `Segment`, `ShotSpec`, `EntityOp`, `ThreadOp`, `DialogueLine`, `ShowrunnerUpdate`, `Observation` |
 | Frame observation | `src/vision/observe.py` | vision LLM, off-path | Checks two frames of each rendered clip against the sheets; lands as visual memory |
+| Live loop | `src/eval/runner.py` (`run_live`) | code | Producer (segments → clips) and consumer (clips → player) on a bounded queue |
+| Player | `src/playback/player.py`, `src/web/` | code | `Playable` + `Player` boundary; `TerminalPlayer` (ffplay + stdin), `WebPlayer` (browser page over SSE) |
 
 ## The segment, step by step
 
@@ -78,6 +81,14 @@ Entities carry `kind` (character, prop, location), `description` (for the writer
 The LLM layer otherwise never sees a frame. After each render the runner hands the clip to the engine, which spawns a vision call off the critical path: the middle and end frames, the sheets of the entities that were supposed to be on screen, and the visual style go to a small vision model that returns an `Observation` (per-entity match and deviations, a background check, a 0–3 drift score). The next segment waits at most `observe_wait_seconds` for it, then lands it: each entity's `observed_look`, `observed_at` and `drift` are updated, the latest observation becomes `world.picture`, and everything is persisted.
 
 Two things feed back. The Director sees a **Picture** section describing what the renderer actually showed and is told to open with a `cut` when it drifted. Code enforces it: drift at or above `drift_cut_threshold`, observed after the last cut, forces the next segment's first shot to `cut`, so the renderer re-seeds from the reference. The compiler also states, positively, what a deviating entity or setting is *not* ("Lego Man is exactly as described, not green head with black hair"), which pulls the prompt back to the sheet. `observe_frames: false` turns the loop off; it only runs when video is enabled.
+
+## The player: watch and steer
+
+The live loop (`run_live`) is a producer and a consumer on a bounded queue. The producer runs the segment above, renders it (pipelined with the next Director call when the backend owns continuity), and queues a `Playable`: the clip path, its measured duration, and the viewer-facing views of the segment (narration, voice-over, who is on screen, the transition, the scene, and how the viewer's line was handled). The consumer hands items to a `Player` one at a time and the player holds each for its duration, so **the server is the clock**: the film advances at story pace whether or not anyone is watching, and a browser that joins late is told what is on air and seeks into it.
+
+`WebPlayer` (`src/web/`) is an aiohttp server: `/` serves a single-page player, `/events` is a server-sent-events stream (`hello` with the history, `queued` for prefetch, `playing`, `input`, `status`, `ended`), `/input` takes a typed line at any moment, and `/clips/N.mp4` serves the clip for segment N with Range support. The page plays clips back to back on two stacked video elements, holds the last frame while the next segment renders, shows the voice-over as a caption, and keeps a script column where each segment appears with the viewer's line and the Director's disposition (absorbed / deferred / declined, with the reason). Lines typed while a segment renders are joined and reach the Director at the start of the next segment it writes.
+
+Without a video backend the same page plays the film as text: each segment is held for its planned duration and shows its narration, so a headless config gives a working session and the loop, the pacing and the input path are all exercised offline. `configs/director.replay.yaml` uses the `replay` i2v backend, which serves clips left by an earlier live run, to develop the player with real video and no GPU. `TerminalPlayer` keeps the original ffplay window and stdin reader behind the same interface.
 
 ## Viewer influence
 
@@ -116,7 +127,7 @@ ltxv_seed: null                # fixed seed for reproducible renders
 
 ## Testing
 
-`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, cuts, multi-shot segments, deferred interventions, compaction and replanning without an API key.
+`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, cuts, multi-shot segments, deferred interventions, compaction and replanning without an API key. `tests/test_web.py` runs the live loop through the web player over HTTP, in text mode and with replayed clips.
 
 ## Not built yet, by design
 

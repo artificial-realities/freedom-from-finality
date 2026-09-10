@@ -1,7 +1,10 @@
-"""Scenario runner — drives a config through a list of user commands.
+"""The three run loops.
 
-Backs `play --scenario` (non-interactive, scripted demo input) as well
-as the interactive and live loops.
+`run_scenario` drives a config through a scripted list of viewer lines
+(non-interactive), `run_play` prompts in the terminal between segments,
+and `run_live` is the continuous film: a producer generating segments and
+a `Player` (ffplay window or the web player) showing them while the viewer
+steers mid-stream.
 """
 
 from __future__ import annotations
@@ -11,8 +14,6 @@ import json
 import logging
 import shutil
 import subprocess
-import sys
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +24,9 @@ from src.llm import build_backend
 from src.models.config import Config
 from src.models.story import Story
 from src.playback import (
+    Playable,
+    Player,
+    TerminalPlayer,
     concat_videos_and_mux_audio,
     mux_audio_into_video,
 )
@@ -284,6 +288,8 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         reference_fill=config.i2v_reference_fill,
         negative_prompt=config.ltxv_negative_prompt,
         seed=config.ltxv_seed,
+        replay_dir=config.i2v_replay_dir,
+        replay_delay=config.i2v_replay_delay,
     )
 
 
@@ -412,27 +418,6 @@ def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
     )
 
 
-async def _launch_persistent_ffplay(
-    clip_path: str,
-) -> asyncio.subprocess.Process | None:
-    """Launch ffplay *without* ``-autoexit`` so it holds the last frame."""
-    if not shutil.which("ffplay"):
-        return None
-    try:
-        return await asyncio.create_subprocess_exec(
-            "ffplay",
-            "-noborder",
-            "-loglevel", "quiet",
-            "-window_title", "Artificial Realities",
-            clip_path,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        logger.debug("Could not launch ffplay for %s", clip_path)
-        return None
-
-
 async def _get_clip_duration(clip_path: str, fallback: float = 5.0) -> float:
     dur = await probe_duration(clip_path)
     return dur if dur is not None else fallback
@@ -548,23 +533,27 @@ async def run_live(
     config: Config,
     story: Story,
     log_dir: Path | str = "logs",
+    player: Player | None = None,
+    max_segments: int | None = None,
 ) -> StoryState:
-    """Live demo loop — concurrent producer + player + stdin reader.
+    """Live loop: a producer generating segments, a player showing them.
 
-    The producer keeps generating turns and pushing playable clips
-    onto a bounded queue (size = `lead_clips + 1`). The player pulls
-    clips and pops a video window via ffplay. A background stdin
-    thread reads user input and posts it to a queue; the producer
-    drains that queue at the start of each turn and applies whatever's
-    there as `user_input`. If the queue is empty the story advances on
-    `short_term_narrative` — silent turns are normal.
+    The producer keeps generating turns and pushes `Playable` items onto a
+    bounded queue (size = `lead_clips + 1`). The consumer hands them to the
+    player one at a time; the player holds each for its duration, so the
+    server is the clock. Whatever the viewer typed since the previous
+    segment is read from the player at the start of each turn; when
+    nothing arrived the story advances on its own — silent turns are normal.
 
-    Lead behavior: the queue maxsize is `lead_clips + 1` and the
-    consumer waits for that many clips before launching ffplay. With
-    the default `lead_clips: 0` the player starts as soon as the first
-    clip is ready and the producer naturally overlaps one render with
-    one playback. Bump `lead_clips` to re-introduce sustained
-    "delay-as-feature" narrative smoothing.
+    With a video backend each item is a rendered clip. Without one it is
+    the segment's text, held for the segment's duration, so a headless
+    config gives a working session in the web player.
+
+    Lead behavior: the consumer waits for `lead_clips + 1` items before
+    the first play. With the default `lead_clips: 0` playback starts as
+    soon as the first item is ready and one render naturally overlaps one
+    playback. `max_segments` stops the producer after that many segments
+    (tests, bounded demos); otherwise it runs until Ctrl+C.
     """
     state = StoryState.initialize(story, config_name=config.name)
     session_id = _make_session_id(config.name, "live")
@@ -579,10 +568,7 @@ async def run_live(
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
-    if i2v is None:
-        raise RuntimeError(
-            "run_live requires video_enabled: true in the config; otherwise use run_play."
-        )
+    player = player or TerminalPlayer()
 
     graph = build_graph(
         config.graph, llm=llm, config=config, tts=tts,
@@ -590,51 +576,21 @@ async def run_live(
     )
 
     queue_size = max(1, config.lead_clips + 1)
+    mode = "video" if i2v is not None else "text (no video backend)"
     if config.lead_clips > 0:
-        print(
-            f"Pre-buffering {queue_size} clip(s) before playback "
-            f"(lead_clips={config.lead_clips}). Ctrl+C to quit.",
-            flush=True,
-        )
+        print(f"Live, {mode}: pre-buffering {queue_size} segments before playback "
+              f"(lead_clips={config.lead_clips}). Ctrl+C to quit.", flush=True)
     else:
-        print(
-            "Live mode (lead_clips=0): playback starts as soon as the "
-            "first clip is ready. Ctrl+C to quit.",
-            flush=True,
-        )
+        print(f"Live, {mode}: playback starts as soon as the first segment is ready. "
+              "Ctrl+C to quit.", flush=True)
 
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
-    loop = asyncio.get_running_loop()
-    user_input_queue: asyncio.Queue[str] = asyncio.Queue()
-    clip_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=queue_size)
-
+    queue: asyncio.Queue[Playable | None] = asyncio.Queue(maxsize=queue_size)
     stop_event = asyncio.Event()
+    producer_done = asyncio.Event()
     played_clips: list[str] = []
-
-    def _stdin_loop() -> None:
-        """Blocking stdin reader running on a daemon thread.
-
-        Re-emits a `› ` prompt after every Enter so the terminal feels
-        like a chat input field — the previous line stays as scrollback,
-        a fresh prompt waits below.
-        """
-        sys.stdout.write("› ")
-        sys.stdout.flush()
-        while not stop_event.is_set():
-            try:
-                line = sys.stdin.readline()
-            except Exception:
-                return
-            if not line:  # EOF
-                return
-            line = line.strip()
-            asyncio.run_coroutine_threadsafe(user_input_queue.put(line), loop)
-            sys.stdout.write("› ")
-            sys.stdout.flush()
-
-    threading.Thread(target=_stdin_loop, daemon=True).start()
 
     # The producer mutates these state fields directly so the next turn's
     # voice-over gate sees up-to-date pacing. Mark the loop as managing
@@ -645,37 +601,34 @@ async def run_live(
 
     trace_tags = [config.name, "live"]
 
-    # ── Pipelined render helper ───────────────────────────────────────
-    # When the i2v backend manages sliding-window state server-side
-    # (LTXV), we can overlap render(N) with agents(N+1).  The render
-    # runs as a background task and enqueues the clip when done.
-    # A backend that owns continuity depends only on the prompt, so its
-    # render can overlap with the next turn's agent calls.
-    _pipeline_ok = i2v.manages_continuity
+    # A backend that owns continuity (the LTX-2.5 server's sliding window)
+    # depends only on the prompt, so render(N) can overlap agents(N+1).
+    _pipeline_ok = i2v is not None and i2v.manages_continuity
+
+    async def _enqueue(item: Playable) -> None:
+        await queue.put(item)
+        player.prepare(item)
 
     async def _bg_render_and_enqueue(
-        prompt: str,
-        turn_number: int,
-        seed_image: str,
-        duration: int | None = None,
-        reset: bool = False,
+        item: Playable, *, prompt: str, seed_image: str, duration: int | None, reset: bool,
     ) -> None:
         """Render one clip in the background and enqueue it."""
+        assert i2v is not None
         video_path = await i2v.synthesize(
-            image_path=seed_image,
-            prompt=prompt,
-            turn=turn_number,
-            duration=duration,
-            reset=reset,
+            image_path=seed_image, prompt=prompt, turn=item.turn, duration=duration, reset=reset,
         )
         if video_path:
-            await clip_queue.put(video_path)
+            item.path = video_path
+            item.duration = await _get_clip_duration(
+                video_path, fallback=float(duration or config.i2v_duration),
+            )
+            await _enqueue(item)
             if hasattr(graph, "observe"):
-                graph.observe(video_path, turn_number)
+                graph.observe(video_path, item.turn)
         else:
             langfuse_event(
                 "i2v_render_failed",
-                metadata={"turn": turn_number, "seed_image": seed_image},
+                metadata={"turn": item.turn, "seed_image": seed_image},
                 level="ERROR",
             )
 
@@ -686,10 +639,10 @@ async def run_live(
         # Span-pending: collects silent clips behind a voiceover whose audio
         # spills past one clip. Closed (concat+mux+enqueue) once the
         # accumulated clip duration covers the audio.
-        # Shape: {"clips": [paths], "audio": str, "owed": float,
-        #         "audio_dur": float, "start_turn": int}
+        # Shape: {"item": Playable, "clips": [paths], "audio": str,
+        #         "owed": float, "audio_dur": float, "start_turn": int}
         pending_span: dict | None = None
-        # Background render task for pipelining (LTXV path).
+        # Background render task for pipelining.
         _prev_render: asyncio.Task | None = None
 
         async def _drain_prev() -> None:
@@ -703,16 +656,14 @@ async def run_live(
 
         try:
             while not stop_event.is_set():
+                if max_segments is not None and turn >= max_segments:
+                    break
                 turn += 1
-                # Drain pending input — keep the most recent non-empty entry.
-                user_input = ""
-                while not user_input_queue.empty():
-                    candidate = await user_input_queue.get()
-                    if candidate:
-                        user_input = candidate
+                user_input = await player.next_input()
 
                 state.turn_number = turn
                 state.user_input = user_input
+                player.status(f"the Director is writing segment {turn}")
 
                 with turn_span(
                     turn_number=turn,
@@ -725,45 +676,47 @@ async def run_live(
                     state = _coerce_state(result)
 
                     silent: str | None = None
-                    pipelined = False
+                    handled = False
+                    item: Playable | None = None
                     if state.current_shot is not None:
-                        if (
+                        item = _playable(state)
+                        if i2v is None:
+                            # ── Text-only film ──────────────────────────
+                            # No renderer: the segment plays as text for
+                            # its own duration. Pacing follows that clock.
+                            handled = True
+                            _pace_expected(state, item.duration)
+                            await _enqueue(item)
+                        elif (
                             _pipeline_ok
                             and not state.current_audio_path
                             and pending_span is None
                         ):
                             # ── Pipelined path ──────────────────────────
-                            # Wait for previous render (sliding window is
-                            # sequential), then fire this one in the
-                            # background — it overlaps with the *next*
+                            # Wait for the previous render (the sliding
+                            # window is sequential), then fire this one in
+                            # the background — it overlaps with the *next*
                             # turn's agent calls.
-                            pipelined = True
+                            handled = True
                             await _drain_prev()
+                            player.status(f"rendering segment {turn}")
                             shot_dur = state.current_shot.duration_seconds
                             _prev_render = asyncio.create_task(
                                 _bg_render_and_enqueue(
+                                    item,
                                     prompt=state.current_shot.i2v_prompt,
-                                    turn_number=turn,
                                     seed_image=seed_image,
                                     duration=shot_dur,
                                     reset=state.current_transition == "cut",
                                 )
                             )
-                            # Set pacing state immediately with the
-                            # expected clip duration so the next
-                            # voice-over decision is correct.
-                            expected_dur = float(shot_dur)
-                            state.last_clip_duration = expected_dur
-                            state.audio_seconds_owed = 0.0
-                            if state.current_commentary and state.current_commentary.voiceover:
-                                # A line was produced this turn (rendered natively
-                                # or logged): the silence floor re-arms from here.
-                                state.silence_seconds = 0.0
-                            else:
-                                state.silence_seconds += expected_dur
+                            # Set pacing state now with the expected clip
+                            # duration so the next voice-over decision is right.
+                            _pace_expected(state, float(shot_dur))
                         else:
                             # ── Serial path (audio / span) ──
                             await _drain_prev()
+                            player.status(f"rendering segment {turn}")
                             seed_image, silent, _ = await _render_turn(
                                 state=state,
                                 i2v=i2v,
@@ -780,12 +733,11 @@ async def run_live(
                 _commit_history(state)
                 _log_story_turn(story_logger, state)
 
-                # Pipelined turns already set pacing and enqueued via the
-                # background task — skip the serial post-render logic.
-                if pipelined:
+                # Text and pipelined turns already set pacing and enqueued.
+                if handled:
                     continue
 
-                if silent is None:
+                if silent is None or item is None:
                     # Render failed or skipped — nothing to enqueue. Abort any
                     # pending span (the audio would no longer line up with the
                     # visual continuity anyway) and reset owed so the next
@@ -839,10 +791,13 @@ async def run_live(
                                 "concat_succeeded": combined is not None,
                             },
                         )
+                        span_item: Playable = pending_span["item"]
+                        span_item.path = chosen
+                        span_item.duration = await _get_clip_duration(chosen, fallback=clip_dur)
                         pending_span = None
                         # Span finished: reset silence to start counting again.
                         state.silence_seconds = 0.0
-                        await clip_queue.put(chosen)
+                        await _enqueue(span_item)
                     continue
 
                 audio = state.current_audio_path
@@ -857,6 +812,7 @@ async def run_live(
                         # Voiceover spills past this clip — open a span.
                         owed = audio_dur - clip_dur
                         pending_span = {
+                            "item": item,
                             "clips": [silent],
                             "audio": audio,
                             "owed": owed,
@@ -882,12 +838,18 @@ async def run_live(
                     )
                     state.audio_seconds_owed = 0.0
                     state.silence_seconds = 0.0
-                    await clip_queue.put(muxed or silent)
+                    item.path = muxed or silent
+                    item.duration = clip_dur
+                    await _enqueue(item)
                 else:
                     # Pure silence — accumulate the floor.
                     state.audio_seconds_owed = 0.0
                     state.silence_seconds += clip_dur
-                    await clip_queue.put(silent)
+                    item.path = silent
+                    item.duration = clip_dur
+                    await _enqueue(item)
+            # A bounded run: let the last render land before signalling the end.
+            await _drain_prev()
         except asyncio.CancelledError:
             if _prev_render is not None:
                 _prev_render.cancel()
@@ -895,73 +857,52 @@ async def run_live(
         except Exception:
             logger.exception("Live producer crashed on turn %s", turn)
             stop_event.set()
+        finally:
+            producer_done.set()
+            try:
+                queue.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
 
     async def consumer() -> None:
         gate = queue_size
         try:
-            # Lead gate: wait until `lead_clips + 1` clips are queued.
-            # At lead=0 this is just "wait for the first clip."
-            while clip_queue.qsize() < gate and not stop_event.is_set():
-                await asyncio.sleep(0.5)
+            # Lead gate: wait until `lead_clips + 1` items are queued (or the
+            # producer is already done). At lead=0 this is just "wait for
+            # the first segment."
+            while queue.qsize() < gate and not stop_event.is_set() and not producer_done.is_set():
+                await asyncio.sleep(0.25)
             if stop_event.is_set():
                 return
             if config.lead_clips > 0:
-                print(
-                    f"Lead ready ({clip_queue.qsize()} clips). Starting playback.",
-                    flush=True,
-                )
-
-            current_proc: asyncio.subprocess.Process | None = None
+                print(f"Lead ready ({queue.qsize()} segments). Starting playback.", flush=True)
 
             while not stop_event.is_set():
-                try:
-                    clip_path = clip_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    # Queue empty — current ffplay holds last frame while we
-                    # wait for the producer. The `› ` prompt is enough cue.
-                    clip_path = await clip_queue.get()
-
-                # Launch new window BEFORE killing old → no flicker.
-                new_proc = await _launch_persistent_ffplay(clip_path)
-                # Give the new window time to render its first frame
-                # before tearing down the old one.
-                await asyncio.sleep(0.5)
-
-                if current_proc is not None and current_proc.returncode is None:
-                    try:
-                        current_proc.kill()
-                        await current_proc.wait()
-                    except Exception:
-                        pass
-
-                current_proc = new_proc
-                played_clips.append(clip_path)
+                if queue.empty() and producer_done.is_set():
+                    break
+                item = await queue.get()
+                if item is None:
+                    break
+                if item.path:
+                    played_clips.append(item.path)
                 langfuse_event(
                     "playback_start",
-                    metadata={"turn": state.turn_number, "clip_path": clip_path},
+                    metadata={"turn": item.turn, "clip_path": item.path},
                 )
-
-                duration = await _get_clip_duration(clip_path)
-                await asyncio.sleep(duration)
-
+                # The player holds the item for its duration; when the next
+                # one is not ready yet it keeps showing the last frame.
+                await player.play(item)
                 langfuse_event(
                     "playback_end",
-                    metadata={"turn": state.turn_number, "clip_path": clip_path},
+                    metadata={"turn": item.turn, "clip_path": item.path},
                 )
-                # After sleep, ffplay is showing frozen last frame.
-                # Loop back — if next clip is ready, swap immediately.
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Live consumer crashed")
             stop_event.set()
-        finally:
-            if current_proc is not None and current_proc.returncode is None:
-                try:
-                    current_proc.kill()
-                except Exception:
-                    pass
 
+    await player.start(title=story.title, session_id=session_id)
     producer_task = asyncio.create_task(producer())
     consumer_task = asyncio.create_task(consumer())
 
@@ -979,6 +920,7 @@ async def run_live(
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        await player.stop()
         await graph.drain(state)
         langfuse_flush()
 
@@ -991,3 +933,35 @@ async def run_live(
             else:
                 print("Could not save session video.", flush=True)
     return state
+
+
+def _playable(state: StoryState) -> Playable:
+    """The viewer-facing views of the segment just produced. `path` and the
+    real `duration` are filled in once a clip exists."""
+    beat, shot, comm = state.current_beat, state.current_shot, state.current_commentary
+    return Playable(
+        turn=state.turn_number,
+        duration=float(shot.duration_seconds) if shot else 5.0,
+        user_input=state.user_input,
+        narration=beat.narration if beat else "",
+        voiceover=comm.voiceover if comm else "",
+        on_screen=list(shot.on_screen) if shot else [],
+        camera=shot.camera if shot else "",
+        transition=state.current_transition,
+        intervention=state.current_intervention,
+        intervention_reason=state.current_intervention_reason,
+        scene=state.context_brief,
+    )
+
+
+def _pace_expected(state: StoryState, expected_dur: float) -> None:
+    """Pacing for a segment whose clip is not measured yet (pipelined render
+    or text-only): assume it plays for its planned duration."""
+    state.last_clip_duration = expected_dur
+    state.audio_seconds_owed = 0.0
+    if state.current_commentary and state.current_commentary.voiceover:
+        # A line was produced this turn (rendered natively or logged): the
+        # silence floor re-arms from here.
+        state.silence_seconds = 0.0
+    else:
+        state.silence_seconds += expected_dur

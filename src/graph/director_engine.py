@@ -118,6 +118,8 @@ class DirectorEngine:
             state.current_shot = None
             state.current_commentary = None
             state.current_audio_path = ""
+            state.current_intervention = "none"
+            state.current_intervention_reason = ""
             state.turn_notes = "**World**\n\n- Director call failed; no segment this turn.\n"
             self._tick(state)
             return state
@@ -406,6 +408,8 @@ class DirectorEngine:
         )
         state.current_transition = first.transition
         state.current_commentary = Commentary(voiceover=segment.voiceover)
+        state.current_intervention = segment.intervention
+        state.current_intervention_reason = segment.intervention_reason
         here = world.current_location()
         state.world_state = {
             "protagonist_location": here.id if here else "",

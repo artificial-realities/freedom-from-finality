@@ -22,7 +22,8 @@ class Config(BaseModel):
     max_tokens_per_agent: int = 1024
 
     # When True, dispatch to the continuous live loop (run_live) instead
-    # of the turn-by-turn `run_play`. Requires `video_enabled: true`.
+    # of the turn-by-turn `run_play`. With video disabled the film plays
+    # as text at story pace (useful with the web player).
     live: bool = False
 
     video_enabled: bool = False
@@ -55,6 +56,10 @@ class Config(BaseModel):
     # optional fixed seed for reproducible renders.
     ltxv_negative_prompt: str = ""
     ltxv_seed: int | None = None
+    # Replay backend (i2v_backend == "replay"): pre-rendered clips served
+    # in order from a directory, for developing the player without a GPU.
+    i2v_replay_dir: str = ""
+    i2v_replay_delay: float = 0.0
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""

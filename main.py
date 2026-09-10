@@ -1,9 +1,11 @@
 """Entry point for Artificial Realities.
 
 Usage:
-    python main.py play --config configs/director.yaml
+    python main.py play --config configs/director.yaml                       # terminal, turn by turn
     python main.py play --config configs/director.yaml --scenario data/demo_scenario.json
-    python main.py play --config configs/director.live.yaml   # live with LTX-2.5 video+audio
+    python main.py play --config configs/director.yaml --player web          # the film as text in a browser
+    python main.py play --config configs/director.live.yaml --player web     # live LTX-2.5 video in a browser
+    python main.py play --config configs/director.live.yaml                  # live video in an ffplay window
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ load_dotenv(override=False)
 from src.eval.runner import run_live, run_play, run_scenario  # noqa: E402
 from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
+from src.playback import TerminalPlayer  # noqa: E402
 from src.ui.terminal import TerminalUI  # noqa: E402
 
 DEFAULT_STORY = Path("data/story.json")
@@ -48,6 +51,14 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument("--scenario", type=Path, default=None,
                       help="Optional scenario file; if given, runs non-interactively.")
     play.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR)
+    play.add_argument("--player", choices=["terminal", "web"], default=None,
+                      help="Live film surface: 'web' serves a browser player that streams the film "
+                           "and takes input mid-stream; 'terminal' is an ffplay window plus stdin. "
+                           "Either implies the live loop (default: config's `live` flag).")
+    play.add_argument("--host", default="127.0.0.1", help="Web player bind address")
+    play.add_argument("--port", type=int, default=8765, help="Web player port (0 = any free port)")
+    play.add_argument("--segments", type=int, default=None,
+                      help="Live loop: stop after this many segments (default: run until Ctrl+C)")
     play.add_argument("-v", "--verbose", action="store_true")
 
     return parser
@@ -64,8 +75,14 @@ async def cmd_play(args: argparse.Namespace) -> None:
             scenario_path=args.scenario,
             log_dir=args.log_dir,
         )
-    elif config.live and config.video_enabled:
-        await run_live(config=config, story=story, log_dir=args.log_dir)
+    elif args.player is not None or config.live:
+        if args.player == "web":
+            from src.web import WebPlayer
+            player = WebPlayer(host=args.host, port=args.port)
+        else:
+            player = TerminalPlayer()
+        await run_live(config=config, story=story, log_dir=args.log_dir,
+                       player=player, max_segments=args.segments)
     else:
         await run_play(config=config, story=story, log_dir=args.log_dir, ui=TerminalUI())
 

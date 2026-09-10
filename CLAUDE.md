@@ -17,16 +17,18 @@ src/
   vision/observe.py          # frame observation → visual memory → Picture section + forced cuts
   state/story_state.py       # StoryState — runner-facing surface shared by both engines
   models/                    # config, story (blueprint), responses (legacy views)
-  i2v/                       # image-to-video backends (base, ltxv); `reset` = cut
+  i2v/                       # image-to-video backends (base, ltxv, replay); `reset` = cut
   llm/                       # LLM backends (openai, mock for offline tests)
   tts/elevenlabs.py          # opt-in voice-over TTS (narration: "tts")
   playback/mux.py            # ffmpeg concat + audio mux
+  playback/player.py         # Playable + Player boundary of the live loop; TerminalPlayer (ffplay + stdin)
+  web/                       # WebPlayer (aiohttp: SSE stream, /input, clips) + player.html
   eval/runner.py             # run_play / run_live / run_scenario
-  ui/terminal.py             # free-text input between clips
+  ui/terminal.py             # free-text input between clips (run_play)
   util/                      # json sanitizer, langfuse, media, prompt loader, story log
 tests/                       # python -m tests.run (no pytest needed)
 scripts/style_sweep.py       # style / negative-prompt / continuity sweep against a running server
-configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5)
+configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5) · director.replay.yaml (replayed clips)
 data/                        # story.json blueprint · scenarios (demo, ab, benchmark) · legoman.png
 docs/                        # ARCHITECTURE.md · reviews/ · legacy/
 server/                      # LTX-2.5 inference server (runs on a GPU box; see server/README.md)
@@ -46,11 +48,13 @@ server/                      # LTX-2.5 inference server (runs on a GPU box; see 
 ```bash
 python main.py play --config configs/director.yaml                                        # headless dev — no video or audio
 python main.py play --config configs/director.yaml --scenario data/demo_scenario.json     # non-interactive, scripted input
-python main.py play --config configs/director.live.yaml                                   # live video (needs the LTX-2.5 server)
+python main.py play --config configs/director.yaml --player web                           # the film as text in a browser; type to steer
+python main.py play --config configs/director.live.yaml --player web                      # live video in the browser (needs the LTX-2.5 server)
+python main.py play --config configs/director.replay.yaml --player web                    # the player with replayed clips from logs/video, no GPU
 python -m tests.run                                                                       # offline test suite (mock LLM)
 ```
 
-Default to the headless config. Live runs need an LTX-2.5 server reachable at `ltxv_server_url` on a GPU box, so they are not available by default in this environment. Runs write a markdown transcript to `logs/` and the world model to `logs/sessions/<session>/`.
+Default to the headless config. Live runs need an LTX-2.5 server reachable at `ltxv_server_url` on a GPU box, so they are not available by default in this environment. `--player web` serves the player at `http://127.0.0.1:8765/` (`--port`, `--host`); `--segments N` bounds a live run. Runs write a markdown transcript to `logs/` and the world model to `logs/sessions/<session>/`.
 
 ## Current constraints
 

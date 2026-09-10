@@ -29,7 +29,7 @@ Concretely, as of today:
 
 - **Narrative orchestration** is two LLM roles on two clocks over a typed world model. A **Director** makes one structured call per segment: what happens, how it is shot, what is said, what changed in the world, and how the viewer's input was handled. A **Showrunner** runs off the critical path on triggers to compact the event log into summaries and write the next scene card. Code owns the world model, validation, the prompt compiler, pacing and persistence. This is one mechanism being explored for coordinating generation, not a fixed part of the design; it replaced a four-role split after an A/B and a 180-segment run.
 - **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which carries visual state forward between continuous shots; a cut re-seeds from the reference image. It also renders a native ambient/SFX track, and narration when the Director writes a line.
-- **Playback** muxes and concatenates clips with ffmpeg.
+- **Playback** is a web player: the film streams to a browser clip by clip, holds the last frame while the next segment renders, and takes typed input at any moment; the Director reports whether each line was absorbed, deferred or declined. Without a video backend the same page plays the film as text at story pace. Clips are muxed and concatenated with ffmpeg.
 - **Spoken voice-over** can alternatively go through ElevenLabs TTS for a fixed narrator voice; both video and audio generation can be disabled entirely for headless development.
 
 The current test story is deliberately minimal — a single LEGO minifigure alone in a white void, no dialogue, no locations, no other characters. It strips away every variable except long-horizon continuity, which is the hard part.
@@ -50,7 +50,9 @@ Working: end-to-end generation from user input to stitched, narrated video. Open
 pip install -r requirements.txt
 cp .env.example .env
 
-python main.py play --config configs/director.yaml       # headless, no video or audio
-python main.py play --config configs/director.live.yaml  # live video (needs the LTX-2.5 server)
-python -m tests.run                                      # offline test suite
+python main.py play --config configs/director.yaml                     # headless, no video or audio
+python main.py play --config configs/director.yaml --player web        # the film as text in a browser, steer while it plays
+python main.py play --config configs/director.live.yaml --player web   # live video (needs the LTX-2.5 server)
+python main.py play --config configs/director.replay.yaml --player web # the player with replayed clips, no GPU
+python -m tests.run                                                    # offline test suite
 ```
