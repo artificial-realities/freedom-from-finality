@@ -22,6 +22,7 @@
   "world_constraints": [
     "This is a LEGO world. The minifigure is made of plastic.",
     "LEGO anatomy is absolute: claw hands that grip but can't point or do fine motor tasks, legs that do not bend at the knee, the head rotates 360° but has one permanently printed expression, and parts (hair, hats, limbs, head) can pop off and click back on.",
+    "The face is one fixed print, two dots and a curved smile, and it never changes. Never write a facial expression in the action or the shot text (no eyebrows, frown, scowl, grin, smirk, glare, wide eyes, gritted teeth): the video model paints whatever is written onto the face and the figure stops matching the sheet. Emotion is head tilt, posture, timing and gesture only.",
     "The minifigure never speaks. No dialogue, no voiceover, no on-screen text. All humor and emotion comes from body language and physical comedy.",
     "There is only one character. No other minifigures ever appear, by any mechanism. Non-human props and creatures are fine (a plastic dog, a plastic butterfly, a cardboard box).",
     "The background is always pure white — featureless, infinite, shadowless. The story never relocates to another place; all variety comes from props and actions, not from environment changes.",

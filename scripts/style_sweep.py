@@ -3,10 +3,10 @@
 For each variant: reset the server session, render clip 1 from the
 reference (a cut) and clip 2 continuing from it, with a fixed seed so
 variants differ only in style text, negative prompt, continuity strength,
-window and identity anchor. Clips land under logs/sweep/<variant>/; a
-contact sheet with four frames per clip is written to logs/sweep/contact.png.
+window and identity anchor. Clips land under <out>/<variant>/ (--out, default logs/sweep); a
+contact sheet with four frames per clip is written to <out>/contact.png.
 
-    python scripts/style_sweep.py [--server http://localhost:8000] [--only s1n1,base]
+    python scripts/style_sweep.py [--server http://localhost:8000] [--only s1n1,base] [--out logs/sweep]
     python scripts/style_sweep.py --only kick,kick_a095,kick_a070,kick_amid   # 2026-09-09 substrate set
 
 The substrate set (default) uses the action that drifted in every live
@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -94,6 +95,7 @@ VARIANTS = {
     "kick_amid": dict(style=S0, negative=N1, strength=1.0, frames=9, body1=BODY_KICK, body2=BODY_AFTER, anchor=0.95, anchor_index=8),
 }
 SUBSTRATE_SET = ["kick", "kick_a095", "kick_a070", "kick_amid"]
+ROOT = Path("logs/sweep")  # set from --out; one root per server variant
 
 
 async def run_variant(name: str, server: str, seed: int, duration: int) -> list[str]:
@@ -104,19 +106,20 @@ async def run_variant(name: str, server: str, seed: int, duration: int) -> list[
     body2 = v.get("body2", BODY2)
     anchor, anchor_index = v.get("anchor", 0.0), v.get("anchor_index", -1)
     plan = [(1, body1, True), (2, body2, False)][: v.get("clips", 2)]
-    out = Path("logs/sweep") / name
+    out = ROOT / name
     out.mkdir(parents=True, exist_ok=True)
     requests.post(f"{server}/reset", timeout=30)
     i2v = LtxvI2V(server_url=server, continuity_strength=strength, continuity_frames=frames,
                   output_dir=out, negative_prompt=negative, seed=seed,
                   anchor_strength=anchor, anchor_index=anchor_index)
-    clips = []
+    clips, latencies = [], []
     for turn, body, reset in plan:
         path = await i2v.synthesize(image_path="data/legoman.png", prompt=f"{style} {body}",
                                     turn=turn, duration=duration, reset=reset)
-        print(f"[{name}] clip {turn}: {path}", flush=True)
+        print(f"[{name}] clip {turn}: {path} ({i2v.last_latency_s}s render)", flush=True)
         if path:
             clips.append(path)
+            latencies.append(i2v.last_latency_s)
     health = {}
     try:
         health = requests.get(f"{server}/health", timeout=10).json()
@@ -127,14 +130,14 @@ async def run_variant(name: str, server: str, seed: int, duration: int) -> list[
          "continuity_frames": frames, "seed": seed, "body1": body1, "body2": body2,
          "anchor_strength": anchor, "anchor_index": anchor_index,
          "server": {k: health.get(k) for k in ("variant", "steps", "recipe", "width", "height")},
-         "clips": clips}, indent=2))
+         "clips": clips, "latency_s": latencies}, indent=2))
     return clips
 
 
 def contact_sheet(names: list[str], out: Path) -> None:
     rows = []
     for name in names:
-        clips = sorted((Path("logs/sweep") / name).glob("turn_*.mp4"))
+        clips = sorted((ROOT / name).glob("turn_*.mp4"))
         if not clips:
             continue
         strips = []
@@ -147,7 +150,7 @@ def contact_sheet(names: list[str], out: Path) -> None:
             subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-i", str(clip), "-vf",
                             f"select='{picks}',scale=192:-1,tile=4x1", "-frames:v", "1", str(strip)], check=True)
             strips.append(strip)
-        row = Path("logs/sweep") / f"{name}.row.png"
+        row = ROOT / f"{name}.row.png"
         cmd = ["ffmpeg", "-v", "quiet", "-y"]
         for s in strips:
             cmd += ["-i", str(s)]
@@ -158,16 +161,19 @@ def contact_sheet(names: list[str], out: Path) -> None:
         else:
             row = strips[0]
         # label the row with the variant name
-        labelled = Path("logs/sweep") / f"{name}.labelled.png"
+        labelled = ROOT / f"{name}.labelled.png"
         subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-i", str(row), "-vf",
                         f"drawtext=text='{name}':x=6:y=6:fontsize=20:fontcolor=red:box=1:boxcolor=white@0.7",
                         str(labelled)], check=False)
         rows.append(labelled if labelled.exists() else row)
-    cmd = ["ffmpeg", "-v", "quiet", "-y"]
-    for r in rows:
-        cmd += ["-i", str(r)]
-    cmd += ["-filter_complex", "".join(f"[{i}]" for i in range(len(rows))) + f"vstack={len(rows)}", str(out)]
-    subprocess.run(cmd, check=True)
+    if len(rows) == 1:
+        shutil.copy(rows[0], out)
+    else:
+        cmd = ["ffmpeg", "-v", "quiet", "-y"]
+        for r in rows:
+            cmd += ["-i", str(r)]
+        cmd += ["-filter_complex", "".join(f"[{i}]" for i in range(len(rows))) + f"vstack={len(rows)}", str(out)]
+        subprocess.run(cmd, check=True)
     print("contact sheet:", out)
 
 
@@ -175,14 +181,18 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--server", default="http://localhost:8000")
     ap.add_argument("--only", default="", help="comma-separated variant names (default: the substrate set)")
-    ap.add_argument("--sheet", default="logs/sweep/contact.png")
+    ap.add_argument("--out", default="logs/sweep", help="output root, e.g. logs/sweep/distilled")
+    ap.add_argument("--sheet", default="", help="contact sheet path (default: <out>/contact.png)")
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--duration", type=int, default=5)
     args = ap.parse_args()
+    global ROOT
+    ROOT = Path(args.out)
+    ROOT.mkdir(parents=True, exist_ok=True)
     names = [n for n in args.only.split(",") if n] or SUBSTRATE_SET
     for name in names:
         await run_variant(name, args.server, args.seed, args.duration)
-    contact_sheet(names, Path(args.sheet))
+    contact_sheet(names, Path(args.sheet) if args.sheet else ROOT / "contact.png")
 
 
 if __name__ == "__main__":

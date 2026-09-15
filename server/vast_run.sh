@@ -13,7 +13,7 @@
 #
 # Needs VAST_API_KEY and HF_TOKEN in .env, the `vastai` CLI, and your ssh
 # public key registered on Vast (`vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"`).
-# Override VAST_IMAGE, VAST_QUERY, LTX2_OFFLOAD or LTX2_VARIANT (distilled|full) in the environment.
+# Override VAST_IMAGE, VAST_QUERY, LTX2_OFFLOAD (gpu|text|cpu|sequential) or LTX2_VARIANT (distilled|full) in the environment.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
@@ -37,10 +37,21 @@ up() {
     | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"), d; print(d["new_contract"])' > "$STATE/id"
   echo "instance $(cat "$STATE/id"): waiting for boot"
   for _ in $(seq 1 60); do [ "$(field actual_status)" = running ] && break; sleep 10; done
-  field ssh_host > "$STATE/host"; field ssh_port > "$STATE/port"
+  # Prefer the direct port on the host's public IP (--direct); the ssh
+  # proxy (sshN.vast.ai) can refuse the key for minutes after boot.
+  instance_json | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+direct = (d.get("ports") or {}).get("22/tcp") or []
+if d.get("public_ipaddr") and direct:
+    print(d["public_ipaddr"]); print(direct[0]["HostPort"])
+else:
+    print(d["ssh_host"]); print(d["ssh_port"])
+' | { read -r h; read -r p; echo "$h" > "$STATE/host"; echo "$p" > "$STATE/port"; }
+  echo "ssh target $(cat "$STATE/host"):$(cat "$STATE/port")"
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
   scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
-  ssh_cmd "chmod +x /root/remote_setup.sh; nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} /root/remote_setup.sh > /root/setup.log 2>&1 &"
+  ssh_cmd "chmod +x /root/remote_setup.sh; nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-gpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} /root/remote_setup.sh > /root/setup.log 2>&1 &"
   ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"
   echo "tunnel open on localhost:8000; waiting for the server (install + weights + load, ~5-15 min)"
@@ -60,7 +71,10 @@ restart() {
   # Same box, new server process: switch LTX2_VARIANT / LTX2_STEPS / size without re-renting.
   # The weights are cached on the box, so this is load time only (a few minutes).
   scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py "root@$(cat "$STATE/host"):/root/"
-  ssh_cmd "pkill -f ltx2_server.py || true; sleep 2; cd /root && HF_HUB_ENABLE_HF_TRANSFER=1 nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} ${LTX2_STEPS:+LTX2_STEPS=$LTX2_STEPS} ${LTX2_WIDTH:+LTX2_WIDTH=$LTX2_WIDTH} ${LTX2_HEIGHT:+LTX2_HEIGHT=$LTX2_HEIGHT} python ltx2_server.py > server.log 2>&1 &"
+  # Kill and start in separate ssh calls: with both in one command line the
+  # kill pattern matches the shell running it (its argv holds the start command).
+  ssh_cmd "pkill -f '[l]tx2_server.py' || true; sleep 2"
+  ssh_cmd "cd /root && HF_HUB_ENABLE_HF_TRANSFER=1 setsid -f env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-gpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} ${LTX2_STEPS:+LTX2_STEPS=$LTX2_STEPS} ${LTX2_WIDTH:+LTX2_WIDTH=$LTX2_WIDTH} ${LTX2_HEIGHT:+LTX2_HEIGHT=$LTX2_HEIGHT} python ltx2_server.py > server.log 2>&1 < /dev/null"
   echo "server restarting as ${LTX2_VARIANT:-distilled}; waiting for /health"
   wait_ready 80 || exit 1
 }

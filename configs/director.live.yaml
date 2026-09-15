@@ -18,7 +18,8 @@ ltxv_server_url: "http://localhost:8000"
 ltxv_continuity_strength: 1.0
 ltxv_continuity_frames: 9
 # Identity anchor: the reference image as a guiding keyframe at the end of
-# every clip. Off until the 2026-09-09 substrate sweep picks a value.
+# every clip. Off: the 2026-09-15 sweep showed identity holds without it on
+# the distilled recipe, and an end anchor suppresses the closing action.
 ltxv_anchor_strength: 0.0
 ltxv_anchor_index: -1
 # Negative prompt from the 2026-09-08 sweep: removes the green-face artifact.

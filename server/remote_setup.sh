@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs on the GPU box (copied there by server/vast_run.sh): install the
 # server's dependencies and start ltx2_server.py in the background.
-# Env: HF_TOKEN (required, gated weights), LTX2_OFFLOAD (default "cpu").
+# Env: HF_TOKEN (required, gated weights), LTX2_OFFLOAD (default "gpu": everything resident on an 80 GB card; "text" offloads the text encoder).
 set -e
 cd /root
 export DEBIAN_FRONTEND=noninteractive
@@ -14,7 +14,7 @@ python -c "from diffusers import LTX2ConditionPipeline; print('LTX2ConditionPipe
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "cgroup memory limit: $(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"; free -g | sed -n 2p; df -h /root | tail -1
 export HF_HUB_ENABLE_HF_TRANSFER=1
-export LTX2_OFFLOAD=${LTX2_OFFLOAD:-cpu}
+export LTX2_OFFLOAD=${LTX2_OFFLOAD:-gpu}
 export LTX2_VARIANT=${LTX2_VARIANT:-distilled}
 nohup python ltx2_server.py > server.log 2>&1 &
 echo "server started pid $! (variant=$LTX2_VARIANT offload=$LTX2_OFFLOAD)"

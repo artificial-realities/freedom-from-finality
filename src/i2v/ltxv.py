@@ -72,6 +72,9 @@ class LtxvI2V(I2VBackend):
         # with this strength, so the clip has to return to the sheet. 0 = off.
         self.anchor_strength = anchor_strength
         self.anchor_index = anchor_index
+        # Server-reported render time of the last clip (X-Latency-S), for
+        # the sweep and the run log; None until a clip has rendered.
+        self.last_latency_s: float | None = None
         # "pad": letterbox the seed image onto a `reference_fill` canvas at
         # the server's render size so nothing is cropped (a square reference
         # sent to a 3:2 render otherwise loses the top of the subject and the
@@ -209,6 +212,10 @@ class LtxvI2V(I2VBackend):
             return None
 
         self._initialized = True
+        try:
+            self.last_latency_s = float(resp.headers.get("X-Latency-S", ""))
+        except ValueError:
+            self.last_latency_s = None
 
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = self.output_dir / f"turn_{turn:04d}_{stamp}.mp4"

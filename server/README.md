@@ -15,8 +15,10 @@ pip install -r server/requirements.txt
 export HF_TOKEN=hf_...
 python ltx2_server.py          # downloads weights on first run, serves on :8000
 
-# Lower VRAM usage:
-LTX2_OFFLOAD=cpu python ltx2_server.py     # CPU offload between calls
+# Placement:
+LTX2_OFFLOAD=gpu python ltx2_server.py     # default: everything resident, prompt enhancer dropped (~70 GB; 80 GB card)
+LTX2_OFFLOAD=text python ltx2_server.py    # DiT + decoders resident (~40 GB), text encoder offloaded (~2x slower per clip)
+LTX2_OFFLOAD=cpu python ltx2_server.py     # every component offloaded between uses (~4x slower per clip)
 LTX2_VAE_TILING=1 python ltx2_server.py    # lower peak VRAM on decode
 
 # On the client machine — tunnel, then run:
@@ -26,7 +28,7 @@ python main.py play --config configs/director.live.yaml --player web
 
 ## Renting a GPU on Vast.ai
 
-`server/vast_run.sh` automates the whole loop: rent the cheapest matching 80 GB offer, install the dependencies and start the server with CPU offload, open the tunnel, wait for `/health`, run the client, destroy the instance.
+`server/vast_run.sh` automates the whole loop: rent the cheapest matching 80 GB offer, install the dependencies and start the server (everything resident), open the tunnel, wait for `/health`, run the client, destroy the instance.
 
 ```bash
 server/vast_run.sh up                                                        # ~5-15 min, prints "server ready"
@@ -45,7 +47,9 @@ Needs `VAST_API_KEY` and `HF_TOKEN` in `.env`, the `vastai` CLI, credit on the a
 | `distilled` (default) | `transformer/` | `sigmas=DISTILLED_SIGMA_VALUES` (8 steps), `guidance_scale=1.0`, STG and modality guidance off, one forward per step | 8 forwards |
 | `full` | `transformer_full/` | 30 steps (`LTX2_STEPS`), the pipeline's default SFT guidance (CFG 3.0, STG 1.0, modality 3.0, rescale 0.7), `use_dynamic_shifting=True, shift_terminal=0.1` | 90 forwards |
 
-Until 2026-09-09 the server ran the distilled weights with the full recipe (15 linear steps, CFG 3, STG 1), which the model card says will "quietly cost quality"; every live run and sweep before that date used this mismatched configuration. The "broken distilled LoRA" of 2026-09-07 was `ltx-2.5-22b-distilled-lora-450-bf16.safetensors` applied on top of the already-distilled `transformer/`; that LoRA is for distilling `transformer_full/` and is not needed here, so the `LTX2_DISTILLED` switch is gone. The default render size is now the model card's 960×544 (`LTX2_WIDTH`/`LTX2_HEIGHT`); the client letterboxes the seed image to whatever the server reports.
+Until 2026-09-09 the server ran the distilled weights with the full recipe (15 linear steps, CFG 3, STG 1), which the model card says will "quietly cost quality"; every live run and sweep before that date used this mismatched configuration. The 2026-09-15 sweep confirmed that this mismatch was the within-clip identity drift: on the distilled recipe the figure holds through the action with no anchor (`docs/reviews/2026-09-15-substrate-sweep.md`). The "broken distilled LoRA" of 2026-09-07 was `ltx-2.5-22b-distilled-lora-450-bf16.safetensors` applied on top of the already-distilled `transformer/`; that LoRA is for distilling `transformer_full/` and is not needed here, so the `LTX2_DISTILLED` switch is gone. The default render size is now the model card's 960×544 (`LTX2_WIDTH`/`LTX2_HEIGHT`); the client letterboxes the seed image to whatever the server reports.
+
+**Latency.** The 8 distilled forwards take ~11 s for 121 frames at 960×544 on an H100 PCIe, and with everything resident (`LTX2_OFFLOAD=gpu`, default, 70 GB) that is nearly the whole clip: 12–13 s per 5 s clip plus 1.2 s to encode. `text` offloads the Gemma text encoder and costs 28 s per clip (the encoder's round trip); `cpu` offloads everything and costs 57 s. The server logs a per-stage breakdown for every turn (`timings:`) and encodes the MP4 by piping frames into ffmpeg (libx264 veryfast, audio muxed from a WAV); diffusers' PyAV path took 17–24 s per clip on the Vast boxes and is kept behind `LTX2_ENCODER=av`.
 
 **Identity anchor.** `LTX2ConditionPipeline` accepts several `LTX2VideoCondition`s: one at latent index 0 overwrites the leading tokens (the reference on a cut, the previous chunk's tail on a continue), and any other index is a *guiding keyframe* appended as its own tokens. A request with `anchor_strength > 0` adds the reference image at `anchor_index` (default -1, the last latent frame), so the clip has to return to the sheet; diffusers' long-form recipe uses anchor keyframes at 0.95. The client sets it from `ltxv_anchor_strength` / `ltxv_anchor_index`; `scripts/style_sweep.py` compares off, 0.95 at the end, 0.70 at the end and 0.95 mid-clip.
 

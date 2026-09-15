@@ -60,7 +60,10 @@ Environment variables:
     LTX2_STG          full variant only: override stg_scale
     LTX2_WIDTH        output width, multiple of 32 (default: 960)
     LTX2_HEIGHT       output height, multiple of 32 (default: 544)
-    LTX2_OFFLOAD      "cpu" or "sequential" when VRAM is tight
+    LTX2_OFFLOAD      "cpu" (every component offloaded between uses), "text"
+                      (only the text encoder offloaded; DiT resident, ~76 GB
+                      peak), "sequential", or "gpu"/unset (everything resident,
+                      prompt enhancer dropped; ~72 GB + activations)
     LTX2_VAE_TILING   "1" to enable VAE tiling (lower peak VRAM on decode)
     LTX2_HOST/PORT    bind address (default: 0.0.0.0:8000)
 """
@@ -72,8 +75,11 @@ import base64
 import io
 import logging
 import os
+import shutil
+import subprocess
 import tempfile
 import time
+import wave
 
 import numpy as np
 import torch
@@ -218,12 +224,31 @@ async def load_pipeline() -> None:
         pipe.enable_sequential_cpu_offload(device="cuda:0")
     elif offload == "cpu":
         pipe.enable_model_cpu_offload(device="cuda:0")
+    elif offload == "text":
+        # Keep the DiT and the decoders resident on the GPU and hook only
+        # the text side, so the 24 GB Gemma encoder is on the GPU only
+        # while it encodes (offloaded when the connectors run after it).
+        # Saves the transformer's 44 GB round trip on every clip. The
+        # pipeline's end-of-call hook reset would move everything back to
+        # the CPU, so it is disabled; accelerate's hooks persist across calls.
+        pipe.model_cpu_offload_seq = "prompt_enhancer->text_encoder->connectors"
+        pipe._exclude_from_cpu_offload = ["duration_head", "transformer", "vae", "audio_vae", "vocoder"]
+        pipe.enable_model_cpu_offload(device="cuda:0")
+        pipe.maybe_free_model_hooks = lambda: None
     else:
+        # Everything resident ("gpu" or unset). The prompt enhancer (10 GB)
+        # and the duration head are never used by this server, so they are
+        # dropped to make room: DiT 40 GB + Gemma 24 GB + connectors 6 GB +
+        # decoders 2 GB is about 72 GB on an 80 GB card.
+        if getattr(pipe, "prompt_enhancer", None) is not None or getattr(pipe, "duration_head", None) is not None:
+            pipe.register_modules(prompt_enhancer=None, duration_head=None)
         pipe.to("cuda")
 
     if os.getenv("LTX2_VAE_TILING") == "1":
         pipe.vae.enable_tiling()
         logger.info("VAE tiling enabled")
+
+    _install_stage_timers(pipe)
 
     if getattr(pipe, "vocoder", None) is not None:
         _audio_sample_rate = getattr(
@@ -355,26 +380,26 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
         **_call_defaults,
     )
 
+    _stage_times.clear()
+    _forwards[0] = 0
     video, audio = pipe(**call_kwargs)
     dt = time.monotonic() - t0
+    logger.info("Turn %d: %s", turn, _stage_summary(dt))
 
     # output_type="np" → float [0, 1], shape (B, F, H, W, C).
     frames = video[0] if getattr(video, "ndim", 0) == 5 else video
 
-    # Keep the tail as uint8 [0, 255] for the next turn's condition.
-    # Conditions are mapped with `pixels / 127.5 - 1.0`, so the range
-    # matters; uint8 also satisfies the single-frame CRF path, which
-    # rejects non-uint8 input.
-    tail = min(req.continuity_frames, frames.shape[0])
-    session["window"] = (
-        np.clip(frames[-tail:], 0.0, 1.0) * 255.0
-    ).round().astype(np.uint8)
+    # uint8 [0, 255] once: the tail is the next turn's condition (the
+    # pipeline maps conditions with `pixels / 127.5 - 1.0`, and the
+    # single-frame CRF path rejects non-uint8), and the encoder takes the
+    # same array.
+    frames_u8 = (np.clip(frames, 0.0, 1.0) * 255.0).round().astype(np.uint8)
+    tail = min(req.continuity_frames, frames_u8.shape[0])
+    session["window"] = frames_u8[-tail:]
 
     logger.info("Turn %d: generated in %.2fs, %s", turn, dt, list(frames.shape))
 
     # ── Encode ────────────────────────────────────────────────────
-    # encode_video takes float [0, 1] for ndarray input — hand it the
-    # pipeline's output unchanged rather than pre-converting.
     tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
     tmp.close()
 
@@ -386,13 +411,17 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
             else a.float().cpu()
         )
 
-    _encode_video(
-        frames,
-        fps=int(FRAME_RATE),
-        output_path=tmp.name,
-        audio=audio_arg,
-        audio_sample_rate=_audio_sample_rate if audio_arg is not None else None,
-    )
+    t1 = time.monotonic()
+    if _FFMPEG and os.getenv("LTX2_ENCODER", "ffmpeg") == "ffmpeg":
+        _encode_mp4(frames_u8, int(FRAME_RATE), audio_arg, _audio_sample_rate, tmp.name)
+    else:
+        # diffusers' PyAV path: libx264 at its defaults, one thread, frame
+        # by frame; 17-24 s for a 5 s clip on the Vast boxes.
+        _encode_video(
+            frames_u8, fps=int(FRAME_RATE), output_path=tmp.name,
+            audio=audio_arg, audio_sample_rate=_audio_sample_rate if audio_arg is not None else None,
+        )
+    logger.info("Turn %d: encoded in %.2fs", turn, time.monotonic() - t1)
 
     duration_s = frames.shape[0] / FRAME_RATE
     logger.info(
@@ -417,7 +446,129 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
     )
 
 
+# ── Stage timing ──────────────────────────────────────────────────
+# Where a clip's wall time goes: text encoding, condition encoding,
+# transformer compute vs. the offload transfers around it, VAE decode,
+# audio decode + vocoder. Logged per turn; the remainder is "other".
+_stage_times: dict[str, float] = {}
+_forwards = [0]
+
+
+def _timed(obj, attr: str, label: str) -> None:
+    fn = getattr(obj, attr)
+
+    def wrapper(*args, **kwargs):
+        torch.cuda.synchronize()
+        t = time.monotonic()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            torch.cuda.synchronize()
+            _stage_times[label] = _stage_times.get(label, 0.0) + time.monotonic() - t
+
+    setattr(obj, attr, wrapper)
+
+
+def _install_stage_timers(p) -> None:
+    _timed(p, "encode_prompt", "text")
+    _timed(p, "prepare_latents", "conditions")
+    if getattr(p, "connectors", None) is not None:
+        # Runs after encode_prompt; with offload its hook also moves the
+        # text encoder back to the CPU, so that transfer lands here.
+        _timed(p.connectors, "forward", "connectors")
+    _timed(p.vae, "decode", "vae_decode")
+    if getattr(p, "audio_vae", None) is not None:
+        _timed(p.audio_vae, "decode", "audio_decode")
+    if getattr(p, "vocoder", None) is not None:
+        _timed(p.vocoder, "forward", "vocoder")
+    # Compute time and forward count: wrap the innermost forward. With CPU
+    # offload accelerate keeps the original as `_old_forward` and re-wraps
+    # it after every call, so the wrapper survives there; without offload
+    # `forward` itself is wrapped.
+    tr = p.transformer
+    inner_attr = "_old_forward" if hasattr(tr, "_old_forward") else "forward"
+    inner = getattr(tr, inner_attr)
+
+    def compute(*args, **kwargs):
+        _forwards[0] += 1
+        torch.cuda.synchronize()
+        t = time.monotonic()
+        try:
+            return inner(*args, **kwargs)
+        finally:
+            torch.cuda.synchronize()
+            _stage_times["transformer_compute"] = (
+                _stage_times.get("transformer_compute", 0.0) + time.monotonic() - t
+            )
+
+    setattr(tr, inner_attr, compute)
+    # Total (compute plus accelerate's transfers) via torch hooks, which
+    # diffusers' hook reset leaves alone.
+    marks: dict[str, float] = {}
+
+    def pre(module, args):
+        torch.cuda.synchronize()
+        marks["t"] = time.monotonic()
+
+    def post(module, args, output):
+        torch.cuda.synchronize()
+        _stage_times["transformer_total"] = (
+            _stage_times.get("transformer_total", 0.0) + time.monotonic() - marks["t"]
+        )
+
+    tr.register_forward_pre_hook(pre)
+    tr.register_forward_hook(post)
+
+
+def _stage_summary(total: float) -> str:
+    t = _stage_times
+    compute = t.get("transformer_compute", t.get("transformer_total", 0.0))
+    transfer = max(t.get("transformer_total", 0.0) - compute, 0.0)
+    audio = t.get("audio_decode", 0.0) + t.get("vocoder", 0.0)
+    accounted = t.get("text", 0.0) + t.get("connectors", 0.0) + t.get("conditions", 0.0) \
+        + max(t.get("transformer_total", 0.0), compute) + t.get("vae_decode", 0.0) + audio
+    return (f"timings: text {t.get('text', 0.0):.1f}s, connectors {t.get('connectors', 0.0):.1f}s, "
+            f"conditions {t.get('conditions', 0.0):.1f}s, "
+            f"transformer {compute:.1f}s compute + {transfer:.1f}s transfer over {_forwards[0]} forwards, "
+            f"vae decode {t.get('vae_decode', 0.0):.1f}s, audio {audio:.1f}s, "
+            f"other {max(total - accounted, 0.0):.1f}s")
+
+
 # ── Helpers ───────────────────────────────────────────────────────
+
+_FFMPEG = shutil.which("ffmpeg") is not None
+
+
+def _encode_mp4(frames_u8: np.ndarray, fps: int, audio: torch.Tensor | None,
+                sample_rate: int, path: str) -> None:
+    """Raw RGB frames piped into ffmpeg (libx264 veryfast, all cores), the
+    audio waveform [channels, samples] muxed from a temporary WAV. About
+    ten times faster than the frame-by-frame PyAV path on these boxes."""
+    n, h, w, _ = frames_u8.shape
+    wav = None
+    cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+           "-s", f"{w}x{h}", "-r", str(fps), "-i", "-"]
+    if audio is not None:
+        wav = path + ".wav"
+        pcm = (audio.clamp(-1.0, 1.0).T.contiguous().numpy() * 32767.0).astype(np.int16)
+        with wave.open(wav, "wb") as f:
+            f.setnchannels(pcm.shape[1])
+            f.setsampwidth(2)
+            f.setframerate(int(sample_rate))
+            f.writeframes(pcm.tobytes())
+        cmd += ["-i", wav]
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", "0"]
+    if audio is not None:
+        cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+    cmd += ["-movflags", "+faststart", path]
+    try:
+        subprocess.run(cmd, input=frames_u8.tobytes(), check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"ffmpeg encode failed: {exc.stderr.decode(errors='replace')[-500:]}") from exc
+    finally:
+        if wav and os.path.exists(wav):
+            os.unlink(wav)
+
 
 def _snap_to_frame_grid(raw: int) -> int:
     """Snap onto the VAE's causal (N*8 + 1) temporal grid."""
