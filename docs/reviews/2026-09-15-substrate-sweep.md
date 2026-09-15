@@ -69,6 +69,25 @@ Steering lag is now the engine's, not the renderer's. A line posted while segmen
 
 Fixed the same day, after this run: the loop now starts the Director call for N+2 as late as the render of N+1 allows (render estimate minus Director estimate, both running averages) and reads the viewer's lines then. A line typed while clip N plays lands at N+2, the earliest the pipeline permits, and no render waits for it; `tests/test_live_timing.py` pins it.
 
+## 5. Verification run: the day's changes together
+
+A second rental the same evening (H100 PCIe, 19 minutes, $0.73): the same ten-segment protocol with `LTX2_OFFLOAD=gpu`, the ffmpeg encoder, the fixed-face constraint in the blueprint and the live loop's late start. Transcript and clips under `logs/live_verify/`; contact sheet `img/2026-09-15-live-verify.jpg`.
+
+| Check | Morning run | Verification run |
+|---|---|---|
+| Render (server, generation + encode) | 32–39 s per 6–9 s clip | 16.7 s + 1.4 s for 6 s, 19.5 s + 1.6 s for 7 s, 22.7 s + 1.8 s for 8 s (2.7–3.1× real time) |
+| Steering | lines posted at 2, 4, 6, 8 landed at 5, 7, 9 and never | landed at 4, 6, 8, 10: every line two segments after it was posted |
+| Director's expression words | eyebrows ×14, angry ×5, smirk ×5, determined ×2 | eyebrow ×2, smirk ×2, surprised ×2 |
+| Faces on screen | brows, frowns, a grin from clip 2 on | plain two-dot face in clips 1–5; a smirk in clip 9 |
+| Torso, legs, ground | held | held; the ground greys in the last frames of clip 10 |
+| Observer drift scores | 2, 2, 2, 1, 2, 0, 3, 2 | 1, 2, 2, 2, 2, 2, 2, 2 |
+
+The first three clips on the fresh box carried 10–20 s of extra CPU time after the pipeline returned (the float-to-uint8 conversion, 0.4 s in isolation); from clip 4 on it was 0.3 s. A fresh box's first large allocations pay for it, which is worth remembering when reading a run's first clips.
+
+The observer's scores did not fall, and reading its reasons against the frames shows why. Three of the eight reports call the head stud, seen from above when the figure bends or turns, a "hair piece". One calls the close-up of clip 6, which frames the torso and the ball, a "missing head". The sheet is right and the rubric is not: it has no notion of framing (a close-up crops), and it reads a stud from a high angle as hair. Two things it reports are real: the ground greys in the final frames of clip 10, the busiest prompt again, and clip 7 ends on a motion-blurred smear as the figure leaves frame fast.
+
+One new finding about cuts. Clip 10 is a `cut`, so it opens from the reference image, which has no cap; the cap the viewer asked for at 8 vanishes at the start of clip 10 and the model puts it back mid-clip along with the ball and a cone. A cut re-seeds identity but also re-seeds the costume and the props to the reference's state. While the character's look differs from the reference, either the Director should not cut, or the cut should re-seed from a frame that carries the current look. This goes on the engine list.
+
 ## Mechanics fixed on the way
 
 - `server/vast_run.sh restart` killed its own shell: `pkill -f ltx2_server.py` matched the ssh command line that also carried the start command. Kill and start are now separate ssh calls.
