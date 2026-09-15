@@ -67,6 +67,8 @@ Two things remain substrate-level. Clip 10, the busiest prompt (cap, ball, kick,
 
 Steering lag is now the engine's, not the renderer's. A line posted while segment N plays is read at the start of the next Director call, and under pipelining that call is for segment N+3 (segment N+1 is rendering, N+2 is being written). On 2026-09-09 the 2.5-minute renders hid this. With 35-second clips it is the dominant delay between a viewer's line and its appearance, and it is the same mechanism that lands observations two segments late; the fix is the one already listed under engine items (do not overlap the Director call with the render, or let a line interrupt the segment being written).
 
+Fixed the same day, after this run: the loop now starts the Director call for N+2 as late as the render of N+1 allows (render estimate minus Director estimate, both running averages) and reads the viewer's lines then. A line typed while clip N plays lands at N+2, the earliest the pipeline permits, and no render waits for it; `tests/test_live_timing.py` pins it.
+
 ## Mechanics fixed on the way
 
 - `server/vast_run.sh restart` killed its own shell: `pkill -f ltx2_server.py` matched the ssh command line that also carried the start command. Kill and start are now separate ssh calls.

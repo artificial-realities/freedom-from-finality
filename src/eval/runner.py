@@ -14,6 +14,7 @@ import json
 import logging
 import shutil
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -38,6 +39,12 @@ from src.util.langfuse_setup import flush as langfuse_flush
 from src.util.langfuse_setup import set_trace_output, turn_span
 from src.util.media import probe_duration
 from src.util.story_log import StoryLogger
+
+# Late start under pipelining: the Director estimate is scaled by
+# LATE_START_SAFETY and LATE_START_MARGIN_S is kept in hand, so a slower
+# than usual Director call does not leave the renderer idle.
+LATE_START_SAFETY = 1.25
+LATE_START_MARGIN_S = 0.5
 
 logger = logging.getLogger(__name__)
 
@@ -556,6 +563,16 @@ async def run_live(
     soon as the first item is ready and one render naturally overlaps one
     playback. `max_segments` stops the producer after that many segments
     (tests, bounded demos); otherwise it runs until Ctrl+C.
+
+    Late start: with a backend that owns continuity, the Director call for
+    segment N+2 overlaps the render of N+1, which starts when clip N starts
+    playing. Reading the viewer's lines at the start of that call would
+    make a line typed while watching N land only at N+3. The producer
+    therefore starts the call as late as the render allows (the render
+    estimate minus the Director estimate, both running averages of the
+    measured times) and reads the lines then, so a line typed while a clip
+    plays lands two segments later, the earliest the pipeline permits,
+    without delaying any render.
     """
     state = StoryState.initialize(story, config_name=config.name)
     session_id = _make_session_id(config.name, "live")
@@ -607,6 +624,15 @@ async def run_live(
     # depends only on the prompt, so render(N) can overlap agents(N+1).
     _pipeline_ok = i2v is not None and i2v.manages_continuity
 
+    # Running averages of the measured render and Director times, for the
+    # late start of the Director call (see the docstring). None until the
+    # first measurement; no wait happens before both exist.
+    est: dict[str, float | None] = {"render": None, "director": None}
+
+    def _learn(key: str, seconds: float) -> None:
+        prev = est[key]
+        est[key] = seconds if prev is None else 0.5 * prev + 0.5 * seconds
+
     async def _enqueue(item: Playable) -> None:
         await queue.put(item)
         player.prepare(item)
@@ -616,9 +642,11 @@ async def run_live(
     ) -> None:
         """Render one clip in the background and enqueue it."""
         assert i2v is not None
+        t0 = time.monotonic()
         video_path = await i2v.synthesize(
             image_path=seed_image, prompt=prompt, turn=item.turn, duration=duration, reset=reset,
         )
+        _learn("render", time.monotonic() - t0)
         if video_path:
             item.path = video_path
             item.duration = await _get_clip_duration(
@@ -644,8 +672,9 @@ async def run_live(
         # Shape: {"item": Playable, "clips": [paths], "audio": str,
         #         "owed": float, "audio_dur": float, "start_turn": int}
         pending_span: dict | None = None
-        # Background render task for pipelining.
+        # Background render task for pipelining, and when it was fired.
         _prev_render: asyncio.Task | None = None
+        _prev_render_started: float | None = None
 
         async def _drain_prev() -> None:
             nonlocal _prev_render
@@ -661,6 +690,25 @@ async def run_live(
                 if max_segments is not None and turn >= max_segments:
                     break
                 turn += 1
+                if (
+                    _prev_render is not None and not _prev_render.done()
+                    and _prev_render_started is not None
+                    and est["render"] is not None and est["director"] is not None
+                ):
+                    # Late start: the previous clip is playing and its
+                    # successor is rendering. Start this turn's Director
+                    # call only when the render is about to finish, so the
+                    # viewer's lines from watching the clip are read first.
+                    remaining = est["render"] - (time.monotonic() - _prev_render_started)
+                    slack = remaining - est["director"] * LATE_START_SAFETY - LATE_START_MARGIN_S
+                    if slack > 0:
+                        player.status(f"listening for your input before segment {turn} is written")
+                        try:
+                            await asyncio.wait_for(asyncio.shield(_prev_render), timeout=slack)
+                        except asyncio.TimeoutError:
+                            pass  # the render is nearly done: start the Director now
+                        except Exception:
+                            pass  # _drain_prev reports a failed render
                 user_input = await player.next_input()
 
                 state.turn_number = turn
@@ -674,7 +722,9 @@ async def run_live(
                     user_input=user_input,
                     metadata={"config": config.name, "user_input": user_input},
                 ):
+                    t_director = time.monotonic()
                     result = await graph.ainvoke(state)
+                    _learn("director", time.monotonic() - t_director)
                     state = _coerce_state(result)
 
                     silent: str | None = None
@@ -703,6 +753,7 @@ async def run_live(
                             await _drain_prev()
                             player.status(f"rendering segment {turn}")
                             shot_dur = state.current_shot.duration_seconds
+                            _prev_render_started = time.monotonic()
                             _prev_render = asyncio.create_task(
                                 _bg_render_and_enqueue(
                                     item,
