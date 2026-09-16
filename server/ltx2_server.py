@@ -66,6 +66,29 @@ Environment variables:
                       prompt enhancer dropped; ~72 GB + activations)
     LTX2_VAE_TILING   "1" to enable VAE tiling (lower peak VRAM on decode)
     LTX2_HOST/PORT    bind address (default: 0.0.0.0:8000)
+
+Speed (docs/reviews/2026-09-16-real-time-plan.md):
+    LTX2_ATTN         attention backend for the DiT: "" (PyTorch SDPA, default), "fa3"
+                      (FlashAttention-3 from the Hub, Hopper), "fa4" (Blackwell), "sage",
+                      "cudnn", or any diffusers backend name. Falls back to SDPA if the
+                      warm-up fails on it.
+    LTX2_QUANT        "" (bf16, default), "fp8" (torchao float8 dynamic activations and
+                      weights, per row; Hopper and later), "mxfp8" / "nvfp4" (torchao
+                      microscaling; Blackwell only). Only the DiT's large Linear layers
+                      are quantised; the matmuls then run in the low precision, which
+                      is where the speed comes from (weight-only fp8 saves memory, not time).
+    LTX2_COMPILE      "1" to torch.compile the DiT's transformer blocks (regional,
+                      fullgraph). LTX2_COMPILE_MODE picks the mode (default "default");
+                      LTX2_COMPILE_DYNAMIC=1 compiles once for every clip length instead
+                      of once per frame count (90-170 s each under fp8). Falls back to
+                      eager blocks if the warm-up fails under it.
+    LTX2_WARMUP       "1" (default): render throwaway clips at startup at the frame
+                      counts in LTX2_WARMUP_FRAMES ("121,145"), so compilation, kernel
+                      autotuning and the CPU warm-up never land on a viewer's clip.
+                      /health reports "warming" until it is done and /generate says 503.
+    LTX2_ENCODER      "auto" (default: h264_nvenc when ffmpeg and the driver support it,
+                      else libx264), "x264", "nvenc", or "av" (diffusers' PyAV path).
+    LTX2_X264_PRESET  libx264 preset (default "ultrafast").
 """
 
 from __future__ import annotations
@@ -119,6 +142,11 @@ _negative_default: str = "blurry, out of focus, low contrast, flickering, motion
 _call_defaults: dict = {}   # recipe: sigmas / steps and guidance for the variant
 _steps: int = 0
 _audio_sample_rate: int = 48000
+_ready: bool = False        # True once the warm-up has run; /generate refuses until then
+_attn_backend: str = "native"
+_quant: str = "bf16"
+_compiled: bool = False
+_encoder: str = "x264"
 
 # Session: the reference image (PIL, seeds turn 1 and anchors) and the
 # tail of the last generated chunk (uint8 ndarray, shape (F, H, W, 3)).
@@ -148,7 +176,7 @@ class GenerateRequest(BaseModel):
 @app.on_event("startup")
 async def load_pipeline() -> None:
     global pipe, _encode_video, _negative_default, _call_defaults, _steps
-    global _audio_sample_rate
+    global _audio_sample_rate, _ready, _attn_backend, _quant, _compiled, _encoder
 
     from diffusers import LTX2ConditionPipeline
     from diffusers.pipelines.ltx2.utils import DEFAULT_NEGATIVE_PROMPT, DISTILLED_SIGMA_VALUES
@@ -248,20 +276,246 @@ async def load_pipeline() -> None:
         pipe.vae.enable_tiling()
         logger.info("VAE tiling enabled")
 
+    # ── Speed: attention backend, quantisation, compilation ────────
+    _attn_backend = _setup_attention(pipe)
+    try:
+        _quant = _setup_quant(pipe)
+    except Exception as exc:
+        logger.warning("Quantisation %s failed (%s); running in bf16", os.getenv("LTX2_QUANT"), exc)
+        _quant = "bf16"
+    _compiled = _setup_compile(pipe)
+
     _install_stage_timers(pipe)
 
     if getattr(pipe, "vocoder", None) is not None:
         _audio_sample_rate = getattr(
             pipe.vocoder.config, "output_sampling_rate", _audio_sample_rate,
         )
+    _encoder = _pick_encoder()
 
     vram = torch.cuda.memory_allocated() / 1e9 if torch.cuda.is_available() else 0
     logger.info(
-        "Ready in %.1fs — %s, %d steps, recipe=%s, %dx%d @%.0ffps, audio@%dHz, %.1f GB VRAM",
+        "Loaded in %.1fs — %s, %d steps, recipe=%s, %dx%d @%.0ffps, audio@%dHz, %.1f GB VRAM, "
+        "attention=%s, quant=%s, compiled=%s, encoder=%s",
         time.monotonic() - t0, VARIANT, _steps,
         {k: v for k, v in _call_defaults.items() if k != "sigmas"},
         WIDTH, HEIGHT, FRAME_RATE, _audio_sample_rate, vram,
+        _attn_backend, _quant, _compiled, _encoder,
     )
+
+    # ── Warm-up ────────────────────────────────────────────────────
+    # Compilation, kernel autotuning and the CPU warm-up of a fresh box
+    # (10-20 s on each of the first clips) happen here, not on a viewer's
+    # clip. A backend or the compiler that cannot run this model is
+    # dropped here too, so a bad flag degrades to the default, not to a
+    # dead server.
+    if os.getenv("LTX2_WARMUP", "1") == "1":
+        t1 = time.monotonic()
+        for _attempt in range(3):
+            try:
+                _warmup()
+                break
+            except Exception as exc:
+                session.clear()
+                torch.cuda.empty_cache()
+                if isinstance(exc, torch.OutOfMemoryError) and not getattr(pipe.vae, "use_tiling", False):
+                    logger.warning("Warm-up ran out of memory (%s); enabling VAE tiling",
+                                   str(exc).split(".")[0])
+                    pipe.vae.enable_tiling()
+                elif _attn_backend != "native":
+                    logger.warning("Warm-up failed on attention backend %s (%s); using PyTorch SDPA",
+                                   _attn_backend, exc)
+                    pipe.transformer.set_attention_backend("native")
+                    _attn_backend = "native"
+                elif _compiled:
+                    logger.warning("Warm-up failed under torch.compile (%s); running the blocks eagerly", exc)
+                    _uncompile(pipe)
+                    _compiled = False
+                else:
+                    raise
+        logger.info("Warm-up done in %.0fs", time.monotonic() - t1)
+    _ready = True
+    logger.info("Ready — serving /generate (attention=%s, quant=%s, compiled=%s, encoder=%s)",
+                _attn_backend, _quant, _compiled, _encoder)
+
+
+# ── Speed setup ───────────────────────────────────────────────────
+
+_ATTN_ALIASES = {
+    "fa3": "_flash_3_hub", "fa4": "flash_4_hub", "sage": "sage_hub",
+    "cudnn": "_native_cudnn", "flash": "flash_hub", "native": "native",
+}
+
+
+def _setup_attention(p) -> str:
+    name = os.getenv("LTX2_ATTN", "").strip()
+    if not name or name == "native":
+        return "native"
+    backend = _ATTN_ALIASES.get(name, name)
+    try:
+        _route_masked_attention_to_native()
+        p.transformer.set_attention_backend(backend)
+    except Exception as exc:
+        logger.warning("Attention backend %s unavailable (%s); using PyTorch SDPA", backend, exc)
+        return "native"
+    logger.info("Attention backend: %s for unmasked attention (verified by the warm-up)", backend)
+    return backend
+
+
+def _route_masked_attention_to_native() -> None:
+    """The Hub kernels (FlashAttention-3, Sage) refuse an attention mask.
+    LTX-2's cross attentions pass one (the caption's padding); the big
+    self-attention over the video tokens does not, and that is the one
+    worth accelerating. Masked calls go to the default (native) backend,
+    unmasked ones to whatever set_attention_backend chose."""
+    import diffusers.models.attention_dispatch as ad
+    orig = ad.dispatch_attention_fn
+    if getattr(orig, "_mask_aware", False):
+        return
+
+    def dispatch(*args, **kwargs):
+        masked = kwargs.get("attn_mask") is not None or (len(args) > 3 and args[3] is not None)
+        if masked:
+            kwargs["backend"] = None
+        return orig(*args, **kwargs)
+
+    dispatch._mask_aware = True  # type: ignore[attr-defined]
+    ad.dispatch_attention_fn = dispatch
+    # The transformer module imported the function by name.
+    import diffusers.models.transformers.transformer_ltx2 as tl
+    if getattr(tl, "dispatch_attention_fn", None) is orig:
+        tl.dispatch_attention_fn = dispatch
+
+
+# Layers left in bf16: the small in/out projections, the caption projection
+# (a few hundred tokens), the timestep embedding, norms and gates. The K/V
+# projections of the cross attentions see the caption or the other
+# modality's few tokens, where quantising the activations costs more than
+# the matmul saves (the min(M, K, N) >= 1024 rule of the torchao recipe).
+_QUANT_SKIP = ("proj_in", "proj_out", "caption_projection", "time_embed", "norm", "to_gate_logits", "scale_shift")
+
+
+def _quant_filter(module, fqn: str) -> bool:
+    if not isinstance(module, torch.nn.Linear):
+        return False
+    if min(module.in_features, module.out_features) < 1024:
+        return False
+    if any(skip in fqn for skip in _QUANT_SKIP):
+        return False
+    if fqn.endswith(("to_k", "to_v")) and any(x in fqn for x in ("attn2", "to_audio_attn", "to_video_attn")):
+        return False
+    return True
+
+
+def _setup_quant(p) -> str:
+    mode = os.getenv("LTX2_QUANT", "").strip().lower()
+    if not mode or mode == "bf16":
+        return "bf16"
+    from torchao.quantization import quantize_
+
+    if mode == "fp8":
+        from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow
+        config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow())
+    elif mode == "mxfp8":
+        from torchao.prototype.mx_formats import MXDynamicActivationMXWeightConfig
+        kwargs = dict(activation_dtype=torch.float8_e4m3fn, weight_dtype=torch.float8_e4m3fn)
+        try:
+            from torchao.quantization.quantize_.common import KernelPreference
+            kwargs["kernel_preference"] = KernelPreference.AUTO
+        except ImportError:
+            pass
+        config = MXDynamicActivationMXWeightConfig(**kwargs)
+    elif mode == "nvfp4":
+        from torchao.prototype.mx_formats.inference_workflow import NVFP4DynamicActivationNVFP4WeightConfig
+        config = NVFP4DynamicActivationNVFP4WeightConfig(
+            use_dynamic_per_tensor_scale=True,
+            use_triton_kernel=os.getenv("LTX2_NVFP4_TRITON", "1") == "1",
+        )
+    else:
+        raise SystemExit(f"LTX2_QUANT must be fp8, mxfp8, nvfp4 or empty, got {mode!r}")
+
+    n_layers = sum(1 for name, m in p.transformer.named_modules() if _quant_filter(m, name))
+    before = torch.cuda.memory_allocated() / 1e9
+    t0 = time.monotonic()
+    quantize_(p.transformer, config, filter_fn=_quant_filter)
+    torch.cuda.empty_cache()
+    logger.info("Quantised %d Linear layers of the DiT to %s in %.0fs (%.1f → %.1f GB resident)",
+                n_layers, mode, time.monotonic() - t0, before, torch.cuda.memory_allocated() / 1e9)
+    return mode
+
+
+def _setup_compile(p) -> bool:
+    if os.getenv("LTX2_COMPILE", "0") != "1":
+        return False
+    import torch._dynamo  # noqa: F401  (the config module is not loaded by `import torch`)
+
+    mode = os.getenv("LTX2_COMPILE_MODE", "default")
+    # Clip lengths vary (121, 145, 169, 193 frames): the first shape compiles
+    # static, the second marks the token dimension dynamic. Leave room for
+    # both plus recompiles of the audio stream.
+    torch._dynamo.config.cache_size_limit = max(torch._dynamo.config.cache_size_limit, 64)
+    kwargs: dict = {"fullgraph": True}
+    if mode != "default":
+        kwargs["mode"] = mode
+    # Under fp8 every clip shape (frame count) compiles separately, 90-170 s
+    # each on an H100; dynamic=True compiles once for all shapes.
+    if os.getenv("LTX2_COMPILE_DYNAMIC", "0") == "1":
+        kwargs["dynamic"] = True
+    p.transformer.compile_repeated_blocks(**kwargs)
+    logger.info("torch.compile on the DiT's transformer blocks (regional, fullgraph, mode=%s, dynamic=%s); "
+                "the warm-up pays for the compilation", mode, kwargs.get("dynamic", "auto"))
+    return True
+
+
+def _uncompile(p) -> None:
+    """Undo compile_repeated_blocks: nn.Module.compile() keeps the eager
+    path and stores the compiled one on the instance."""
+    import torch._dynamo  # noqa: F401
+
+    names = set(getattr(p.transformer, "_repeated_blocks", []) or [])
+    for m in p.transformer.modules():
+        if m.__class__.__name__ in names and getattr(m, "_compiled_call_impl", None) is not None:
+            m._compiled_call_impl = None
+    torch._dynamo.reset()
+
+
+def _warmup() -> None:
+    """Throwaway renders at the configured frame counts on a flat reference."""
+    frames_list = [int(x) for x in os.getenv("LTX2_WARMUP_FRAMES", "121,145").split(",") if x.strip()]
+    ref = Image.new("RGB", (WIDTH, HEIGHT), (235, 235, 235))
+    prompt = ("A single LEGO minifigure with a plain yellow head, red torso and blue legs stands on a "
+              "seamless white background in soft studio light. It slowly raises one arm, then lowers it.")
+    for n in frames_list:
+        session["ref_image"] = ref
+        session["window"] = None
+        session["turn_count"] = 0
+        t0 = time.monotonic()
+        result = _run_pipeline(GenerateRequest(prompt=prompt, num_frames=n, seed=1, reset_window=True))
+        logger.info("Warm-up: %d frames in %.1fs (%s)", n, time.monotonic() - t0, result["timings"])
+    session.clear()
+
+
+def _pick_encoder() -> str:
+    want = os.getenv("LTX2_ENCODER", "auto").strip().lower()
+    if want == "av":
+        return "av"
+    if not _FFMPEG:
+        logger.warning("ffmpeg not found; using diffusers' PyAV encoder")
+        return "av"
+    if want in ("auto", "nvenc"):
+        probe = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        probe.close()
+        try:
+            _encode_mp4(np.zeros((9, 160, 256, 3), np.uint8), 24, None, 48000, probe.name, codec="nvenc")
+            return "nvenc"
+        except Exception as exc:
+            level = logger.warning if want == "nvenc" else logger.info
+            level("h264_nvenc unavailable (%s); using libx264 %s",
+                  str(exc).strip().splitlines()[-1][:160] if str(exc).strip() else exc,
+                  os.getenv("LTX2_X264_PRESET", "ultrafast"))
+        finally:
+            _cleanup(probe.name)
+    return "x264"
 
 
 # ── Endpoints ─────────────────────────────────────────────────────
@@ -271,8 +525,13 @@ async def generate(req: GenerateRequest):
     """Generate one chunk. Returns an MP4 with LTX-2.5's native audio."""
     if pipe is None:
         raise HTTPException(503, "Pipeline still loading — try again shortly")
+    if not _ready:
+        raise HTTPException(503, "Server warming up — try again shortly")
+    # The lock covers the GPU only: the next clip's forwards may start
+    # while this one's frames are being encoded on the CPU.
     async with _lock:
-        return await asyncio.to_thread(_generate_sync, req)
+        result = await asyncio.to_thread(_run_pipeline, req)
+    return await asyncio.to_thread(_encode_response, req, result)
 
 
 @app.post("/reset")
@@ -286,7 +545,7 @@ async def reset():
 @app.get("/health")
 async def health():
     return {
-        "status": "ready" if pipe is not None else "loading",
+        "status": "ready" if _ready else ("warming" if pipe is not None else "loading"),
         "model": MODEL_ID,
         "variant": VARIANT,
         "distilled": VARIANT == "distilled",
@@ -296,6 +555,11 @@ async def health():
         "width": WIDTH,
         "height": HEIGHT,
         "anchor": True,
+        "attention": _attn_backend,
+        "quant": _quant,
+        "compiled": _compiled,
+        "encoder": _encoder,
+        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         "turn_count": session.get("turn_count", 0),
         "has_reference": "ref_image" in session,
         "vram_allocated_gb": round(torch.cuda.memory_allocated() / 1e9, 1)
@@ -306,7 +570,10 @@ async def health():
 
 # ── Generation ────────────────────────────────────────────────────
 
-def _generate_sync(req: GenerateRequest) -> FileResponse:
+def _run_pipeline(req: GenerateRequest) -> dict:
+    """The GPU part of a request: session bookkeeping, the pipeline call,
+    the sliding window. Returns the frames (uint8), the audio and the
+    timings; the encode happens outside the lock in `_encode_response`."""
     from diffusers.pipelines.ltx2.pipeline_ltx2_condition import (
         LTX2VideoCondition,
     )
@@ -382,7 +649,21 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
 
     _stage_times.clear()
     _forwards[0] = 0
-    video, audio = pipe(**call_kwargs)
+    try:
+        video, audio = pipe(**call_kwargs)
+    except torch.OutOfMemoryError as exc:
+        # The untiled VAE decode wants ~25 GB for 121 frames and ~40 GB for
+        # 193 at 960x544 on this diffusers; a long clip can exceed what is
+        # left next to the resident models. Tile from now on and retry once.
+        if getattr(pipe.vae, "use_tiling", False):
+            raise
+        logger.warning("Turn %d ran out of memory (%s); enabling VAE tiling and retrying",
+                       turn, str(exc).split(".")[0])
+        torch.cuda.empty_cache()
+        pipe.vae.enable_tiling()
+        _stage_times.clear()
+        _forwards[0] = 0
+        video, audio = pipe(**call_kwargs)
     dt = time.monotonic() - t0
     logger.info("Turn %d: %s", turn, _stage_summary(dt))
 
@@ -397,11 +678,8 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
     tail = min(req.continuity_frames, frames_u8.shape[0])
     session["window"] = frames_u8[-tail:]
 
-    logger.info("Turn %d: generated in %.2fs, %s", turn, dt, list(frames.shape))
-
-    # ── Encode ────────────────────────────────────────────────────
-    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-    tmp.close()
+    logger.info("Turn %d: generated in %.2fs, %s, %.1f GB VRAM",
+                turn, dt, list(frames.shape), torch.cuda.memory_allocated() / 1e9)
 
     audio_arg = None
     if audio is not None:
@@ -411,23 +689,30 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
             else a.float().cpu()
         )
 
+    # Captured under the lock: the next request clears the stage timers.
+    return {"frames": frames_u8, "audio": audio_arg, "turn": turn, "latency": dt,
+            "timings": _timings_compact()}
+
+
+def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
+    frames_u8, audio_arg, turn, dt = r["frames"], r["audio"], r["turn"], r["latency"]
+    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    tmp.close()
+
     t1 = time.monotonic()
-    if _FFMPEG and os.getenv("LTX2_ENCODER", "ffmpeg") == "ffmpeg":
-        _encode_mp4(frames_u8, int(FRAME_RATE), audio_arg, _audio_sample_rate, tmp.name)
-    else:
+    if _encoder == "av" or not _FFMPEG:
         # diffusers' PyAV path: libx264 at its defaults, one thread, frame
         # by frame; 17-24 s for a 5 s clip on the Vast boxes.
         _encode_video(
             frames_u8, fps=int(FRAME_RATE), output_path=tmp.name,
             audio=audio_arg, audio_sample_rate=_audio_sample_rate if audio_arg is not None else None,
         )
-    logger.info("Turn %d: encoded in %.2fs", turn, time.monotonic() - t1)
+    else:
+        _encode_mp4(frames_u8, int(FRAME_RATE), audio_arg, _audio_sample_rate, tmp.name, codec=_encoder)
+    encode_s = time.monotonic() - t1
 
-    duration_s = frames.shape[0] / FRAME_RATE
-    logger.info(
-        "Turn %d: %.2fs clip, %.1f GB VRAM → %s",
-        turn, duration_s, torch.cuda.memory_allocated() / 1e9, tmp.name,
-    )
+    duration_s = frames_u8.shape[0] / FRAME_RATE
+    logger.info("Turn %d: encoded in %.2fs (%s), %.2fs clip → %s", turn, encode_s, _encoder, duration_s, tmp.name)
 
     return FileResponse(
         tmp.name,
@@ -436,11 +721,14 @@ def _generate_sync(req: GenerateRequest) -> FileResponse:
         headers={
             "X-Turn": str(turn),
             "X-Latency-S": f"{dt:.2f}",
-            "X-Num-Frames": str(frames.shape[0]),
+            "X-Encode-S": f"{encode_s:.2f}",
+            "X-Timings": r["timings"],
+            "X-Num-Frames": str(frames_u8.shape[0]),
             "X-Duration-S": f"{duration_s:.3f}",
             "X-Frame-Rate": str(FRAME_RATE),
             "X-Has-Audio": "1" if audio_arg is not None else "0",
             "X-Variant": VARIANT,
+            "X-Encoder": _encoder,
         },
         background=BackgroundTask(_cleanup, tmp.name),
     )
@@ -520,6 +808,13 @@ def _install_stage_timers(p) -> None:
     tr.register_forward_hook(post)
 
 
+def _timings_compact() -> str:
+    """The stage timings as one header-friendly line: key=seconds;..."""
+    parts = [f"{k}={v:.2f}" for k, v in _stage_times.items()]
+    parts.append(f"forwards={_forwards[0]}")
+    return ";".join(parts)
+
+
 def _stage_summary(total: float) -> str:
     t = _stage_times
     compute = t.get("transformer_compute", t.get("transformer_total", 0.0))
@@ -540,10 +835,11 @@ _FFMPEG = shutil.which("ffmpeg") is not None
 
 
 def _encode_mp4(frames_u8: np.ndarray, fps: int, audio: torch.Tensor | None,
-                sample_rate: int, path: str) -> None:
-    """Raw RGB frames piped into ffmpeg (libx264 veryfast, all cores), the
-    audio waveform [channels, samples] muxed from a temporary WAV. About
-    ten times faster than the frame-by-frame PyAV path on these boxes."""
+                sample_rate: int, path: str, codec: str = "x264") -> None:
+    """Raw RGB frames piped into ffmpeg (h264_nvenc on the GPU, or libx264
+    on all cores), the audio waveform [channels, samples] muxed from a
+    temporary WAV. About ten times faster than the frame-by-frame PyAV
+    path on these boxes."""
     n, h, w, _ = frames_u8.shape
     wav = None
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -557,7 +853,12 @@ def _encode_mp4(frames_u8: np.ndarray, fps: int, audio: torch.Tensor | None,
             f.setframerate(int(sample_rate))
             f.writeframes(pcm.tobytes())
         cmd += ["-i", wav]
-    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", "0"]
+    if codec == "nvenc":
+        cmd += ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll", "-rc", "vbr", "-cq", "23",
+                "-pix_fmt", "yuv420p"]
+    else:
+        cmd += ["-c:v", "libx264", "-preset", os.getenv("LTX2_X264_PRESET", "ultrafast"), "-tune", "zerolatency",
+                "-crf", "20", "-pix_fmt", "yuv420p", "-threads", "0"]
     if audio is not None:
         cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
     cmd += ["-movflags", "+faststart", path]

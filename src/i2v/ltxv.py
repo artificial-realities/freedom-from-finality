@@ -222,13 +222,16 @@ class LtxvI2V(I2VBackend):
         out_path.write_bytes(resp.content)
 
         logger.info(
-            "LTX-2.5 turn %d rendered in %ss (%ss clip, audio=%s) → %s",
+            "LTX-2.5 turn %d rendered in %ss + %ss encode (%ss clip, audio=%s) → %s",
             turn,
             resp.headers.get("X-Latency-S", "?"),
+            resp.headers.get("X-Encode-S", "?"),
             resp.headers.get("X-Duration-S", "?"),
             resp.headers.get("X-Has-Audio", "?"),
             out_path,
         )
+        if resp.headers.get("X-Timings"):
+            logger.info("LTX-2.5 turn %d timings: %s", turn, resp.headers["X-Timings"])
         return str(out_path)
 
 

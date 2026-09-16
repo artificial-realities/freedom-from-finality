@@ -2,7 +2,7 @@
 # Rent a GPU on Vast.ai, stand up the LTX-2.5 server on it, tunnel it to
 # localhost:8000, run the client, and tear everything down.
 #
-#   server/vast_run.sh up [OFFER_ID]                     rent (cheapest matching offer unless given),
+#   server/vast_run.sh up [OFFER_ID]                     rent (cheapest matching H100 SXM/NVL unless given),
 #                                                        install, start the server, open the tunnel,
 #                                                        wait for /health to say ready
 #   server/vast_run.sh run <config> [log_dir]             run the client (web player) against the tunnel
@@ -13,14 +13,18 @@
 #
 # Needs VAST_API_KEY and HF_TOKEN in .env, the `vastai` CLI, and your ssh
 # public key registered on Vast (`vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"`).
-# Override VAST_IMAGE, VAST_QUERY, LTX2_OFFLOAD (gpu|text|cpu|sequential) or LTX2_VARIANT (distilled|full) in the environment.
+# Every LTX2_* variable in the environment reaches the server (LTX2_OFFLOAD, LTX2_VARIANT, LTX2_WIDTH/HEIGHT,
+# LTX2_ATTN, LTX2_QUANT, LTX2_COMPILE, LTX2_ENCODER, ...; see server/ltx2_server.py). VAST_IMAGE and VAST_QUERY
+# pick the image and the offer: a B200 needs the CUDA 12.8 image (the default) and
+#   VAST_QUERY='gpu_name=B200 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true'
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
 export VAST_API_KEY
 STATE=logs/vast; mkdir -p "$STATE"
-IMAGE=${VAST_IMAGE:-pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel}
-QUERY=${VAST_QUERY:-'gpu_name in [A100_SXM4,A100_PCIE,H100_SXM,H100_PCIE] gpu_ram>=80 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true reliability>0.98'}
+IMAGE=${VAST_IMAGE:-pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel}
+# H100 SXM and NVL: cheaper than the PCIe on Vast and ~1.3x faster on this compute-bound model.
+QUERY=${VAST_QUERY:-'gpu_name in [H100_SXM,H100_NVL] gpu_ram>=80 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true reliability>0.98'}
 
 pick_offer() {
   vastai search offers "$QUERY" --order dph_total --raw \
@@ -29,6 +33,9 @@ pick_offer() {
 instance_json() { vastai show instance "$(cat "$STATE/id")" --raw; }
 field() { instance_json | python3 -c "import json,sys; print(json.load(sys.stdin).get('$1') or '')"; }
 ssh_cmd() { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" "$@"; }
+# The server's environment: the token plus every LTX2_* variable set here.
+# expandable_segments: without it the allocator fragments around the VAE decode (12 GB reserved but unusable, OOM on a 94 GB card).
+server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True $(env | grep '^LTX2_' | tr '\n' ' ')"; }
 
 up() {
   local offer=${1:-$(pick_offer)}
@@ -51,10 +58,10 @@ else:
   echo "ssh target $(cat "$STATE/host"):$(cat "$STATE/port")"
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
   scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
-  ssh_cmd "chmod +x /root/remote_setup.sh; nohup env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-gpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} /root/remote_setup.sh > /root/setup.log 2>&1 &"
+  ssh_cmd "chmod +x /root/remote_setup.sh; nohup env $(server_env) /root/remote_setup.sh > /root/setup.log 2>&1 &"
   ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"
-  echo "tunnel open on localhost:8000; waiting for the server (install + weights + load, ~5-15 min)"
+  echo "tunnel open on localhost:8000; waiting for the server (install + weights + load + warm-up, ~5-20 min)"
   wait_ready 120 || exit 1
 }
 wait_ready() {
@@ -68,14 +75,14 @@ wait_ready() {
   return 1
 }
 restart() {
-  # Same box, new server process: switch LTX2_VARIANT / LTX2_STEPS / size without re-renting.
+  # Same box, new server process: switch any LTX2_* setting (variant, size, attention, quant, compile) without re-renting.
   # The weights are cached on the box, so this is load time only (a few minutes).
   scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py "root@$(cat "$STATE/host"):/root/"
   # Kill and start in separate ssh calls: with both in one command line the
   # kill pattern matches the shell running it (its argv holds the start command).
   ssh_cmd "pkill -f '[l]tx2_server.py' || true; sleep 2"
-  ssh_cmd "cd /root && HF_HUB_ENABLE_HF_TRANSFER=1 setsid -f env HF_TOKEN=$HF_TOKEN LTX2_OFFLOAD=${LTX2_OFFLOAD:-gpu} LTX2_VARIANT=${LTX2_VARIANT:-distilled} ${LTX2_STEPS:+LTX2_STEPS=$LTX2_STEPS} ${LTX2_WIDTH:+LTX2_WIDTH=$LTX2_WIDTH} ${LTX2_HEIGHT:+LTX2_HEIGHT=$LTX2_HEIGHT} python ltx2_server.py > server.log 2>&1 < /dev/null"
-  echo "server restarting as ${LTX2_VARIANT:-distilled}; waiting for /health"
+  ssh_cmd "cd /root && setsid -f env $(server_env) python ltx2_server.py > server.log 2>&1 < /dev/null"
+  echo "server restarting ($(env | grep '^LTX2_' | tr '\n' ' ')); waiting for /health (load + warm-up)"
   wait_ready 80 || exit 1
 }
 run() { python main.py play --config "${1:?config}" --player web --log-dir "${2:-logs/live}"; }
