@@ -74,3 +74,17 @@ async def test_director_engine_end_to_end():
         assert "Showrunner spawned: scene_done" in transcript
         assert "showrunner (bootstrap" in transcript and "scene 1 card" in transcript
         assert "**World**" in transcript
+
+
+async def test_fixed_clip_length_overrides_the_directors_durations():
+    """clip_seconds: every clip is that long, whatever the Director's shots
+    add up to (segment 4 of the mock has two shots of 3 + 4 s), and the
+    Director is told the rule in its system prompt."""
+    from src.agents.director import SYSTEM_PATH
+    assert "{duration_rule}" in SYSTEM_PATH.read_text()
+    story = Story.from_json("data/story.json")
+    with tempfile.TemporaryDirectory() as d:
+        state = await run_live(config=_config(clip_seconds=6), story=story, log_dir=d,
+                               player=Scripted(LINES[:4]), max_segments=4)
+    durations = [h.shot.duration_seconds for h in state.history]
+    assert durations == [6, 6, 6, 6], durations

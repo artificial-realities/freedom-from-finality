@@ -127,3 +127,17 @@ What it takes to make the ratio hold in a live run, in order:
 2. **One clip length.** Under fp8 every frame count compiles for 90–170 s on first use. Fix the Director's clip length (6 s is the natural one: 145 frames, steering lands in 12 s) and warm up that shape, three times on a B200. `LTX2_COMPILE_DYNAMIC=1` is the alternative and is untested.
 3. **Buffer one clip** (`lead_clips: 1`) so the Director call and a slow clip never reach the screen; at 0.8× the buffer refills.
 4. Untested levers if more is needed: `LTX2_COMPILE_MODE=max-autotune-no-cudagraphs`, NVFP4 on Blackwell (torchao 0.16 ran it at 1.18× on the matmul), FlashAttention-4 on Blackwell (the mask problem will be the same), `-preset ultrafast` is already on and NVENC needs a container with the `video` capability.
+
+## Verified live on the box, 2026-09-16 night
+
+H100 NVL (Ireland, $2.64/h, 27 Gbps), the setup script's defaults (`fp8`, compile, 640×352, warm-up of three 145-frame clips: 122 s, of which the first clip's compile is 114 s), and the film run **on the box** with `server/vast_run.sh run … --segments 10`: `configs/director.live.yaml` with `clip_seconds: 6` and `lead_clips: 1`, the player tunnelled to localhost:8765, two lines posted through the tunnel by `scripts/steer.py`. Logs and clips pulled to `logs/live-box/`.
+
+| | |
+|---|---|
+| Clips | 10 × 6.04 s, every one rendered in 3.97–4.08 s + 0.57–0.61 s encode: 0.76× real time, no transfer |
+| Production rate | 10 clips (60 s of film) in 62 s including the Director calls (about 5 s each, overlapped) |
+| Playback | started after the two-clip lead, 4 s after the first Director call; never waited |
+| Steering | a line posted while segment 3 played landed at 6 (absorbed); one posted during 6 landed at 8 (absorbed) |
+| Picture | one cut (the opening), nine continues; identity intact through all ten (`logs/live-box/contact.jpg`) |
+
+So the three steps hold: with the client on the box the wall time is the server time, one clip length means one compile at startup and 6 s of pacing, and the one-clip buffer keeps the screen fed while the Director writes. A viewer's line lands two to three clips after it is typed, 12–18 s.

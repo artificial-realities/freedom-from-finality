@@ -36,6 +36,12 @@ class Config(BaseModel):
     lead_clips: int = 0
     i2v_backend: str = "ltxv"
     i2v_duration: int = 5
+    # Fixed clip length in seconds. 0 = each segment renders for the sum of
+    # the Director's shot durations (3-15 s). N = every clip is exactly N
+    # seconds and the Director is told to plan for N: one clip shape, so a
+    # compiled server compiles once, pacing is constant, and a viewer's
+    # line lands a known number of seconds later.
+    clip_seconds: int = 0
     i2v_seed_image: str = "data/legoman.png"
 
     # LTX-2.5 backend (when i2v_backend == "ltxv"):

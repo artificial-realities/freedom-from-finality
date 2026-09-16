@@ -5,7 +5,8 @@
 #   server/vast_run.sh up [OFFER_ID]                     rent (cheapest matching H100 SXM/NVL unless given),
 #                                                        install, start the server, open the tunnel,
 #                                                        wait for /health to say ready
-#   server/vast_run.sh run <config> [log_dir]             run the client (web player) against the tunnel
+#   server/vast_run.sh run [config] [log_dir] [args...]   run the film ON the box (web player on localhost:8765)
+#   server/vast_run.sh pull [remote_dir] [local_dir]      fetch a run's logs and clips from the box
 #   server/vast_run.sh restart                           restart the server on the same box (e.g. with
 #                                                        LTX2_VARIANT=full) and wait for /health
 #   server/vast_run.sh status                            instance state + server health
@@ -85,7 +86,28 @@ restart() {
   echo "server restarting ($(env | grep '^LTX2_' | tr '\n' ' ')); waiting for /health (load + warm-up)"
   wait_ready 80 || exit 1
 }
-run() { python main.py play --config "${1:?config}" --player web --log-dir "${2:-logs/live}"; }
+run() {
+  # The film runs on the GPU box next to the server, so no clip crosses the
+  # internet (the MP4 through the tunnel cost 1.5-4.6 s per clip). The
+  # committed tree goes over with git archive, the client's keys from .env,
+  # and the web player comes back through the ssh session on localhost:8765.
+  # Extra arguments reach main.py (e.g. --segments 8). Ctrl+C stops the film.
+  local config=${1:-configs/director.live.yaml} log_dir=${2:-logs/live}; shift $(( $# > 2 ? 2 : $# ))
+  # The working tree as it is (tracked files, committed or not), so what you have is what runs.
+  local tree; tree=$(git stash create); git archive --format=tar "${tree:-HEAD}" | ssh_cmd "mkdir -p /root/ar && tar -x -C /root/ar"
+  grep -E '^(OPENAI|LANGFUSE|ELEVENLABS)_' .env | ssh_cmd "cat > /root/ar/.env && chmod 600 /root/ar/.env"
+  ssh_cmd "cd /root/ar && pip install -q -r requirements.txt 2>&1 | grep -v 'WARNING: Running pip' | tail -1"
+  echo "the film runs on the box: open http://127.0.0.1:8765/  (Ctrl+C stops it; logs stay in /root/ar/$log_dir, fetch them with: $0 pull)"
+  ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -L 8765:localhost:8765 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" \
+    "cd /root/ar && python main.py play --config $config --player web --log-dir $log_dir $*"
+}
+pull() {
+  # Fetch a run's logs (transcript, world model, clips) from the box.
+  local remote=${1:-logs/live} local_dir=${2:-logs/live-box}
+  mkdir -p "$local_dir"
+  rsync -az -e "ssh -p $(cat "$STATE/port") -o StrictHostKeyChecking=no" "root@$(cat "$STATE/host"):/root/ar/$remote/" "$local_dir/"
+  echo "pulled /root/ar/$remote → $local_dir"
+}
 status() {
   [ -f "$STATE/id" ] && instance_json | python3 -c "import json,sys; d=json.load(sys.stdin); print({k:d.get(k) for k in ['id','actual_status','gpu_name','dph_total','ssh_host','ssh_port']})" || echo "no instance recorded"
   curl -s -m 5 localhost:8000/health || echo "no server on localhost:8000"; echo
@@ -96,6 +118,6 @@ down() {
   echo "tunnel closed, instance destroyed"
 }
 case "${1:-}" in
-  up) shift; up "$@";; run) shift; run "$@";; restart) restart;; status) status;; down) down;;
+  up) shift; up "$@";; run) shift; run "$@";; pull) shift; pull "$@";; restart) restart;; status) status;; down) down;;
   *) sed -n '2,15p' "$0"; exit 1;;
 esac

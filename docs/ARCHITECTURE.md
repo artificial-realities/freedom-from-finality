@@ -56,7 +56,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
 4. **Gates.** The voice-over gate opens when no audio is owed and the silence floor (`min_pause_seconds`, in story seconds) has elapsed since the last line. The stagnation ladder turns "segments since anything structural changed" into prompt pressure at `stagnation_threshold` and a required shift at twice that. The scene cap forces `scene_done` at `max_segments_per_scene`.
 5. **Director call.** The context assembler renders the bible (static, cache-friendly system prompt), the plan, the world now, open threads, the viewer section, summaries, the recent segments verbatim, and the gates. The Director returns a `Segment`.
 6. **Validate and apply.** Hard violations (an unknown entity, a new character in a locked cast, dialogue from a mute character, a holder that is not a character) trigger exactly one re-ask with the violations spelled out. Then `apply` mutates the world: entity ops, presence from the shot list, thread ops, the intervention disposition. Unresolvable ops are dropped and logged as warnings, never silently.
-7. **Compile.** The compiler turns the shots into one flowing prompt in the order LTX-2.5 responds to (sound, camera, who is on screen described from their sheet, the action, dialogue in quotes, the image the shot ends on). A `cut` re-establishes the shot and re-identifies the characters. When `narration: "ltx"`, the voice-over line is folded into the prompt for native audio.
+7. **Compile.** The compiler turns the shots into one flowing prompt in the order LTX-2.5 responds to (sound, camera, who is on screen described from their sheet, the action, dialogue in quotes, the image the shot ends on). A `cut` re-establishes the shot and re-identifies the characters. When `narration: "ltx"`, the voice-over line is folded into the prompt for native audio. With `clip_seconds` set the clip is that long whatever the shots add up to, and the Director's system prompt tells it to plan for that length.
 8. **Views.** The engine fills the legacy `current_beat`, `current_shot`, `current_commentary` fields so the runner, playback, history and the transcript work unchanged for either engine. `current_transition` tells the renderer whether this segment is a cut.
 9. **Persist.** The event record is appended and the world is saved to `logs/sessions/<session>/world.json` plus `events.jsonl`.
 10. **Trigger.** `scene_done` or `needs_replan` → Showrunner in replan mode; stagnation past twice the threshold → replan; `compaction_interval` segments since the last compaction → compact mode. The task runs during rendering and is joined at step 1 of the next segment.
@@ -99,6 +99,8 @@ The renderer receives a compiled prompt, a duration, and a transition. `continue
 
 ```yaml
 graph: "director"
+clip_seconds: 6                # every clip this long (0 = the Director's shot durations, 3-15 s)
+lead_clips: 1                  # clips rendered ahead of the one on air
 narration: "ltx"               # ltx | tts | off
 min_pause_seconds: 15.0        # silence floor before the voice-over gate reopens
 recent_beats: 4                # verbatim segments in the Director prompt

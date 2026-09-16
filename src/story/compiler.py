@@ -48,8 +48,10 @@ def compile_prompt(
     visual_style: str,
     narration_mode: str,
     voiceover_style: str = "",
+    clip_seconds: int = 0,
 ) -> tuple[str, int]:
-    """Return (prompt, total_duration_seconds)."""
+    """Return (prompt, total_duration_seconds). With `clip_seconds` set the
+    duration is that, whatever the shots add up to."""
     paragraphs: list[str] = []
     total = 0
     last = len(segment.shots) - 1
@@ -100,4 +102,6 @@ def compile_prompt(
 
     style = " ".join(visual_style.split())
     prompt = (style + " " if style else "") + " ".join(paragraphs)
+    if clip_seconds > 0:
+        return prompt.strip(), clip_seconds
     return prompt.strip(), max(3, min(total, 15))

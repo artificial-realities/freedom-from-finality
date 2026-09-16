@@ -53,7 +53,7 @@ One JSON object with these fields:
   - `on_screen`: entity ids visible in the shot.
   - `ambient_sound`: sounds tied to visible or locatable sources, or empty.
   - `end_state`: a crisp image of the final moment of the shot.
-  - `duration_seconds`: 3 to 15. Default 5. Longer only when the action needs it.
+  - `duration_seconds`: {duration_rule}
 - `dialogue`: spoken lines with `speaker` (entity id), `line` and `delivery`. Only characters who can speak. Empty when nobody talks.
 - `voiceover`: the spoken narrator line, or empty. Empty is the normal choice.
 - `entity_ops`: the world changes this segment causes. Each op has `op` (`introduce`, `update`, `remove`), `entity`, `kind`, `description` (introduce only: how it looks, for the renderer), `status`, `location`, `holder` (a character id, or `nobody`) and `present`. For `introduce`, `entity` is a short human name such as "soccer ball" (the system makes the id); for `update` and `remove` it is an existing id such as `soccer_ball`. `location` takes a location id from the Locations list only; where something sits within a location ("on the skateboard", "beside the ball") belongs in `status`. Empty string means unchanged.

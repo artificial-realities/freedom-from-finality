@@ -158,6 +158,8 @@ def test_compiler_prompt():
     assert duration == 7
     prompt_tts, _ = compile_prompt(seg, w, visual_style="", narration_mode="tts")
     assert "voice-over" not in prompt_tts, "in tts mode the line is not folded into the video prompt"
+    _, fixed = compile_prompt(seg, w, visual_style="", narration_mode="off", clip_seconds=6)
+    assert fixed == 6, "a fixed clip length overrides the shots' durations"
 
 
 def test_pacing_gate_and_ladder():

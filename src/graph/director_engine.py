@@ -121,6 +121,7 @@ class DirectorEngine:
             visual_style=state.visual_style,
             narration_mode=self.config.narration,
             voiceover_style=self.config.voiceover_style,
+            clip_seconds=self.config.clip_seconds,
         )
         self._write_views(state, segment, prompt, duration)
 

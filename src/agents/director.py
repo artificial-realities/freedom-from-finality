@@ -81,6 +81,13 @@ async def run(
         cast=format_cast(world),
         locations=format_locations(world),
         tone_guidelines=state.tone_guidelines or "(no register defined; leave voiceover empty)",
+        duration_rule=(
+            f"every segment is rendered as exactly {config.clip_seconds} seconds of video. Write action that "
+            f"fills {config.clip_seconds} seconds, no more, and set this to {config.clip_seconds}; with several "
+            f"shots, split the {config.clip_seconds} seconds between them."
+            if config.clip_seconds > 0
+            else "3 to 15. Default 5. Longer only when the action needs it."
+        ),
     )
     user_prompt = load_prompt(
         USER_PATH,

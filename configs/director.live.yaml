@@ -8,11 +8,15 @@ max_tokens_per_agent: 1024
 
 live: true
 video_enabled: true
-lead_clips: 0
+# One clip rendered ahead of the one on air: a slow clip or a Director
+# retry never reaches the screen while generation runs under real time.
+# A viewer's line lands about three clips after it is typed (two with 0).
+lead_clips: 1
 
 # ── LTX-2.5 video backend ──────────────────────────────────────────
 i2v_backend: "ltxv"
-i2v_duration: 5                          # fallback seconds; the Director sets per-segment duration
+i2v_duration: 5                          # fallback seconds when no clip length is known
+clip_seconds: 6                          # every clip is 6 s (145 frames): one shape to compile, 12-18 s steering latency
 i2v_seed_image: "data/legoman.png"
 ltxv_server_url: "http://localhost:8000"
 ltxv_continuity_strength: 1.0

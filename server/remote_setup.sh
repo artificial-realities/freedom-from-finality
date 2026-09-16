@@ -6,7 +6,7 @@
 set -e
 cd /root
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq ffmpeg >/dev/null 2>&1 || true
+apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq ffmpeg rsync >/dev/null 2>&1 || true
 pip install -q --upgrade pip >/dev/null
 # torchao: fp8 / mxfp8 / nvfp4 matmuls (LTX2_QUANT); kernels: FlashAttention-3/4 and SageAttention from the Hub (LTX2_ATTN).
 # torchao tracks torch closely: 0.17+ needs torch 2.10 (it imports torch.nn.functional.ScalingType and takes
@@ -25,5 +25,12 @@ export LTX2_OFFLOAD=${LTX2_OFFLOAD:-gpu}
 export LTX2_VARIANT=${LTX2_VARIANT:-distilled}
 # fp8 matmuls: 1.27x on the forwards on Hopper, measured faster than bf16 end to end on a B200 too; no visible cost on the minifigure.
 export LTX2_QUANT=${LTX2_QUANT:-fp8}
+# The MVP setting measured on 2026-09-16 (docs/reviews/2026-09-16-real-time-plan.md): compiled blocks, 640x352,
+# and a warm-up of three 6 s clips (145 frames, the fixed `clip_seconds: 6` of configs/director.live.yaml), so
+# the one shape the film uses is compiled before the first viewer clip. Override any of these in the environment.
+export LTX2_COMPILE=${LTX2_COMPILE:-1}
+export LTX2_WIDTH=${LTX2_WIDTH:-640}
+export LTX2_HEIGHT=${LTX2_HEIGHT:-352}
+export LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-145,145,145}
 nohup python ltx2_server.py > server.log 2>&1 &
 echo "server started pid $! (variant=$LTX2_VARIANT offload=$LTX2_OFFLOAD)"
