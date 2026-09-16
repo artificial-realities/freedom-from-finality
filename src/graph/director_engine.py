@@ -39,7 +39,6 @@ from src.story.validator import Report, apply, apply_showrunner
 from src.story.world import EventRecord, WorldModel
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.util.langfuse_setup import event as langfuse_event
-from src.vision import observe_clip
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +68,6 @@ class DirectorEngine:
         self._showrunner_task: asyncio.Task | None = None
         self._showrunner_meta: tuple[int, bool, str] | None = None  # (at_segment, force_replan, reason)
         self._showrunner_notes: list[str] = []
-        # Frame observation runs as fire-and-forget tasks after each render;
-        # finished ones land at the next segment, never blocking it.
-        self.llm_vision = (
-            build_backend(config.llm_backend, config.vision_model)
-            if config.observe_frames and config.vision_model else llm
-        )
-        self._observe_tasks: list[asyncio.Task] = []
-        self._visual_style = ""
 
     # ── Turn ────────────────────────────────────────────────────────
 
@@ -85,12 +76,9 @@ class DirectorEngine:
             self.world = self._init_world(state)
         world = self.world
 
-        self._visual_style = state.visual_style
         await self._join_showrunner()
         notes: list[str] = list(self._showrunner_notes)
         self._showrunner_notes = []
-        await self._await_observations(self.config.observe_wait_seconds)
-        notes.extend(self._land_observations())
 
         seg = state.turn_number
         world.segment = seg
@@ -127,23 +115,6 @@ class DirectorEngine:
         report = apply(segment, world, segment_no=seg, max_shots=self.config.max_shots_per_segment)
         if not vo_open:
             segment.voiceover = ""
-
-        # Visual memory policy: drift observed after the last cut forces the
-        # next segment to open with a cut, so the renderer re-seeds.
-        forced_cut = False
-        picture = world.picture
-        if (
-            segment.shots
-            and picture is not None
-            and picture.drift >= self.config.drift_cut_threshold
-            and picture.segment > world.last_cut
-            and seg - world.last_cut >= self.config.min_segments_between_cuts
-            and segment.shots[0].transition != "cut"
-        ):
-            segment.shots[0].transition = "cut"
-            forced_cut = True
-        if segment.shots and segment.shots[0].transition == "cut":
-            world.last_cut = seg
 
         prompt, duration = compile_prompt(
             segment, world,
@@ -197,10 +168,6 @@ class DirectorEngine:
         if reason:
             self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg)
 
-        if forced_cut:
-            notes.append(
-                f"picture: forced cut (drift {picture.drift}/3 observed at segment {picture.segment})",
-            )
         state.turn_notes = self._format_notes(
             segment, report, notes, vo_open=vo_open, pacing=pnote, trigger=reason, forced=forced_done,
         )
@@ -209,67 +176,7 @@ class DirectorEngine:
 
     async def drain(self, state: StoryState) -> None:
         await self._join_showrunner()
-        if self._observe_tasks:
-            try:
-                await asyncio.wait_for(asyncio.gather(*self._observe_tasks, return_exceptions=True), timeout=60)
-            except asyncio.TimeoutError:
-                logger.warning("observation tasks still running at drain; abandoning them")
-            self._land_observations()
         self._save()
-
-    # ── Frame observation (visual memory) ──────────────────────────
-
-    def observe(self, video_path: str, turn: int) -> None:
-        """Called by the runner after a clip rendered. Spawns the vision
-        check off the critical path; the result lands at a later segment."""
-        if not self.config.observe_frames or self.world is None:
-            return
-        event = next((e for e in reversed(self.world.events) if e.segment == turn), None)
-        expected = list(event.on_screen) if event and event.on_screen else [self.world.protagonist]
-        snapshot = self.world.model_copy(deep=True)
-        self._observe_tasks.append(asyncio.create_task(observe_clip(
-            video_path=video_path, segment=turn, world=snapshot, expected_ids=expected,
-            visual_style=self._visual_style, llm=self.llm_vision, config=self.config,
-        )))
-
-    async def _await_observations(self, timeout: float) -> None:
-        """Give in-flight observations a bounded chance to finish before the
-        Director reads the picture; a slow vision call never blocks a segment
-        for long, it just lands one segment later."""
-        pending = [t for t in self._observe_tasks if not t.done()]
-        if not pending or timeout <= 0:
-            return
-        try:
-            await asyncio.wait_for(asyncio.shield(asyncio.gather(*pending, return_exceptions=True)), timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.info("observation still running after %.0fs; landing it next segment", timeout)
-
-    def _land_observations(self) -> list[str]:
-        """Land finished observations into the world; keep pending ones."""
-        notes: list[str] = []
-        pending: list[asyncio.Task] = []
-        for task in self._observe_tasks:
-            if not task.done():
-                pending.append(task)
-                continue
-            try:
-                obs = task.result()
-            except Exception:
-                logger.exception("observation task failed")
-                notes.append("picture: observation failed")
-                continue
-            if obs is None:
-                notes.append("picture: observation returned nothing")
-                continue
-            assert self.world is not None
-            landed = self.world.land_observation(obs)
-            line = f"picture (segment {obs.segment}): drift {obs.drift}/3 · {obs.summary}".rstrip(" ·")
-            if landed:
-                line += " · " + "; ".join(landed)
-            notes.append(line)
-            self._save()
-        self._observe_tasks = pending
-        return notes
 
     # ── Setup ───────────────────────────────────────────────────────
 

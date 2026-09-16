@@ -1,18 +1,33 @@
-"""End-to-end engine run on the scripted mock backend through the real
-runner, transcript, persistence and history."""
+"""End-to-end engine run through the live loop on the scripted mock
+backend: transcript, persistence and history, with a player that feeds one
+scripted line per segment."""
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
-from src.eval.runner import run_scenario
+from src.eval.runner import run_live
 from src.models.config import Config
 from src.models.story import Story
+from src.playback.player import Player
 from src.story.world import WorldModel
 
-SCENARIO = ["Look around.", "A soccer ball appears at your feet.", "", "Do a trick with it.", "", ""]
+LINES = ["Look around.", "A soccer ball appears at your feet.", "", "Do a trick with it.", "", ""]
+
+
+class Scripted(Player):
+    """Hands the loop one scripted line per segment and plays instantly."""
+
+    def __init__(self, lines: list[str]) -> None:
+        super().__init__(time_scale=1000)
+        self.lines = list(lines)
+
+    async def next_input(self) -> str:
+        return self.lines.pop(0) if self.lines else ""
+
+    async def play(self, item) -> None:
+        await self._hold(item.duration)
 
 
 def _config(**over) -> Config:
@@ -25,18 +40,18 @@ def _config(**over) -> Config:
 async def test_director_engine_end_to_end():
     story = Story.from_json("data/story.json")
     with tempfile.TemporaryDirectory() as d:
-        scenario = Path(d) / "scenario.json"
-        scenario.write_text(json.dumps(SCENARIO))
-        state = await run_scenario(config=_config(), story=story, scenario_path=scenario, log_dir=d)
+        state = await run_live(config=_config(), story=story, log_dir=d,
+                               player=Scripted(LINES), max_segments=len(LINES))
 
-        assert len(state.history) == len(SCENARIO), "every segment produced beat + shot + commentary"
+        assert len(state.history) == len(LINES), "every segment produced beat + shot + commentary"
+        assert [h.user_input for h in state.history] == LINES
         assert state.history[0].commentary.voiceover == "From the stillness, he stirs."
         assert state.history[1].commentary.voiceover == "", "floor closed the segment after a line"
         assert "voice-over (English" in state.history[0].shot.i2v_prompt, "ltx narration folded into the prompt"
 
         session_dir = next((Path(d) / "sessions").iterdir())
         world = WorldModel.load(session_dir)
-        assert len(world.events) == len(SCENARIO)
+        assert len(world.events) == len(LINES)
         assert "soccer_ball" in world.entities and "lego_woman" not in world.entities
         ball = world.entities["soccer_ball"]
         assert ball.status == "rolled out of frame" and not ball.present and ball.holder == ""

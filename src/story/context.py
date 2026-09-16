@@ -209,31 +209,6 @@ def format_events(world: WorldModel, since: int) -> str:
     return "\n\n".join(lines)
 
 
-def format_picture(world: WorldModel, threshold: int) -> str:
-    """What the renderer actually showed last time, for the Director."""
-    obs = world.picture
-    if obs is None:
-        return "No rendered frame has been checked yet."
-    lines = [f"Last rendered segment checked: {obs.segment}. Drift {obs.drift}/3. {obs.summary}".strip()]
-    for check in obs.entities:
-        ent = world.resolve(check.entity)
-        name = ent.id if ent else check.entity
-        if not check.visible:
-            lines.append(f"- {name}: not visible")
-        elif check.matches:
-            lines.append(f"- {name}: matches the sheet")
-        else:
-            lines.append(f"- {name}: DEVIATES: {check.deviations}")
-    if not obs.background_ok:
-        lines.append(f"- background: {obs.background_note or 'does not match the style'}")
-    if obs.drift >= threshold:
-        lines.append(
-            "The picture has drifted from the sheets. Open the next segment with a `cut` so the "
-            "renderer re-seeds from the reference (the system will force one otherwise)."
-        )
-    return "\n".join(lines)
-
-
 def format_gates(
     *, voiceover_open: bool, pacing: str, scene: str, narration_mode: str,
 ) -> str:

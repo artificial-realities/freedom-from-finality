@@ -36,7 +36,6 @@ Voice-over is punctuation, not commentary. Most segments have none. Only when th
 - **Open threads**: setups, promises and running gags that have not paid off. Pay them off when the moment is right; open new ones when you plant something.
 - **Viewer**: the viewer's input for this segment, plus earlier requests still owed. The viewer is a co-author sitting next to you, and a request outranks the scene card: the plan bends to the viewer, not the other way round. Absorb the request in this segment whenever it is physically possible, even if it interrupts the current bit; defer it only when it genuinely cannot happen yet, say what will make it possible, and deliver it in the very next segment; decline it only if it breaks the rules of the world. Always record the disposition.
 - **Story so far**: compressed history. **Recent segments**: the last few beats verbatim, so you continue the motion and do not repeat yourself.
-- **Picture**: what the renderer actually showed in the last checked clip, compared with the sheets. When it reports drift, open the next segment with a `cut` and describe the on-screen characters carefully; when it says a character deviates, do not build on the deviation as if it were real.
 - **Pacing and gates**: deterministic signals from the system. When it says a development is required, deliver one.
 
 # What you return
@@ -47,7 +46,7 @@ One JSON object with these fields:
 - `outcome`: one line on what has changed by the end.
 - `next_direction`: one sentence on where the next segment should go.
 - `shots`: a list of 1 to 3 shots. Usually one. Add a second or third only for a reaction insert or a deliberate change of angle. Each shot has:
-  - `transition`: `continue` to flow on from the previous picture, or `cut` to start a fresh picture. Use `cut` for a new angle, a new moment, or when the system reports the picture has drifted.
+  - `transition`: `continue` to flow on from the previous picture, or `cut` to start a fresh picture. Use `cut` for a new angle or a new moment.
   - `framing`: shot size and angle, for example "medium shot, straight-on, eye level".
   - `camera_motion`: "static" or a specific move.
   - `action_beats`: the visible actions in order, as short sentences.

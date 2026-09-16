@@ -32,7 +32,7 @@ python main.py play --config configs/director.live.yaml --player web
 
 ```bash
 server/vast_run.sh up                                                        # ~5-15 min, prints "server ready"
-server/vast_run.sh run configs/director.live.yaml data/live_scenario.json    # renders into logs/live/
+server/vast_run.sh run configs/director.live.yaml                            # the web player at http://127.0.0.1:8765/, clips into logs/live/
 server/vast_run.sh down                                                      # always, or the meter keeps running
 ```
 
@@ -51,7 +51,7 @@ Until 2026-09-09 the server ran the distilled weights with the full recipe (15 l
 
 **Latency.** The 8 distilled forwards take ~11 s for 121 frames at 960×544 on an H100 PCIe, and with everything resident (`LTX2_OFFLOAD=gpu`, default, 70 GB) that is nearly the whole clip: 12–13 s per 5 s clip plus 1.2 s to encode. `text` offloads the Gemma text encoder and costs 28 s per clip (the encoder's round trip); `cpu` offloads everything and costs 57 s. The server logs a per-stage breakdown for every turn (`timings:`) and encodes the MP4 by piping frames into ffmpeg (libx264 veryfast, audio muxed from a WAV); diffusers' PyAV path took 17–24 s per clip on the Vast boxes and is kept behind `LTX2_ENCODER=av`.
 
-**Identity anchor.** `LTX2ConditionPipeline` accepts several `LTX2VideoCondition`s: one at latent index 0 overwrites the leading tokens (the reference on a cut, the previous chunk's tail on a continue), and any other index is a *guiding keyframe* appended as its own tokens. A request with `anchor_strength > 0` adds the reference image at `anchor_index` (default -1, the last latent frame), so the clip has to return to the sheet; diffusers' long-form recipe uses anchor keyframes at 0.95. The client sets it from `ltxv_anchor_strength` / `ltxv_anchor_index`; `scripts/style_sweep.py` compares off, 0.95 at the end, 0.70 at the end and 0.95 mid-clip.
+**Identity anchor.** `LTX2ConditionPipeline` accepts several `LTX2VideoCondition`s: one at latent index 0 overwrites the leading tokens (the reference on a cut, the previous chunk's tail on a continue), and any other index is a *guiding keyframe* appended as its own tokens. A request with `anchor_strength > 0` adds the reference image at `anchor_index` (default -1, the last latent frame), so the clip has to return to the sheet; diffusers' long-form recipe uses anchor keyframes at 0.95. The client sets it from `ltxv_anchor_strength` / `ltxv_anchor_index`.
 
 The client letterboxes the seed image at the server's render size before sending it (`i2v_reference_fit: pad`, fill `auto` continues the image's own border colour); a reference at a different aspect ratio would otherwise be cropped and the model invents what is missing.
 

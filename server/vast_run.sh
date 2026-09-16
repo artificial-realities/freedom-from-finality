@@ -5,7 +5,7 @@
 #   server/vast_run.sh up [OFFER_ID]                     rent (cheapest matching offer unless given),
 #                                                        install, start the server, open the tunnel,
 #                                                        wait for /health to say ready
-#   server/vast_run.sh run <config> [scenario] [log_dir]  run the client against the tunnel
+#   server/vast_run.sh run <config> [log_dir]             run the client (web player) against the tunnel
 #   server/vast_run.sh restart                           restart the server on the same box (e.g. with
 #                                                        LTX2_VARIANT=full) and wait for /health
 #   server/vast_run.sh status                            instance state + server health
@@ -78,7 +78,7 @@ restart() {
   echo "server restarting as ${LTX2_VARIANT:-distilled}; waiting for /health"
   wait_ready 80 || exit 1
 }
-run() { python main.py play --config "${1:?config}" ${2:+--scenario "$2"} --log-dir "${3:-logs/live}"; }
+run() { python main.py play --config "${1:?config}" --player web --log-dir "${2:-logs/live}"; }
 status() {
   [ -f "$STATE/id" ] && instance_json | python3 -c "import json,sys; d=json.load(sys.stdin); print({k:d.get(k) for k in ['id','actual_status','gpu_name','dph_total','ssh_host','ssh_port']})" || echo "no instance recorded"
   curl -s -m 5 localhost:8000/health || echo "no server on localhost:8000"; echo

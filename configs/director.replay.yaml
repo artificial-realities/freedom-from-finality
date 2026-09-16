@@ -19,9 +19,6 @@ i2v_replay_dir: "logs/video"
 i2v_replay_delay: 3.0
 i2v_seed_image: "data/legoman.png"
 
-# The clips do not follow the prompt, so observing them is pointless.
-observe_frames: false
-
 narration: "ltx"
 audio_enabled: false
 min_pause_seconds: 15.0

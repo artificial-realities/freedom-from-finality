@@ -51,7 +51,7 @@ async def test_line_typed_while_a_clip_plays_lands_two_segments_later():
         # Replay backend with a 1 s "render": the mock Director is instant,
         # so the loop has most of each render to wait for input.
         config = Config(name="timing", graph="director", llm_backend="mock", model="mock",
-                        min_pause_seconds=6.0, observe_frames=False, video_enabled=True,
+                        min_pause_seconds=6.0, video_enabled=True,
                         i2v_backend="replay", i2v_replay_dir=str(clips), i2v_replay_delay=1.0)
         player = Steer("a red cap", after=0.1)
         state = await run_live(config=config, story=story, log_dir=d, player=player, max_segments=4)

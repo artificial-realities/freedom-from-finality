@@ -2,7 +2,6 @@
 
 Usage:
     python main.py play --config configs/director.yaml                       # terminal, turn by turn
-    python main.py play --config configs/director.yaml --scenario data/demo_scenario.json
     python main.py play --config configs/director.yaml --player web          # the film as text in a browser
     python main.py play --config configs/director.live.yaml --player web     # live LTX-2.5 video in a browser
     python main.py play --config configs/director.live.yaml                  # live video in an ffplay window
@@ -21,7 +20,7 @@ from dotenv import load_dotenv
 # Shell-exported values already in the environment win — override=False.
 load_dotenv(override=False)
 
-from src.eval.runner import run_live, run_play, run_scenario  # noqa: E402
+from src.eval.runner import run_live, run_play  # noqa: E402
 from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
 from src.playback import TerminalPlayer  # noqa: E402
@@ -45,11 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Artificial Realities runner")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    play = sub.add_parser("play", help="Interactive play (or drive from a scenario file)")
+    play = sub.add_parser("play", help="Play the film")
     play.add_argument("--config", type=Path, required=True)
     play.add_argument("--story", type=Path, default=DEFAULT_STORY)
-    play.add_argument("--scenario", type=Path, default=None,
-                      help="Optional scenario file; if given, runs non-interactively.")
     play.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR)
     play.add_argument("--player", choices=["terminal", "web"], default=None,
                       help="Live film surface: 'web' serves a browser player that streams the film "
@@ -68,14 +65,7 @@ async def cmd_play(args: argparse.Namespace) -> None:
     story = Story.from_json(args.story)
     config = Config.from_yaml(args.config)
 
-    if args.scenario is not None:
-        await run_scenario(
-            config=config,
-            story=story,
-            scenario_path=args.scenario,
-            log_dir=args.log_dir,
-        )
-    elif args.player is not None or config.live:
+    if args.player is not None or config.live:
         if args.player == "web":
             from src.web import WebPlayer
             player = WebPlayer(host=args.host, port=args.port)

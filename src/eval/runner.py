@@ -1,16 +1,14 @@
-"""The three run loops.
+"""The run loops.
 
-`run_scenario` drives a config through a scripted list of viewer lines
-(non-interactive), `run_play` prompts in the terminal between segments,
-and `run_live` is the continuous film: a producer generating segments and
-a `Player` (ffplay window or the web player) showing them while the viewer
-steers mid-stream.
+`run_live` is the film: a producer generating segments and a `Player`
+(the web player or an ffplay window) showing them while the viewer steers
+mid-stream. `run_play` prompts in the terminal between segments, for
+headless development without a player.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import shutil
 import subprocess
@@ -49,10 +47,6 @@ LATE_START_MARGIN_S = 0.5
 logger = logging.getLogger(__name__)
 
 
-def load_scenario(path: Path | str) -> list[str]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
 def _make_session_id(config_name: str, label: str) -> str:
     """Stable session id used for Langfuse and the on-disk Markdown log."""
     return f"{config_name}_{label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -64,211 +58,6 @@ def _trace_output(state: StoryState) -> dict:
         "narration": state.current_beat.narration if state.current_beat else None,
         "voiceover": state.current_commentary.voiceover if state.current_commentary else None,
     }
-
-
-async def run_scenario(
-    *,
-    config: Config,
-    story: Story,
-    scenario_path: Path | str,
-    log_dir: Path | str = "logs",
-) -> StoryState:
-    """Run a pre-defined scenario synchronously, turn by turn."""
-    turns = load_scenario(scenario_path)
-
-    state = StoryState.initialize(story, config_name=config.name)
-
-    scenario_stem = Path(scenario_path).stem
-    session_id = _make_session_id(config.name, scenario_stem)
-    story_logger = StoryLogger(
-        session_id=session_id,
-        config_name=config.name,
-        scenario=Path(scenario_path).name,
-        story_title=story.title,
-        log_dir=log_dir,
-    )
-
-    llm = build_backend(config.llm_backend, config.model)
-    tts = _maybe_tts(config, log_dir)
-    i2v = _maybe_i2v(config, log_dir)
-
-    graph = build_graph(
-        config.graph, llm=llm, config=config, tts=tts,
-        session_dir=Path(log_dir) / "sessions" / session_id,
-    )
-
-    seed_image: str = config.i2v_seed_image
-    video_dir = Path(log_dir) / "video"
-    frames_dir = video_dir / "frames"
-
-    trace_tags = [config.name, "scenario", scenario_stem]
-    played_clips: list[str] = []
-    # Voiceover spanning state — when audio runs past one clip, the next
-    # silent clip is concatenated behind it and the voice-over gate is held closed
-    # via audio_seconds_owed. Shape mirrors run_live's producer.
-    pending_span: dict | None = None
-
-    if config.audio_enabled:
-        state.pacing_managed = True
-        state.silence_seconds = config.min_pause_seconds
-        state.audio_seconds_owed = 0.0
-
-    try:
-        for turn_number, user_input in enumerate(turns, start=1):
-            state.turn_number = turn_number
-            state.user_input = user_input
-
-            silent: str | None = None
-            with turn_span(
-                turn_number=turn_number,
-                session_id=session_id,
-                tags=trace_tags,
-                user_input=user_input,
-                metadata={"config": config.name, "user_input": user_input},
-            ):
-                result = await graph.ainvoke(state)
-                state = _coerce_state(result)
-
-                if i2v is not None and state.current_shot is not None:
-                    seed_image, silent, _ = await _render_turn(
-                        state=state,
-                        i2v=i2v,
-                        seed_image=seed_image,
-                        frames_dir=frames_dir,
-                        video_dir=video_dir,
-                        mux_inline=False,  # we own muxing for span handling
-                    )
-                    if silent and hasattr(graph, "observe"):
-                        graph.observe(silent, turn_number)
-
-                set_trace_output(_trace_output(state))
-
-            _commit_history(state)
-            _log_story_turn(story_logger, state)
-
-            if i2v is None:
-                continue
-
-            if silent is None:
-                # Render failed — abort any open span and reset owed so the
-                # next voice-over decision isn't artificially held.
-                if pending_span is not None:
-                    langfuse_event(
-                        "playback_span_abort",
-                        metadata={"turn": turn_number,
-                                  "start_turn": pending_span["start_turn"],
-                                  "reason": "render_failed_mid_span"},
-                        level="WARNING",
-                    )
-                    pending_span = None
-                state.audio_seconds_owed = 0.0
-                continue
-
-            clip_dur = await _get_clip_duration(silent, fallback=float(config.i2v_duration))
-            state.last_clip_duration = clip_dur
-
-            # Mid-span: this turn's voice-over was held silent because
-            # the previous voiceover still owes audio. Pay it down.
-            if pending_span is not None:
-                pending_span["clips"].append(silent)
-                pending_span["owed"] -= clip_dur
-                state.audio_seconds_owed = max(0.0, pending_span["owed"])
-                if pending_span["owed"] <= 0.001:
-                    out = video_dir / f"turn_{pending_span['start_turn']:04d}_span.mp4"
-                    combined = await concat_videos_and_mux_audio(
-                        video_paths=pending_span["clips"],
-                        audio_path=pending_span["audio"],
-                        output_path=out,
-                    )
-                    chosen = combined or pending_span["clips"][0]
-                    langfuse_event(
-                        "playback_span_complete",
-                        metadata={
-                            "turn": turn_number,
-                            "start_turn": pending_span["start_turn"],
-                            "clip_count": len(pending_span["clips"]),
-                            "audio_dur": pending_span["audio_dur"],
-                            "video_paths": pending_span["clips"],
-                            "audio_path": pending_span["audio"],
-                            "playable": chosen,
-                            "concat_succeeded": combined is not None,
-                        },
-                    )
-                    pending_span = None
-                    state.silence_seconds = 0.0
-                    played_clips.append(chosen)
-                continue
-
-            audio = state.current_audio_path
-
-            if audio:
-                audio_dur = await probe_duration(audio)
-                if audio_dur is None:
-                    audio_dur = clip_dur
-                if audio_dur > clip_dur + 0.05:
-                    # Voiceover spills past this clip — open a span.
-                    owed = audio_dur - clip_dur
-                    pending_span = {
-                        "clips": [silent],
-                        "audio": audio,
-                        "owed": owed,
-                        "audio_dur": audio_dur,
-                        "start_turn": turn_number,
-                    }
-                    state.audio_seconds_owed = owed
-                    state.silence_seconds = 0.0
-                    langfuse_event(
-                        "playback_span_open",
-                        metadata={"turn": turn_number, "audio_dur": audio_dur,
-                                  "clip_dur": clip_dur, "owed": owed,
-                                  "audio_path": audio},
-                    )
-                    continue
-
-                # Audio fits in one clip — mux and append.
-                out = video_dir / f"turn_{turn_number:04d}_muxed.mp4"
-                muxed = await mux_audio_into_video(
-                    video_path=silent,
-                    audio_path=audio,
-                    output_path=out,
-                )
-                state.audio_seconds_owed = 0.0
-                state.silence_seconds = 0.0
-                played_clips.append(muxed or silent)
-            else:
-                # Pure silence — accumulate the floor.
-                state.audio_seconds_owed = 0.0
-                state.silence_seconds += clip_dur
-                played_clips.append(silent)
-
-        return state
-    finally:
-        # Join the in-flight Showrunner task so its update lands before flush.
-        await graph.drain(state)
-
-        # Drain any still-open span so its audio isn't lost when the
-        # scenario ends mid-voiceover. The combined clip may be longer
-        # than the audio (-shortest trims it); whatever rolls is fine.
-        if pending_span is not None:
-            out = video_dir / f"turn_{pending_span['start_turn']:04d}_span.mp4"
-            combined = await concat_videos_and_mux_audio(
-                video_paths=pending_span["clips"],
-                audio_path=pending_span["audio"],
-                output_path=out,
-            )
-            chosen = combined or pending_span["clips"][0]
-            played_clips.append(chosen)
-            pending_span = None
-
-        langfuse_flush()
-        if played_clips:
-            out = video_dir / f"{session_id}.mp4"
-            print("Saving full session video…", flush=True)
-            saved = await _save_full_session(played_clips, out)
-            if saved:
-                print(f"Saved: {saved}", flush=True)
-            else:
-                print("Could not save session video.", flush=True)
 
 
 def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
@@ -522,8 +311,6 @@ async def run_play(
                         frames_dir=frames_dir,
                         video_dir=video_dir,
                     )
-                    if _silent and hasattr(graph, "observe"):
-                        graph.observe(_silent, turn_number)
 
                 set_trace_output(_trace_output(state))
 
@@ -653,8 +440,6 @@ async def run_live(
                 video_path, fallback=float(duration or config.i2v_duration),
             )
             await _enqueue(item)
-            if hasattr(graph, "observe"):
-                graph.observe(video_path, item.turn)
         else:
             langfuse_event(
                 "i2v_render_failed",
@@ -778,8 +563,6 @@ async def run_live(
                                 video_dir=video_dir,
                                 mux_inline=False,  # live loop owns muxing
                             )
-                            if silent and hasattr(graph, "observe"):
-                                graph.observe(silent, turn)
 
                     set_trace_output(_trace_output(state))
 

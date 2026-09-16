@@ -86,15 +86,6 @@ class Config(BaseModel):
     max_segments_per_scene: int = 12    # hard cap; forces scene_done → Showrunner replan
     compaction_interval: int = 10       # segments between Showrunner compaction passes
     stagnation_threshold: int = 5       # segments without structural change before pressure
-    # Frame observation: after each render, a vision model checks the clip
-    # against the sheets; drift at or above the threshold forces the next
-    # segment to open with a cut. Needs video_enabled.
-    observe_frames: bool = True
-    vision_model: str = "gpt-4.1-mini"
-    drift_cut_threshold: int = 3        # 3 = subject or setting no longer what was described
-    min_segments_between_cuts: int = 2  # a forced cut never lands two segments in a row
-    observe_wait_seconds: float = 15.0  # how long a segment waits for a pending observation
-
     extra: dict = Field(default_factory=dict)
 
     @classmethod

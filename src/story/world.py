@@ -19,8 +19,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
-from src.story.schemas import Observation
-
 EntityKind = Literal["character", "prop", "location"]
 
 
@@ -46,10 +44,6 @@ class Entity(BaseModel):
     speaks: bool = True
     reference_image: str = ""
     reference_pose: str = ""
-    # Visual memory from frame observation: what the renderer last showed.
-    observed_look: str = ""
-    observed_at: int = 0
-    drift: int = 0
 
     def render_look(self) -> str:
         return self.look or self.description or self.name
@@ -139,11 +133,6 @@ class WorldModel(BaseModel):
     last_showrunner: int = 0
     scene_started: int = 1
     showrunner_runs: int = 0
-    # Frame observation (visual memory): every observation kept, the latest
-    # shown to the Director, and the last segment that opened with a cut.
-    observations: list[Observation] = Field(default_factory=list)
-    picture: Observation | None = None
-    last_cut: int = 0
 
     _saved_events: int = PrivateAttr(default=0)
 
@@ -241,27 +230,6 @@ class WorldModel(BaseModel):
 
     def events_since(self, segment: int) -> list[EventRecord]:
         return [e for e in self.events if e.segment > segment]
-
-    def land_observation(self, obs: Observation) -> list[str]:
-        """Record an observation as visual memory. Returns log lines."""
-        notes: list[str] = []
-        self.observations.append(obs)
-        if self.picture is None or obs.segment >= self.picture.segment:
-            self.picture = obs
-        for check in obs.entities:
-            ent = self.resolve(check.entity)
-            if ent is None:
-                continue
-            ent.observed_at = obs.segment
-            ent.drift = obs.drift if not check.matches else min(obs.drift, 1)
-            ent.observed_look = (
-                check.deviations.strip() if check.deviations.strip()
-                else ("matches the sheet" if check.visible else "not visible")
-            )
-            notes.append(f"{ent.id}: {ent.observed_look}")
-        if not obs.background_ok and obs.background_note.strip():
-            notes.append(f"background: {obs.background_note.strip()}")
-        return notes
 
     def held_props(self, character_id: str | None = None) -> list[Entity]:
         cid = character_id or self.protagonist

@@ -18,9 +18,6 @@ Segment {segment}
 ## Recent segments (newest last)
 {recent}
 
-## Picture
-{picture}
-
 ## Pacing and gates
 {gates}
 

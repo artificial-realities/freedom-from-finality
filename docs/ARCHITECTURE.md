@@ -44,8 +44,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
 | Context assembler | `src/story/context.py` | code | Every prompt section, so the prompt budget is decided in one place |
 | Prompt compiler | `src/story/compiler.py` | code | `Segment` → LTX-2.5 prompt text and total duration |
 | Pacing | `src/story/pacing.py` | code | Voice-over gate, story clock, stagnation ladder, scene cap |
-| Schemas | `src/story/schemas.py` | code | `Segment`, `ShotSpec`, `EntityOp`, `ThreadOp`, `DialogueLine`, `ShowrunnerUpdate`, `Observation` |
-| Frame observation | `src/vision/observe.py` | vision LLM, off-path | Checks two frames of each rendered clip against the sheets; lands as visual memory |
+| Schemas | `src/story/schemas.py` | code | `Segment`, `ShotSpec`, `EntityOp`, `ThreadOp`, `DialogueLine`, `ShowrunnerUpdate` |
 | Live loop | `src/eval/runner.py` (`run_live`) | code | Producer (segments → clips) and consumer (clips → player) on a bounded queue |
 | Player | `src/playback/player.py`, `src/web/` | code | `Playable` + `Player` boundary; `TerminalPlayer` (ffplay + stdin), `WebPlayer` (browser page over SSE) |
 
@@ -76,12 +75,6 @@ viewer input ─▶ Engine (deterministic, asyncio)
 
 Entities carry `kind` (character, prop, location), `description` (for the writer), `look` (verbatim for the renderer), `status`, `location`, `holder`, `present`, `gone`, `first_seen`/`last_seen`, `notes` (durable facts added by the Showrunner), `speaks`, and `reference_image`. `cast_locked` on the story makes introducing characters a hard violation; creatures and objects are props.
 
-## Visual memory: the observation loop
-
-The LLM layer otherwise never sees a frame. After each render the runner hands the clip to the engine, which spawns a vision call off the critical path: the middle and end frames, the sheets of the entities that were supposed to be on screen, and the visual style go to a small vision model that returns an `Observation` (per-entity match and deviations, a background check, a 0–3 drift score). The next segment waits at most `observe_wait_seconds` for it, then lands it: each entity's `observed_look`, `observed_at` and `drift` are updated, the latest observation becomes `world.picture`, and everything is persisted.
-
-Two things feed back. The Director sees a **Picture** section describing what the renderer actually showed and is told to open with a `cut` when it drifted. Code enforces it: drift at or above `drift_cut_threshold`, observed after the last cut, forces the next segment's first shot to `cut`, so the renderer re-seeds from the reference. The compiler also states, positively, what a deviating entity or setting is *not* ("Lego Man is exactly as described, not green head with black hair"), which pulls the prompt back to the sheet. `observe_frames: false` turns the loop off; it only runs when video is enabled.
-
 ## The player: watch and steer
 
 The live loop (`run_live`) is a producer and a consumer on a bounded queue. The producer runs the segment above, renders it (pipelined with the next Director call when the backend owns continuity), and queues a `Playable`: the clip path, its measured duration, and the viewer-facing views of the segment (narration, voice-over, who is on screen, the transition, the scene, and how the viewer's line was handled). The consumer hands items to a `Player` one at a time and the player holds each for its duration, so **the server is the clock**: the film advances at story pace whether or not anyone is watching, and a browser that joins late is told what is on air and seeks into it.
@@ -100,7 +93,7 @@ Narration is a capability, not an agent. `voiceover` is an optional Director fie
 
 ## The video boundary
 
-The renderer receives a compiled prompt, a duration, and a transition. `continue` conditions the next chunk on the previous chunk's tail (the server's sliding window). `cut` sends `reset_window` and the server conditions on the reference image instead, which bounds identity drift and is a normal cinematic device. A segment may hold up to `max_shots_per_segment` shots (LTX-2.5 handles up to three per generation); the compiler joins them with explicit cuts. Only the compiler knows the model's dialect; the `Segment` schema does not change when the model does.
+The renderer receives a compiled prompt, a duration, and a transition. `continue` conditions the next chunk on the previous chunk's tail (the server's sliding window). `cut` sends `reset_window` and the server conditions on the reference image instead, a normal cinematic device. A segment may hold up to `max_shots_per_segment` shots (LTX-2.5 handles up to three per generation); the compiler joins them with explicit cuts. Only the compiler knows the model's dialect; the `Segment` schema does not change when the model does.
 
 ## Configuration
 
@@ -115,11 +108,7 @@ compaction_interval: 10        # Showrunner compaction cadence
 stagnation_threshold: 5        # segments without structural change before pressure
 director_model: ""             # optional per-role model overrides
 showrunner_model: ""
-observe_frames: true           # vision check of every rendered clip (video runs only)
-vision_model: "gpt-4.1-mini"
-drift_cut_threshold: 2         # observed drift at or above this forces a cut
-observe_wait_seconds: 15       # bounded wait for a pending observation before the Director call
-ltxv_negative_prompt: ""       # "" → the server's default; see scripts/style_sweep.py
+ltxv_negative_prompt: ""       # "" → the server's default
 ltxv_seed: null                # fixed seed for reproducible renders
 ```
 
@@ -127,7 +116,7 @@ ltxv_seed: null                # fixed seed for reproducible renders
 
 ## Testing
 
-`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, cuts, multi-shot segments, deferred interventions, compaction and replanning without an API key. `tests/test_web.py` runs the live loop through the web player over HTTP, in text mode and with replayed clips.
+`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine through the live loop on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, cuts, multi-shot segments, deferred interventions, compaction and replanning without an API key. `tests/test_web.py` runs the live loop through the web player over HTTP, in text mode and with replayed clips.
 
 ## Not built yet, by design
 
