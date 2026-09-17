@@ -26,8 +26,11 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIBackend(LLMBackend):
-    def __init__(self, model: str, api_key: str | None = None) -> None:
+    def __init__(self, model: str, api_key: str | None = None, service_tier: str = "") -> None:
         self.model = model
+        # OpenAI processing tier for every request ("priority" buys faster
+        # tokens per second at a higher price; "" leaves the API default).
+        self.service_tier = service_tier
         self.client = AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
 
     async def generate(
@@ -48,6 +51,8 @@ class OpenAIBackend(LLMBackend):
             extra["name"] = trace_name
         if trace_metadata is not None:
             extra["metadata"] = trace_metadata
+        if self.service_tier:
+            extra["service_tier"] = self.service_tier
 
         try:
             resp = await self.client.chat.completions.create(
@@ -94,6 +99,8 @@ class OpenAIBackend(LLMBackend):
             extra["name"] = trace_name
         if trace_metadata is not None:
             extra["metadata"] = trace_metadata
+        if self.service_tier:
+            extra["service_tier"] = self.service_tier
 
         response_format = {
             "type": "json_schema",

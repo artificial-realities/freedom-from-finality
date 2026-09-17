@@ -10,6 +10,7 @@ locked cast, dialogue from a mute character) to exercise the re-ask.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -35,6 +36,10 @@ def _floor_open(messages: list[dict]) -> bool:
 
 
 class MockBackend(LLMBackend):
+    # Seconds a Showrunner call takes (class-level so a test can set it):
+    # the engine must never make a segment wait for it.
+    showrunner_delay: float = 0.0
+
     def __init__(self, model: str = "mock") -> None:
         self.model = model
         self.calls: list[dict] = []
@@ -49,6 +54,8 @@ class MockBackend(LLMBackend):
         if name == "Segment":
             payload = self._segment(messages)
         elif name == "ShowrunnerUpdate":
+            if self.showrunner_delay:
+                await asyncio.sleep(self.showrunner_delay)
             payload = self._showrunner(messages)
         else:
             raise ValueError(f"MockBackend has no script for schema {name!r}")
@@ -61,8 +68,6 @@ class MockBackend(LLMBackend):
         retry = _corrections_requested(messages)
         vo_open = _floor_open(messages)
         base = {
-            "narration": f"Segment {n}: the minifigure does something specific and physical.",
-            "outcome": f"Outcome of segment {n}.",
             "next_direction": f"Direction after segment {n}.",
             "shot": {
                 "framing": "medium shot, straight-on, eye level",

@@ -32,7 +32,7 @@ def _world() -> WorldModel:
 
 def _segment(**over) -> Segment:
     base = dict(
-        narration="He does a thing.", outcome="A thing was done.", next_direction="More things.",
+        next_direction="More things.",
         shot=ShotSpec(framing="medium shot", action_beats=["He waves."], on_screen=["lego_man"],
                       end_state="Lego Man waving"),
     )

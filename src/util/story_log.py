@@ -100,8 +100,10 @@ class StoryLogger:
         else:
             out.append("**Beat**\n\n")
             out.append(f"{beat.narration}\n\n")
-            out.append(f"- Action: {beat.action}\n")
-            out.append(f"- Outcome: {beat.outcome}\n")
+            if beat.action and beat.action != beat.narration:
+                out.append(f"- Action: {beat.action}\n")
+            if beat.outcome and not (shot is not None and beat.outcome == shot.end_frame_description):
+                out.append(f"- Outcome: {beat.outcome}\n")
             if beat.short_term_narrative:
                 out.append(f"- Short-term direction: {beat.short_term_narrative}\n")
             if beat.long_term_narrative:

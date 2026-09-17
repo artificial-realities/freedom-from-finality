@@ -105,7 +105,6 @@ class EventRecord(BaseModel):
     user_input: str = ""
     intervention: str = "none"
     narration: str
-    outcome: str
     next_direction: str = ""
     applied_ops: list[str] = Field(default_factory=list)
     thread_ops: list[str] = Field(default_factory=list)

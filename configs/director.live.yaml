@@ -3,6 +3,10 @@ description: "Director engine with LTX-2.5 video: Director â†’ compiled prompt â
 graph: "director"
 llm_backend: "openai"
 model: "gpt-4.1"
+# The Director call is the per-clip critical path. OpenAI's priority tier ran
+# gpt-4.1 at ~150 tokens/s instead of ~60 on 2026-09-17 (2.1 s instead of
+# 5.8 s per segment, same output) at a higher per-token price.
+director_service_tier: "priority"
 temperature: 0.7
 max_tokens_per_agent: 1024
 
@@ -39,4 +43,5 @@ min_pause_seconds: 15.0
 recent_beats: 4
 max_segments_per_scene: 12
 compaction_interval: 10
+showrunner_min_gap: 4
 stagnation_threshold: 5

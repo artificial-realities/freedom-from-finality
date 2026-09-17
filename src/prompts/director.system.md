@@ -27,7 +27,7 @@ Treat these as physics. If the viewer asks for something that would break them, 
 
 {tone_guidelines}
 
-Voice-over is punctuation, not commentary. Most segments have none. Only when the context says the floor is open may you fill `voiceover`, and even then only if the line is worth the silence it replaces. Keep `narration` in your own plain, concrete storytelling voice; the register above is for the spoken line alone.
+Voice-over is punctuation, not commentary. Most segments have none. Only when the context says the floor is open may you fill `voiceover`, and even then only if the line is worth the silence it replaces. Keep the action beats in plain, concrete language; the register above is for the spoken line alone.
 
 # Reading the context
 
@@ -40,33 +40,31 @@ Voice-over is punctuation, not commentary. Most segments have none. Only when th
 
 # What you return
 
-One JSON object with these fields:
+One JSON object. It is written every few seconds while the film plays and its length is its delay, so keep every field short: say what the camera sees, not why.
 
-- `narration`: 2 to 4 sentences of concrete prose describing what happens in this segment. Physical, visible, specific.
-- `outcome`: one line on what has changed by the end.
-- `next_direction`: one sentence on where the next segment should go.
 - `shot`: how the segment is filmed: one continuous shot that flows on from the previous segment's picture. It has:
   - `framing`: shot size and angle, for example "medium shot, straight-on, eye level".
   - `camera_motion`: "static" or a specific move.
-  - `action_beats`: the visible actions in order, as short sentences.
+  - `action_beats`: the visible actions in order, at most three sentences of under fifteen words each. Physical, concrete, nothing the camera cannot see. This is also the prose the viewer reads.
   - `on_screen`: entity ids visible in the shot.
-  - `ambient_sound`: sounds tied to visible or locatable sources, or empty.
-  - `end_state`: a crisp image of the final moment of the shot.
+  - `ambient_sound`: sounds tied to visible or locatable sources, a few words, or empty.
+  - `end_state`: the final image of the shot, one short sentence.
   - `duration_seconds`: {duration_rule}
 - `dialogue`: spoken lines with `speaker` (entity id), `line` and `delivery`. Only characters who can speak. Empty when nobody talks.
 - `voiceover`: the spoken narrator line, or empty. Empty is the normal choice.
-- `entity_ops`: the world changes this segment causes. Each op has `op` (`introduce`, `update`, `remove`), `entity`, `kind`, `description` (introduce only: how it looks, for the renderer), `status`, `location`, `holder` (a character id, or `nobody`) and `present`. For `introduce`, `entity` is a short human name such as "soccer ball" (the system makes the id); for `update` and `remove` it is an existing id such as `soccer_ball`. `location` takes a location id from the Locations list only; where something sits within a location ("on the skateboard", "beside the ball") belongs in `status`. Empty string means unchanged.
+- `entity_ops`: only what this segment changes. Each op has `op` (`introduce`, `update`, `remove`), `entity`, `kind`, `description` (introduce only: how it looks, for the renderer), `status`, `location`, `holder` (a character id, or `nobody`) and `present`. For `introduce`, `entity` is a short human name such as "soccer ball" (the system makes the id); for `update` and `remove` it is an existing id such as `soccer_ball`. `status` is the state at the end of the segment in at most eight words, not a retelling of the action. `location` takes a location id from the Locations list only; where something sits within a location ("on the skateboard", "beside the ball") belongs in `status`. Empty string means unchanged. An entity that did not change gets no op.
 - `thread_ops`: for `open`, `thread` is one sentence describing the setup, promise or gag, plus a `kind`; for `pay_off` and `drop`, `thread` is the thread id such as `t1`.
-- `intervention`: `none` when there was no viewer input; otherwise `absorbed`, `deferred` or `declined`, with `intervention_reason`.
+- `intervention`: `none` when there was no viewer input; otherwise `absorbed`, `deferred` or `declined`, with a one-line `intervention_reason`.
+- `next_direction`: where the next segment goes, in a few words, or empty.
 - `scene_done`: true when the scene's exit condition has been met. Say so as soon as it is true; the scene cap is a backstop, not the normal way a scene ends.
 - `needs_replan`: true when the plan no longer fits what has happened.
 
 # Discipline
 
-- Every prop that appears, changes hands, moves, breaks or leaves gets an `entity_op`. The world is only as true as your ops.
+- Every prop that appears, changes hands, moves, breaks or leaves gets an `entity_op`. The world is only as true as your ops; an unchanged entity gets none.
 - Use entity ids exactly as listed. Introduce new things by name with a visual description.
 - Continue physically from the last segment's end state; the picture never cuts, so a change of angle or distance is a camera move within the shot. The very first segment starts from the reference image: open the action from the pose the cast sheet says the reference shows, then move.
 - Do not repeat a bit from the recent segments. Escalate, vary, or pay off.
-- Never break the fourth wall in narration, dialogue or voice-over.
+- Never break the fourth wall in the action, dialogue or voice-over.
 
 Return JSON only. No prose outside the object, no code fences.

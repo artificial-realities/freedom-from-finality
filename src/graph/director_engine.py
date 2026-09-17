@@ -3,12 +3,14 @@
 Two LLM roles on two clocks, everything else deterministic:
 
 - **Director** — one structured call per segment on the critical path.
-  Reads the assembled context, returns a `Segment` (narration, shot,
-  audio, world delta, thread ops, viewer disposition, flags).
+  Reads the assembled context, returns a `Segment` (shot, audio, world
+  delta, thread ops, viewer disposition, flags).
 - **Showrunner** — an async task on a slow clock, spawned on triggers
   (bootstrap, scene exit, stagnation, a replan flag, or every
-  `compaction_interval` segments) and joined at the start of the next
-  segment. Compacts the event log and writes the plan.
+  `compaction_interval` segments), at most one in flight and at least
+  `showrunner_min_gap` segments apart. Its update lands at the start of
+  the first segment that finds it finished; a segment never waits for
+  it. Compacts the event log and writes the plan.
 
 Code owns the rest: the typed `WorldModel`, validation and apply, the
 prompt compiler, the pacing gates, and persistence per segment.
@@ -58,8 +60,9 @@ class DirectorEngine:
         self.session_dir = Path(session_dir) if session_dir else None
         self.world: WorldModel | None = None
         self.llm_director = (
-            build_backend(config.llm_backend, config.director_model)
-            if config.director_model else llm
+            build_backend(config.llm_backend, config.director_model or config.model,
+                          service_tier=config.director_service_tier)
+            if (config.director_model or config.director_service_tier) else llm
         )
         self.llm_showrunner = (
             build_backend(config.llm_backend, config.showrunner_model)
@@ -68,19 +71,21 @@ class DirectorEngine:
         self._showrunner_task: asyncio.Task | None = None
         self._showrunner_meta: tuple[int, bool, str] | None = None  # (at_segment, force_replan, reason)
         self._showrunner_notes: list[str] = []
+        self._last_spawn: int = 0   # segment the last Showrunner run was spawned at
 
     # ── Turn ────────────────────────────────────────────────────────
 
     async def ainvoke(self, state: StoryState) -> StoryState:
         if self.world is None:
             self.world = self._init_world(state)
+            self._last_spawn = self.world.last_showrunner
         world = self.world
 
-        await self._join_showrunner()
+        seg = state.turn_number
+        self._land_if_done(seg)
         notes: list[str] = list(self._showrunner_notes)
         self._showrunner_notes = []
 
-        seg = state.turn_number
         world.segment = seg
         text = (state.user_input or "").strip()
         if text:
@@ -155,8 +160,7 @@ class DirectorEngine:
             scene_id=card.id if card else 0,
             user_input=text,
             intervention=segment.intervention,
-            narration=segment.narration,
-            outcome=segment.outcome,
+            narration=segment.action_text(),
             next_direction=segment.next_direction,
             applied_ops=list(report.applied),
             thread_ops=[a for a in report.applied if a.startswith("thread ")],
@@ -168,11 +172,17 @@ class DirectorEngine:
         self._save()
 
         reason, mode = self._trigger(segment, forced_done)
+        spawned: str | None = None
         if reason:
-            self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg)
+            held = self._hold_reason(seg)
+            if held:
+                notes.append(f"showrunner trigger held ({reason}): {held}")
+            else:
+                self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg)
+                spawned = reason
 
         state.turn_notes = self._format_notes(
-            segment, report, notes, vo_open=vo_open, pacing=pnote, trigger=reason, forced=forced_done,
+            segment, report, notes, vo_open=vo_open, pacing=pnote, trigger=spawned, forced=forced_done,
         )
         self._tick(state)
         return state
@@ -232,16 +242,58 @@ class DirectorEngine:
 
         self._showrunner_meta = (at_segment, mode == "replan", reason)
         self._showrunner_task = asyncio.create_task(_task())
+        self._last_spawn = at_segment
 
     async def _run_showrunner_now(self, state: StoryState, *, reason: str, mode: str, at_segment: int) -> None:
+        """The bootstrap: the only synchronous run. Nothing is on air yet."""
         assert self.world is not None
+        self._last_spawn = at_segment
         update = await showrunner_agent.run(
             world=self.world, state=state, llm=self.llm_showrunner,
             config=self.config, reason=reason, mode=mode,
         )
         self._land(update, at_segment=at_segment, force_replan=True, reason=reason)
 
+    def _hold_reason(self, seg: int) -> str | None:
+        """Why a Showrunner trigger must wait: a run in flight, or too soon
+        after the last one. A finished run that has not landed yet lands
+        first, so its update is never lost to a new spawn."""
+        task = self._showrunner_task
+        if task is not None and task.done():
+            self._land_if_done(seg)
+            task = self._showrunner_task
+        if task is not None:
+            spawned_at = self._showrunner_meta[0] if self._showrunner_meta else "?"
+            return f"a run spawned at segment {spawned_at} is still in flight"
+        gap = seg - self._last_spawn
+        if gap < self.config.showrunner_min_gap:
+            return f"{gap} segment(s) since the last run, minimum {self.config.showrunner_min_gap}"
+        return None
+
+    def _land_if_done(self, seg: int) -> None:
+        """Land the in-flight Showrunner update if it has finished. Never
+        waits: a segment on the clock does not pay for the slow clock."""
+        task, meta = self._showrunner_task, self._showrunner_meta
+        if task is None:
+            return
+        at_segment, force_replan, reason = meta or (self.world.segment if self.world else 0, False, "?")
+        if not task.done():
+            self._showrunner_notes.append(
+                f"showrunner ({reason}, spawned at segment {at_segment}): still running; continuing with the current plan",
+            )
+            return
+        self._showrunner_task, self._showrunner_meta = None, None
+        try:
+            update = task.result()
+        except Exception:
+            logger.exception("Showrunner task failed; continuing with the current plan")
+            self._showrunner_notes.append("showrunner: task failed; plan unchanged")
+            return
+        self._land(update, at_segment=at_segment, force_replan=force_replan, reason=reason, landed_at=seg)
+
     async def _join_showrunner(self) -> None:
+        """Wait for the in-flight run and land it. Only `drain` (the end of a
+        run) does this; segments use `_land_if_done`."""
         if self._showrunner_task is None:
             return
         task, meta = self._showrunner_task, self._showrunner_meta
@@ -255,7 +307,7 @@ class DirectorEngine:
         at_segment, force_replan, reason = meta or (self.world.segment if self.world else 0, False, "?")
         self._land(update, at_segment=at_segment, force_replan=force_replan, reason=reason)
 
-    def _land(self, update, *, at_segment: int, force_replan: bool, reason: str) -> None:
+    def _land(self, update, *, at_segment: int, force_replan: bool, reason: str, landed_at: int | None = None) -> None:
         assert self.world is not None
         if update is None:
             self._showrunner_notes.append(f"showrunner ({reason}): no update (parse failure)")
@@ -272,6 +324,8 @@ class DirectorEngine:
         landed = apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan)
         card = self.world.plan.scene
         line = f"showrunner ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
+        if landed_at is not None and landed_at > at_segment + 1:
+            line += f" · landed at segment {landed_at} (spawned at {at_segment})"
         if update.rationale.strip():
             line += f" · rationale: {update.rationale.strip()}"
         self._showrunner_notes.append(line)
@@ -295,10 +349,11 @@ class DirectorEngine:
         world = self.world
         assert world is not None
         shot = segment.shot
+        action = segment.action_text()
         state.current_beat = Beat(
-            narration=segment.narration,
-            action=segment.action_text() or segment.outcome,
-            outcome=segment.outcome,
+            narration=action,
+            action=action,
+            outcome=shot.end_state,
             short_term_narrative=segment.next_direction,
             long_term_narrative=None,
         )

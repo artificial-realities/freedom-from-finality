@@ -50,16 +50,16 @@ viewer input ─▶ Engine (deterministic, asyncio)
 
 ## The segment, step by step
 
-1. **Join.** If a Showrunner task is in flight from the previous segment, await it and land its update (summaries, notes, pruned threads, arc, and a new scene card when it replanned).
+1. **Land.** If a Showrunner task spawned earlier has finished, land its update (summaries, notes, pruned threads, arc, and a new scene card when it replanned). A task still running is left alone and the segment proceeds on the current plan: a segment never waits for the slow clock. Only the end of a run awaits it.
 2. **Record input.** A non-empty viewer line becomes an `Intervention` with disposition `pending`. Nothing is dropped: the live loop still coalesces lines typed between clips, but every line the engine sees is recorded.
 3. **Bootstrap.** On the first segment the Showrunner runs synchronously to write the arc and the opening scene card from the blueprint.
 4. **Gates.** The voice-over gate opens when no audio is owed and the silence floor (`min_pause_seconds`, in story seconds) has elapsed since the last line. The stagnation ladder turns "segments since anything structural changed" into prompt pressure at `stagnation_threshold` and a required shift at twice that. The scene cap forces `scene_done` at `max_segments_per_scene`.
-5. **Director call.** The context assembler renders the bible (static, cache-friendly system prompt), the plan, the world now, open threads, the viewer section, summaries, the recent segments verbatim, and the gates. The Director returns a `Segment`.
+5. **Director call.** The context assembler renders the bible (static, cache-friendly system prompt), the plan, the world now, open threads, the viewer section, summaries, the recent segments verbatim, and the gates. The Director returns a `Segment`: the shot (framing, camera, two to four action beats, who is on screen, sound, end state), dialogue, voice-over, entity ops for what changed, thread ops, the viewer disposition, a few words of `next_direction` and the flags. The action beats are the only prose; the transcript, the player and the Showrunner's event log all read them. The output was cut from about 500 to under 250 tokens on 2026-09-17 because the call is the per-clip critical path.
 6. **Validate and apply.** Hard violations (an unknown entity, a new character in a locked cast, dialogue from a mute character, a holder that is not a character) trigger exactly one re-ask with the violations spelled out. Then `apply` mutates the world: entity ops, presence from the shot list, thread ops, the intervention disposition. Unresolvable ops are dropped and logged as warnings, never silently.
 7. **Compile.** The compiler turns the shot into one flowing prompt in the order LTX-2.5 responds to (sound, camera, who is on screen described from their sheet, the action, dialogue in quotes, the image the shot ends on). The first segment of a run opens from the cast sheet's `reference_pose`, because the renderer seeds that clip from the reference image. When `narration: "ltx"`, the voice-over line is folded into the prompt for native audio. With `clip_seconds` set the clip is that long whatever the shots add up to, and the Director's system prompt tells it to plan for that length.
 8. **Views.** The engine fills the legacy `current_beat`, `current_shot`, `current_commentary` fields so the runner, playback, history and the transcript work unchanged for either engine.
 9. **Persist.** The event record is appended and the world is saved to `logs/sessions/<session>/world.json` plus `events.jsonl`.
-10. **Trigger.** `scene_done` or `needs_replan` → Showrunner in replan mode; stagnation past twice the threshold → replan; `compaction_interval` segments since the last compaction → compact mode. The task runs during rendering and is joined at step 1 of the next segment.
+10. **Trigger.** `scene_done` or `needs_replan` → Showrunner in replan mode; stagnation past twice the threshold → replan; `compaction_interval` segments since the last compaction → compact mode. At most one run is in flight and runs are at least `showrunner_min_gap` segments apart; a trigger that falls inside the gap or finds a run in flight is noted in the transcript and looked at again next segment. The task runs on a snapshot of the world and lands at step 1 of the first later segment that finds it finished.
 
 ## World model tiers
 
@@ -106,9 +106,11 @@ min_pause_seconds: 15.0        # silence floor before the voice-over gate reopen
 recent_beats: 4                # verbatim segments in the Director prompt
 max_segments_per_scene: 12     # hard cap → scene_done → Showrunner replan
 compaction_interval: 10        # Showrunner compaction cadence
+showrunner_min_gap: 4          # fewest segments between two Showrunner runs
 stagnation_threshold: 5        # segments without structural change before pressure
 director_model: ""             # optional per-role model overrides
 showrunner_model: ""
+director_service_tier: ""      # OpenAI processing tier for the Director call ("priority": ~2.5x the tokens/s)
 ltxv_negative_prompt: ""       # "" → the server's default
 ltxv_seed: null                # fixed seed for reproducible renders
 ```

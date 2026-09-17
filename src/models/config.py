@@ -84,12 +84,21 @@ class Config(BaseModel):
     narration: str = "ltx"              # "ltx" (native audio prompt) | "tts" (ElevenLabs) | "off"
     voiceover_style: str = "warm, unhurried documentary narrator"
     director_model: str = ""            # override `model` for the Director call
+    # OpenAI processing tier for the Director call, the per-clip critical
+    # path: "priority" ran gpt-4.1 at ~150 tokens/s instead of ~60 on
+    # 2026-09-17 (2.1 s instead of 5.8 s per segment) at a higher per-token
+    # price. "" leaves the API default.
+    director_service_tier: str = ""
     showrunner_model: str = ""          # override `model` for the Showrunner call
     max_tokens_director: int = 2048
     max_tokens_showrunner: int = 2048
     recent_beats: int = 4               # verbatim recent segments in the Director prompt
     max_segments_per_scene: int = 12    # hard cap; forces scene_done → Showrunner replan
     compaction_interval: int = 10       # segments between Showrunner compaction passes
+    # Fewest segments between two Showrunner runs (any trigger; the bootstrap
+    # is exempt). A trigger that falls inside the gap is noted and looked at
+    # again next segment. At most one run is in flight at a time.
+    showrunner_min_gap: int = 4
     stagnation_threshold: int = 5       # segments without structural change before pressure
     extra: dict = Field(default_factory=dict)
 

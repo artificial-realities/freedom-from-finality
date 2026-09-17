@@ -4,11 +4,13 @@ from src.llm.openai_backend import OpenAIBackend
 __all__ = ["LLMBackend", "OpenAIBackend", "build_backend"]
 
 
-def build_backend(name: str, model: str) -> LLMBackend:
-    """Construct an LLMBackend from a config's `llm_backend` string."""
+def build_backend(name: str, model: str, *, service_tier: str = "") -> LLMBackend:
+    """Construct an LLMBackend from a config's `llm_backend` string.
+    `service_tier` is an OpenAI processing tier ("priority" for faster
+    tokens at a higher price); other backends ignore it."""
     key = name.lower()
     if key in {"openai", "gpt-4o", "gpt-4.1", "gpt"}:
-        return OpenAIBackend(model=model)
+        return OpenAIBackend(model=model, service_tier=service_tier)
     if key == "mock":
         from src.llm.mock_backend import MockBackend
         return MockBackend(model=model)

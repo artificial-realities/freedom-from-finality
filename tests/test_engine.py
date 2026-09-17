@@ -32,7 +32,8 @@ class Scripted(Player):
 
 def _config(**over) -> Config:
     base = dict(name="mocktest", graph="director", llm_backend="mock", model="mock",
-                min_pause_seconds=6.0, compaction_interval=4, stagnation_threshold=3)
+                min_pause_seconds=6.0, compaction_interval=4, stagnation_threshold=3,
+                showrunner_min_gap=1)
     base.update(over)
     return Config(**base)
 
@@ -48,6 +49,7 @@ async def test_director_engine_end_to_end():
         assert state.history[0].commentary.voiceover == "From the stillness, he stirs."
         assert state.history[1].commentary.voiceover == "", "floor closed the segment after a line"
         assert "voice-over (English" in state.history[0].shot.i2v_prompt, "ltx narration folded into the prompt"
+        assert state.history[0].beat.narration.startswith("Lego Man performs action 1."), "the beats are the prose"
 
         session_dir = next((Path(d) / "sessions").iterdir())
         world = WorldModel.load(session_dir)
@@ -88,3 +90,46 @@ async def test_fixed_clip_length_overrides_the_directors_durations():
                                player=Scripted(LINES[:4]), max_segments=4)
     durations = [h.shot.duration_seconds for h in state.history]
     assert durations == [6, 6, 6, 6], durations
+
+
+async def test_showrunner_never_blocks_a_segment():
+    """A slow Showrunner lands at a later segment; no segment waits for it,
+    a trigger that finds a run in flight is held, and the end of the run
+    still lands the update."""
+    import time
+    from src.llm.mock_backend import MockBackend
+    story = Story.from_json("data/story.json")
+    MockBackend.showrunner_delay = 0.25
+    try:
+        t0 = time.monotonic()
+        with tempfile.TemporaryDirectory() as d:
+            state = await run_live(config=_config(compaction_interval=2), story=story, log_dir=d,
+                                   player=Scripted(LINES), max_segments=len(LINES))
+            wall = time.monotonic() - t0
+            transcript = next(Path(d).glob("*.md")).read_text()
+            session_dir = next((Path(d) / "sessions").iterdir())
+            world = WorldModel.load(session_dir)
+    finally:
+        MockBackend.showrunner_delay = 0.0
+    assert len(state.history) == len(LINES)
+    # The bootstrap is synchronous (0.25 s) and drain waits for the last run
+    # (0.25 s); had each of the three later triggers been awaited, the run
+    # would have taken over a second.
+    assert wall < 0.9, wall
+    assert "still running; continuing with the current plan" in transcript
+    assert "showrunner trigger held" in transcript and "still in flight" in transcript
+    assert world.summaries, "the compaction landed by the end of the run"
+
+
+async def test_showrunner_min_gap_holds_triggers():
+    """Triggers inside the gap are noted, not run: with a gap of 4 and a
+    compaction interval of 2 over six segments, only the bootstrap and one
+    compaction run."""
+    story = Story.from_json("data/story.json")
+    with tempfile.TemporaryDirectory() as d:
+        await run_live(config=_config(compaction_interval=2, showrunner_min_gap=4), story=story, log_dir=d,
+                       player=Scripted(LINES), max_segments=len(LINES))
+        transcript = next(Path(d).glob("*.md")).read_text()
+        world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
+    assert world.showrunner_runs == 2, world.showrunner_runs
+    assert "showrunner trigger held" in transcript and "minimum 4" in transcript

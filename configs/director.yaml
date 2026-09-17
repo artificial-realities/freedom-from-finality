@@ -18,4 +18,5 @@ min_pause_seconds: 15.0              # story-seconds of silence before the floor
 recent_beats: 4
 max_segments_per_scene: 12
 compaction_interval: 10
+showrunner_min_gap: 4
 stagnation_threshold: 5

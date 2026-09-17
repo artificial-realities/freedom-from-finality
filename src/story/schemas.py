@@ -61,11 +61,10 @@ class ShotSpec(BaseModel):
 
 
 class Segment(BaseModel):
-    """The Director's whole output for one segment of the film."""
+    """The Director's whole output for one segment of the film. The shot's
+    action beats are the only prose: the transcript and the player show
+    them, and the compiler renders them."""
 
-    narration: str
-    outcome: str
-    next_direction: str
     shot: ShotSpec
     dialogue: list[DialogueLine] = Field(default_factory=list)
     voiceover: str = ""
@@ -73,6 +72,7 @@ class Segment(BaseModel):
     thread_ops: list[ThreadOp] = Field(default_factory=list)
     intervention: Literal["none", "absorbed", "deferred", "declined"] = "none"
     intervention_reason: str = ""
+    next_direction: str = ""
     scene_done: bool = False
     needs_replan: bool = False
 
