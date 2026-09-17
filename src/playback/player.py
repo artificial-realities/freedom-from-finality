@@ -39,7 +39,6 @@ class Playable(BaseModel):
     voiceover: str = ""
     on_screen: list[str] = Field(default_factory=list)
     camera: str = ""
-    transition: str = "continue"
     intervention: str = "none"       # how the Director handled `user_input`
     intervention_reason: str = ""
     scene: str = ""                  # "scene N: goal"

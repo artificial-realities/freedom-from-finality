@@ -17,7 +17,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
                      │                     ◀── plan + summaries land before next read ── · prune threads · arc · next scene card
                      ▼                                          ▲ reads log + state
         Director (LLM, once per segment)                        │
-        beat · shots · dialogue/voice-over · entity ops         │
+        beat · shot · dialogue/voice-over · entity ops          │
         · thread ops · viewer disposition · flags               │
                      │ proposes    ◀── reject, re-ask once      │
                      ▼                                          │
@@ -28,7 +28,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
         entities · threads · interventions · plan · event log · summaries
                      │ segment spec
                      ▼
-        Prompt compiler (code) ─▶ LTX-2.5 server (continue / cut, native audio) ─▶ Player (web / ffplay)
+        Prompt compiler (code) ─▶ LTX-2.5 server (sliding window, native audio) ─▶ Player (web / ffplay)
                                                                                     ▲ viewer types here, mid-stream
 ```
 
@@ -56,8 +56,8 @@ viewer input ─▶ Engine (deterministic, asyncio)
 4. **Gates.** The voice-over gate opens when no audio is owed and the silence floor (`min_pause_seconds`, in story seconds) has elapsed since the last line. The stagnation ladder turns "segments since anything structural changed" into prompt pressure at `stagnation_threshold` and a required shift at twice that. The scene cap forces `scene_done` at `max_segments_per_scene`.
 5. **Director call.** The context assembler renders the bible (static, cache-friendly system prompt), the plan, the world now, open threads, the viewer section, summaries, the recent segments verbatim, and the gates. The Director returns a `Segment`.
 6. **Validate and apply.** Hard violations (an unknown entity, a new character in a locked cast, dialogue from a mute character, a holder that is not a character) trigger exactly one re-ask with the violations spelled out. Then `apply` mutates the world: entity ops, presence from the shot list, thread ops, the intervention disposition. Unresolvable ops are dropped and logged as warnings, never silently.
-7. **Compile.** The compiler turns the shots into one flowing prompt in the order LTX-2.5 responds to (sound, camera, who is on screen described from their sheet, the action, dialogue in quotes, the image the shot ends on). A `cut` re-establishes the shot and re-identifies the characters. When `narration: "ltx"`, the voice-over line is folded into the prompt for native audio. With `clip_seconds` set the clip is that long whatever the shots add up to, and the Director's system prompt tells it to plan for that length.
-8. **Views.** The engine fills the legacy `current_beat`, `current_shot`, `current_commentary` fields so the runner, playback, history and the transcript work unchanged for either engine. `current_transition` tells the renderer whether this segment is a cut.
+7. **Compile.** The compiler turns the shot into one flowing prompt in the order LTX-2.5 responds to (sound, camera, who is on screen described from their sheet, the action, dialogue in quotes, the image the shot ends on). The first segment of a run opens from the cast sheet's `reference_pose`, because the renderer seeds that clip from the reference image. When `narration: "ltx"`, the voice-over line is folded into the prompt for native audio. With `clip_seconds` set the clip is that long whatever the shots add up to, and the Director's system prompt tells it to plan for that length.
+8. **Views.** The engine fills the legacy `current_beat`, `current_shot`, `current_commentary` fields so the runner, playback, history and the transcript work unchanged for either engine.
 9. **Persist.** The event record is appended and the world is saved to `logs/sessions/<session>/world.json` plus `events.jsonl`.
 10. **Trigger.** `scene_done` or `needs_replan` → Showrunner in replan mode; stagnation past twice the threshold → replan; `compaction_interval` segments since the last compaction → compact mode. The task runs during rendering and is joined at step 1 of the next segment.
 
@@ -77,7 +77,7 @@ Entities carry `kind` (character, prop, location), `description` (for the writer
 
 ## The player: watch and steer
 
-The live loop (`run_live`) is a producer and a consumer on a bounded queue. The producer runs the segment above, renders it (pipelined with the next Director call when the backend owns continuity), and queues a `Playable`: the clip path, its measured duration, and the viewer-facing views of the segment (narration, voice-over, who is on screen, the transition, the scene, and how the viewer's line was handled). The consumer hands items to a `Player` one at a time and the player holds each for its duration, so **the server is the clock**: the film advances at story pace whether or not anyone is watching, and a browser that joins late is told what is on air and seeks into it.
+The live loop (`run_live`) is a producer and a consumer on a bounded queue. The producer runs the segment above, renders it (pipelined with the next Director call when the backend owns continuity), and queues a `Playable`: the clip path, its measured duration, and the viewer-facing views of the segment (narration, voice-over, who is on screen, the scene, and how the viewer's line was handled). The consumer hands items to a `Player` one at a time and the player holds each for its duration, so **the server is the clock**: the film advances at story pace whether or not anyone is watching, and a browser that joins late is told what is on air and seeks into it.
 
 `WebPlayer` (`src/web/`) is an aiohttp server: `/` serves a single-page player, `/events` is a server-sent-events stream (`hello` with the history, `queued` for prefetch, `playing`, `input`, `status`, `ended`), `/input` takes a typed line at any moment, and `/clips/N.mp4` serves the clip for segment N with Range support. The page plays clips back to back on two stacked video elements, holds the last frame while the next segment renders, shows the voice-over as a caption, and keeps a script column where each segment appears with the viewer's line and the Director's disposition (absorbed / deferred / declined, with the reason). Lines typed while a segment renders are joined and reach the Director at the start of the next segment it writes. Under pipelining that call would otherwise begin the moment a clip starts playing, so the producer starts it as late as the running render allows (render estimate minus Director estimate, both running averages of measured times) and reads the lines then: a line typed while clip N plays lands at N+2, the earliest the pipeline permits, and no render waits for it.
 
@@ -93,7 +93,7 @@ Narration is a capability, not an agent. `voiceover` is an optional Director fie
 
 ## The video boundary
 
-The renderer receives a compiled prompt, a duration, and a transition. `continue` conditions the next chunk on the previous chunk's tail (the server's sliding window). `cut` sends `reset_window` and the server conditions on the reference image instead, a normal cinematic device. A segment may hold up to `max_shots_per_segment` shots (LTX-2.5 handles up to three per generation); the compiler joins them with explicit cuts. Only the compiler knows the model's dialect; the `Segment` schema does not change when the model does.
+The renderer receives a compiled prompt and a duration. Every clip is conditioned on the previous clip's tail (the server's sliding window); the first clip of a run, and the first clip after a server restart, is seeded from the reference image instead, and the compiler opens that clip from the cast sheet's `reference_pose`. There are no cuts: a segment is one continuous shot, and a change of angle or distance is a camera move inside it. Cuts were removed on 2026-09-17 because re-seeding from the reference reset costume, props and position to the reference's state (`docs/reviews/2026-09-17-continuity-and-buffering.md`). Only the compiler knows the model's dialect; the `Segment` schema does not change when the model does.
 
 ## Configuration
 
@@ -104,7 +104,6 @@ lead_clips: 1                  # clips rendered ahead of the one on air
 narration: "ltx"               # ltx | tts | off
 min_pause_seconds: 15.0        # silence floor before the voice-over gate reopens
 recent_beats: 4                # verbatim segments in the Director prompt
-max_shots_per_segment: 3
 max_segments_per_scene: 12     # hard cap → scene_done → Showrunner replan
 compaction_interval: 10        # Showrunner compaction cadence
 stagnation_threshold: 5        # segments without structural change before pressure
@@ -118,8 +117,8 @@ ltxv_seed: null                # fixed seed for reproducible renders
 
 ## Testing
 
-`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine through the live loop on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, cuts, multi-shot segments, deferred interventions, compaction and replanning without an API key. `tests/test_web.py` runs the live loop through the web player over HTTP, in text mode and with replayed clips.
+`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine through the live loop on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, deferred interventions, compaction and replanning without an API key. `tests/test_web.py` runs the live loop through the web player over HTTP, in text mode and with replayed clips.
 
 ## Not built yet, by design
 
-Per-character reference images and keyframe conditioning at cuts; semantic retrieval over the event log; character knowledge and relationship graphs; a cinematic-language rewriter; multi-viewer input aggregation. See the review for the reasoning and the order.
+Per-character reference images and keyframe conditioning from the current look; semantic retrieval over the event log; character knowledge and relationship graphs; a cinematic-language rewriter; multi-viewer input aggregation. See the review for the reasoning and the order.

@@ -30,7 +30,6 @@ class StoryState(BaseModel):
     current_shot: Shot | None = None
     current_commentary: Commentary | None = None
     current_audio_path: str = ""  # Set when TTS produced audio for the voice-over
-    current_transition: str = "continue"  # "cut" → the renderer re-seeds from the reference
     # How the Director handled `user_input` this segment (none | absorbed |
     # deferred | declined) and why; the player shows this to the viewer.
     current_intervention: str = "none"

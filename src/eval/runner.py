@@ -131,7 +131,6 @@ async def _render_turn(
         prompt=prompt,
         turn=state.turn_number,
         duration=shot_duration,
-        reset=state.current_transition == "cut",
     )
     if not video_path:
         langfuse_event(
@@ -425,13 +424,13 @@ async def run_live(
         player.prepare(item)
 
     async def _bg_render_and_enqueue(
-        item: Playable, *, prompt: str, seed_image: str, duration: int | None, reset: bool,
+        item: Playable, *, prompt: str, seed_image: str, duration: int | None,
     ) -> None:
         """Render one clip in the background and enqueue it."""
         assert i2v is not None
         t0 = time.monotonic()
         video_path = await i2v.synthesize(
-            image_path=seed_image, prompt=prompt, turn=item.turn, duration=duration, reset=reset,
+            image_path=seed_image, prompt=prompt, turn=item.turn, duration=duration,
         )
         _learn("render", time.monotonic() - t0)
         if video_path:
@@ -545,7 +544,6 @@ async def run_live(
                                     prompt=state.current_shot.i2v_prompt,
                                     seed_image=seed_image,
                                     duration=shot_dur,
-                                    reset=state.current_transition == "cut",
                                 )
                             )
                             # Set pacing state now with the expected clip
@@ -783,7 +781,6 @@ def _playable(state: StoryState) -> Playable:
         voiceover=comm.voiceover if comm else "",
         on_screen=list(shot.on_screen) if shot else [],
         camera=shot.camera if shot else "",
-        transition=state.current_transition,
         intervention=state.current_intervention,
         intervention_reason=state.current_intervention_reason,
         scene=state.context_brief,

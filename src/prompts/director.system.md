@@ -45,8 +45,7 @@ One JSON object with these fields:
 - `narration`: 2 to 4 sentences of concrete prose describing what happens in this segment. Physical, visible, specific.
 - `outcome`: one line on what has changed by the end.
 - `next_direction`: one sentence on where the next segment should go.
-- `shots`: a list of 1 to 3 shots. Usually one. Add a second or third only for a reaction insert or a deliberate change of angle. Each shot has:
-  - `transition`: `continue` to flow on from the previous picture, or `cut` to start a fresh picture. Use `cut` for a new angle or a new moment.
+- `shot`: how the segment is filmed: one continuous shot that flows on from the previous segment's picture. It has:
   - `framing`: shot size and angle, for example "medium shot, straight-on, eye level".
   - `camera_motion`: "static" or a specific move.
   - `action_beats`: the visible actions in order, as short sentences.
@@ -66,7 +65,7 @@ One JSON object with these fields:
 
 - Every prop that appears, changes hands, moves, breaks or leaves gets an `entity_op`. The world is only as true as your ops.
 - Use entity ids exactly as listed. Introduce new things by name with a visual description.
-- Continue physically from the last segment's end state unless you cut. A cut, and the very first segment, start from the reference image: open the action from the pose the cast sheet says the reference shows, then move.
+- Continue physically from the last segment's end state; the picture never cuts, so a change of angle or distance is a camera move within the shot. The very first segment starts from the reference image: open the action from the pose the cast sheet says the reference shows, then move.
 - Do not repeat a bit from the recent segments. Escalate, vary, or pay off.
 - Never break the fourth wall in narration, dialogue or voice-over.
 

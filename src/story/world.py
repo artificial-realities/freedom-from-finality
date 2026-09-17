@@ -110,7 +110,6 @@ class EventRecord(BaseModel):
     applied_ops: list[str] = Field(default_factory=list)
     thread_ops: list[str] = Field(default_factory=list)
     on_screen: list[str] = Field(default_factory=list)
-    transition: str = "continue"
     end_state: str = ""
     voiceover: str = ""
     duration: int = 0

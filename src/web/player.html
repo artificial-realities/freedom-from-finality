@@ -33,7 +33,6 @@
   .textstage .narration { font: 400 clamp(18px, 2.2vw, 28px)/1.4 var(--serif); color: var(--text); max-width: 34em; }
   .textstage .meta { margin-top: 22px; color: var(--muted); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
   .pill { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; color: var(--muted); }
-  .pill.cut { color: var(--accent); border-color: rgba(217,180,107,.4); }
   .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,10,12,.72); backdrop-filter: blur(2px); z-index: 5; }
   .overlay[hidden] { display: none; }
   .overlay button { font: 500 16px var(--sans); letter-spacing: .06em; color: var(--bg); background: var(--text); border: 0; border-radius: 999px; padding: 14px 28px; cursor: pointer; }
@@ -59,7 +58,6 @@
   .entry .head { display: flex; gap: 8px; align-items: baseline; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .entry .head .n { color: var(--text); font-weight: 500; }
   .entry .head .sc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .entry .head .tag { margin-left: auto; color: var(--accent); flex: none; }
   .entry.now .head .n { color: var(--accent); }
   .entry p { margin: 6px 0 0; font: 400 14px/1.5 var(--serif); color: var(--text); }
   .entry .vo { margin-top: 6px; color: var(--muted); font: italic 13px/1.45 var(--serif); }
@@ -196,7 +194,6 @@
     $('tsNarration').textContent = item.narration || '';
     const meta = $('tsMeta');
     meta.innerHTML = '';
-    if (item.transition === 'cut') meta.appendChild(pill('cut', 'cut'));
     (item.on_screen || []).forEach(n => meta.appendChild(pill(n)));
     if (item.camera) meta.appendChild(pill(item.camera));
     $('textstage').classList.add('active');
@@ -243,8 +240,7 @@
     el.dataset.turn = item.turn;
     const head = document.createElement('div');
     head.className = 'head';
-    head.innerHTML = `<span class="n">#${item.turn}</span><span class="sc"></span>` +
-      (item.transition === 'cut' ? `<span class="tag">cut</span>` : '');
+    head.innerHTML = `<span class="n">#${item.turn}</span><span class="sc"></span>`;
     head.querySelector('.sc').textContent = item.scene || '';
     el.appendChild(head);
     if (item.user_input) {

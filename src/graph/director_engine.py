@@ -3,7 +3,7 @@
 Two LLM roles on two clocks, everything else deterministic:
 
 - **Director** — one structured call per segment on the critical path.
-  Reads the assembled context, returns a `Segment` (narration, shots,
+  Reads the assembled context, returns a `Segment` (narration, shot,
   audio, world delta, thread ops, viewer disposition, flags).
 - **Showrunner** — an async task on a slow clock, spawned on triggers
   (bootstrap, scene exit, stagnation, a replan flag, or every
@@ -112,7 +112,7 @@ class DirectorEngine:
             self._tick(state)
             return state
 
-        report = apply(segment, world, segment_no=seg, max_shots=self.config.max_shots_per_segment)
+        report = apply(segment, world, segment_no=seg)
         if not vo_open:
             segment.voiceover = ""
 
@@ -122,6 +122,9 @@ class DirectorEngine:
             narration_mode=self.config.narration,
             voiceover_style=self.config.voiceover_style,
             clip_seconds=self.config.clip_seconds,
+            # The renderer seeds the first clip of a run from the reference
+            # image, so that prompt opens from the reference pose.
+            opening=(seg == 1),
         )
         self._write_views(state, segment, prompt, duration)
 
@@ -157,9 +160,8 @@ class DirectorEngine:
             next_direction=segment.next_direction,
             applied_ops=list(report.applied),
             thread_ops=[a for a in report.applied if a.startswith("thread ")],
-            on_screen=list(segment.shots[-1].on_screen) if segment.shots else [],
-            transition=segment.shots[0].transition if segment.shots else "continue",
-            end_state=segment.shots[-1].end_state if segment.shots else "",
+            on_screen=list(segment.shot.on_screen),
+            end_state=segment.shot.end_state,
             voiceover=segment.voiceover,
             duration=duration,
         ))
@@ -292,8 +294,7 @@ class DirectorEngine:
     def _write_views(self, state: StoryState, segment: Segment, prompt: str, duration: int) -> None:
         world = self.world
         assert world is not None
-        first = segment.shots[0]
-        last = segment.shots[-1]
+        shot = segment.shot
         state.current_beat = Beat(
             narration=segment.narration,
             action=segment.action_text() or segment.outcome,
@@ -303,18 +304,17 @@ class DirectorEngine:
         )
         state.short_term_narrative = segment.next_direction or state.short_term_narrative
         on_screen_names = []
-        for eid in last.on_screen:
+        for eid in shot.on_screen:
             ent = world.resolve(eid)
             on_screen_names.append(ent.name if ent else eid)
         state.current_shot = Shot(
             i2v_prompt=prompt,
             on_screen=on_screen_names,
-            camera=first.framing + (f" · {len(segment.shots)} shots" if len(segment.shots) > 1 else ""),
-            motion=first.camera_motion,
-            end_frame_description=last.end_state,
+            camera=shot.framing,
+            motion=shot.camera_motion,
+            end_frame_description=shot.end_state,
             duration_seconds=duration,
         )
-        state.current_transition = first.transition
         state.current_commentary = Commentary(voiceover=segment.voiceover)
         state.current_intervention = segment.intervention
         state.current_intervention_reason = segment.intervention_reason
@@ -356,10 +356,6 @@ class DirectorEngine:
         if segment.intervention != "none":
             out.append(f"- Viewer: {segment.intervention}" + (f" ({segment.intervention_reason})" if segment.intervention_reason else ""))
         out.append(f"- Voice-over floor: {'open' if vo_open else 'closed'} · pacing: {pacing}")
-        if len(segment.shots) > 1:
-            out.append(f"- Shots: {len(segment.shots)} (" + ", ".join(s.transition for s in segment.shots) + ")")
-        elif segment.shots and segment.shots[0].transition == "cut":
-            out.append("- Transition: cut (renderer re-seeds from the reference)")
         if segment.dialogue:
             out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in segment.dialogue))
         flags = [f for f, v in (("scene_done", segment.scene_done), ("needs_replan", segment.needs_replan)) if v]

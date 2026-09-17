@@ -64,8 +64,7 @@ class MockBackend(LLMBackend):
             "narration": f"Segment {n}: the minifigure does something specific and physical.",
             "outcome": f"Outcome of segment {n}.",
             "next_direction": f"Direction after segment {n}.",
-            "shots": [{
-                "transition": "continue",
+            "shot": {
                 "framing": "medium shot, straight-on, eye level",
                 "camera_motion": "static",
                 "action_beats": [f"Lego Man performs action {n}.", "He looks up."],
@@ -73,7 +72,7 @@ class MockBackend(LLMBackend):
                 "ambient_sound": "a soft plastic click as his feet touch the floor",
                 "end_state": f"Lego Man standing, end of segment {n}",
                 "duration_seconds": 5,
-            }],
+            },
             "dialogue": [],
             "voiceover": "",
             "entity_ops": [],
@@ -89,7 +88,7 @@ class MockBackend(LLMBackend):
             base["entity_ops"] = [{"op": "introduce", "entity": "soccer ball", "kind": "prop",
                                    "description": "a black-and-white studded LEGO soccer ball",
                                    "status": "at his feet", "location": "", "holder": "", "present": True}]
-            base["shots"][0]["on_screen"] = ["lego_man", "soccer_ball"]
+            base["shot"]["on_screen"] = ["lego_man", "soccer_ball"]
             base["thread_ops"] = [{"op": "open", "thread": "the soccer ball wants to be kicked", "kind": "setup"}]
             base["intervention"] = "absorbed"
             base["intervention_reason"] = "the ball arrives as asked"
@@ -106,12 +105,8 @@ class MockBackend(LLMBackend):
             base["thread_ops"] = [{"op": "pay_off", "thread": "t1", "kind": "setup"}]
             base["voiceover"] = "A kick, at last." if vo_open else ""
         if n == 4:
-            base["shots"] = [
-                dict(base["shots"][0], transition="cut", framing="close-up on the ball", duration_seconds=3,
-                     on_screen=["soccer_ball"]),
-                dict(base["shots"][0], transition="continue", framing="wide shot", duration_seconds=4,
-                     on_screen=["lego_man", "soccer_ball"]),
-            ]
+            base["shot"] = dict(base["shot"], framing="close-up on the ball", camera_motion="slow push in",
+                                duration_seconds=3, on_screen=["lego_man", "soccer_ball"])
             base["entity_ops"] = [{"op": "update", "entity": "soccer_ball", "kind": "prop", "description": "",
                                    "status": "held overhead", "location": "", "holder": "lego_man", "present": True}]
             base["intervention"] = "deferred"

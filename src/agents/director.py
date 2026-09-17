@@ -1,7 +1,7 @@
 """Director: the one LLM call on the per-segment critical path.
 
 Reads the assembled context (plan, world, threads, viewer, summaries,
-recent beats, gates) and returns a `Segment`: narration, shots, audio,
+recent beats, gates) and returns a `Segment`: narration, shot, audio,
 world delta, thread ops, intervention disposition, flags. The world
 validator checks the proposal; a hard violation earns exactly one
 re-ask with the violations spelled out.
@@ -83,8 +83,7 @@ async def run(
         tone_guidelines=state.tone_guidelines or "(no register defined; leave voiceover empty)",
         duration_rule=(
             f"every segment is rendered as exactly {config.clip_seconds} seconds of video. Write action that "
-            f"fills {config.clip_seconds} seconds, no more, and set this to {config.clip_seconds}; with several "
-            f"shots, split the {config.clip_seconds} seconds between them."
+            f"fills {config.clip_seconds} seconds, no more, and set this to {config.clip_seconds}."
             if config.clip_seconds > 0
             else "3 to 15. Default 5. Longer only when the action needs it."
         ),
@@ -111,7 +110,7 @@ async def run(
     if segment is None:
         return None, ["director: structured parse failed"]
 
-    report = check(segment, world, max_shots=config.max_shots_per_segment)
+    report = check(segment, world)
     if report.violations:
         notes.append("director: first proposal rejected: " + "; ".join(report.violations))
         retry_prompt = (
@@ -123,7 +122,7 @@ async def run(
         )
         second = await _call(system_prompt, retry_prompt, llm, config, state.turn_number)
         if second is not None:
-            report2 = check(second, world, max_shots=config.max_shots_per_segment)
+            report2 = check(second, world)
             if len(report2.violations) <= len(report.violations):
                 segment = second
             if report2.violations:

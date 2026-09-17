@@ -44,7 +44,7 @@ def test_letterbox_reference_handles_wide_images():
     assert px[384, 256] == (255, 0, 0) and px[384, 5] == (0, 0, 0)
 
 
-def test_ltxv_payload_carries_anchor_and_cut(monkeypatch=None):
+def test_ltxv_payload_carries_anchor_and_reference(monkeypatch=None):
     """The client sends the identity anchor only when enabled, and the
     reference image only on the first call (or after a server restart)."""
     import json
@@ -76,17 +76,17 @@ def test_ltxv_payload_carries_anchor_and_cut(monkeypatch=None):
             i2v = ltxv.LtxvI2V(server_url="http://x", output_dir=d, anchor_strength=0.95, anchor_index=-1)
             assert i2v.size == (960, 544), "render size probed from /health"
             assert i2v.seconds_to_frames(5) == 121
-            p1 = i2v._synthesize_sync("data/legoman.png", "p1", 1, 5, True)
-            p2 = i2v._synthesize_sync("data/legoman.png", "p2", 2, 7, False)
+            p1 = i2v._synthesize_sync("data/legoman.png", "p1", 1, 5)
+            p2 = i2v._synthesize_sync("data/legoman.png", "p2", 2, 7)
             assert p1 and p2 and Path(p1).exists()
             plain = ltxv.LtxvI2V(server_url="http://x", output_dir=d)
-            plain._synthesize_sync("data/legoman.png", "p3", 1, 5, True)
+            plain._synthesize_sync("data/legoman.png", "p3", 1, 5)
     finally:
         ltxv.requests.get, ltxv.requests.post = orig_get, orig_post
 
     first, second, plain_first = posts
     assert "reference_image" in first and "reference_image" not in second, "reference sent once"
-    assert first["reset_window"] is True and second["reset_window"] is False
+    assert "reset_window" not in first and "reset_window" not in second, "the client never asks for a re-seed"
     assert first["anchor_strength"] == 0.95 and first["anchor_index"] == -1
     assert second["anchor_strength"] == 0.95, "the anchor rides on continue shots too"
     assert second["num_frames"] == 169, "7 s at 24 fps on the 8k+1 grid"

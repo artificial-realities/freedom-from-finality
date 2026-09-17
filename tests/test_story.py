@@ -33,8 +33,8 @@ def _world() -> WorldModel:
 def _segment(**over) -> Segment:
     base = dict(
         narration="He does a thing.", outcome="A thing was done.", next_direction="More things.",
-        shots=[ShotSpec(framing="medium shot", action_beats=["He waves."], on_screen=["lego_man"],
-                        end_state="Lego Man waving")],
+        shot=ShotSpec(framing="medium shot", action_beats=["He waves."], on_screen=["lego_man"],
+                      end_state="Lego Man waving"),
     )
     base.update(over)
     return Segment(**base)
@@ -55,12 +55,12 @@ def test_validator_introduce_update_remove():
     seg = _segment(entity_ops=[
         EntityOp(op="introduce", entity="soccer ball", description="a studded LEGO ball", status="at his feet"),
     ])
-    seg.shots[0].on_screen = ["lego_man", "soccer ball"]
+    seg.shot.on_screen = ["lego_man", "soccer ball"]
     r = apply(seg, w, segment_no=2)
     assert not r.violations and r.changed
     ball = w.entities["soccer_ball"]
     assert ball.present and ball.location == "the_white_void" and ball.first_seen == 2
-    assert seg.shots[0].on_screen == ["lego_man", "soccer_ball"], "references normalised to ids"
+    assert seg.shot.on_screen == ["lego_man", "soccer_ball"], "references normalised to ids"
     assert w.last_change == 2
 
     seg = _segment(entity_ops=[EntityOp(op="update", entity="soccer_ball", holder="lego_man")])
@@ -139,18 +139,15 @@ def test_compiler_prompt():
     w = _world()
     apply(_segment(entity_ops=[EntityOp(op="introduce", entity="soccer ball", description="a studded LEGO ball")]), w, segment_no=1)
     seg = _segment(
-        shots=[
-            ShotSpec(transition="cut", framing="close-up on the ball", action_beats=["The ball wobbles."],
-                     on_screen=["soccer_ball"], ambient_sound="a faint plastic rattle", end_state="the ball still", duration_seconds=3),
-            ShotSpec(framing="wide shot", action_beats=["Lego Man runs in.", "He kicks."],
-                     on_screen=["lego_man", "soccer_ball"], end_state="Lego Man mid-kick", duration_seconds=4),
-        ],
+        shot=ShotSpec(framing="wide shot", camera_motion="slow push in", action_beats=["Lego Man runs in.", "He kicks."],
+                      on_screen=["lego_man", "soccer_ball"], ambient_sound="a faint plastic rattle",
+                      end_state="Lego Man mid-kick", duration_seconds=7),
         voiceover="A kick, at last.",
     )
     prompt, duration = compile_prompt(seg, w, visual_style="Studio product shot.", narration_mode="ltx", voiceover_style="warm")
     assert prompt.startswith("Studio product shot.")
-    assert "A faint plastic rattle." in prompt and "Close-up on the ball, static camera." in prompt
-    assert "Cut to a wide shot, static camera." in prompt
+    assert "A faint plastic rattle." in prompt and "Wide shot, slow push in camera." in prompt
+    assert "Cut to" not in prompt and "The shot opens with" not in prompt, "no cuts, no re-seed: the clip continues"
     assert "Lego Man (the most default LEGO minifigure" in prompt, "character re-identified from the sheet"
     assert "soccer ball (a studded LEGO ball)" in prompt
     assert "Final frame: Lego Man mid-kick." in prompt
@@ -159,7 +156,7 @@ def test_compiler_prompt():
     prompt_tts, _ = compile_prompt(seg, w, visual_style="", narration_mode="tts")
     assert "voice-over" not in prompt_tts, "in tts mode the line is not folded into the video prompt"
     _, fixed = compile_prompt(seg, w, visual_style="", narration_mode="off", clip_seconds=6)
-    assert fixed == 6, "a fixed clip length overrides the shots' durations"
+    assert fixed == 6, "a fixed clip length overrides the shot's duration"
 
 
 def test_pacing_gate_and_ladder():
@@ -195,13 +192,13 @@ def test_context_bounds_and_pinned_opening():
     assert "scene 4" in s and "scene 0" not in s, "recent scenes shown, middle ones compacted away"
 
 
-def test_compiler_cut_opens_from_reference_pose():
+def test_compiler_opening_segment_starts_from_reference_pose():
+    """The renderer seeds the first clip of a run from the reference image,
+    so only that prompt opens from the reference pose."""
     w = _world()
-    seg = _segment(shots=[ShotSpec(transition="cut", framing="wide shot", action_beats=["He waves."],
-                                   on_screen=["lego_man"], end_state="e")])
-    prompt, _ = compile_prompt(seg, w, visual_style="", narration_mode="off")
+    seg = _segment(shot=ShotSpec(framing="wide shot", action_beats=["He waves."], on_screen=["lego_man"], end_state="e"))
+    prompt, _ = compile_prompt(seg, w, visual_style="", narration_mode="off", opening=True)
     assert "The shot opens with Lego Man standing upright in a wide product shot" in prompt
-    seg.shots[0].transition = "continue"
     prompt, _ = compile_prompt(seg, w, visual_style="", narration_mode="off")
     assert "The shot opens with" not in prompt
 
@@ -211,7 +208,7 @@ def test_compiler_caps_described_entities():
     w = _world()
     for i in range(10):
         apply(_segment(entity_ops=[EntityOp(op="introduce", entity=f"thing {i}", description=f"look {i}")]), w, segment_no=1)
-    seg = _segment(shots=[ShotSpec(framing="wide", action_beats=["x"], on_screen=[f"thing_{i}" for i in range(10)] + ["lego_man"], end_state="e")])
+    seg = _segment(shot=ShotSpec(framing="wide", action_beats=["x"], on_screen=[f"thing_{i}" for i in range(10)] + ["lego_man"], end_state="e"))
     prompt, _ = compile_prompt(seg, w, visual_style="", narration_mode="off")
     assert prompt.count("(look ") == DESCRIBED_IN_FULL - 1, "character first, then props with looks up to the cap"
     assert "Lego Man (the most default" in prompt and "thing 9" in prompt

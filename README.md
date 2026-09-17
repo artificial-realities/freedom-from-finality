@@ -28,7 +28,7 @@ The prototype generates the film as a sequence of short segments that are stitch
 Concretely, as of today:
 
 - **Narrative orchestration** is two LLM roles on two clocks over a typed world model. A **Director** makes one structured call per segment: what happens, how it is shot, what is said, what changed in the world, and how the viewer's input was handled. A **Showrunner** runs off the critical path on triggers to compact the event log into summaries and write the next scene card. Code owns the world model, validation, the prompt compiler, pacing and persistence. This is one mechanism being explored for coordinating generation, not a fixed part of the design; it replaced a four-role split after an A/B and a 180-segment run.
-- **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which carries visual state forward between continuous shots; a cut re-seeds from the reference image. It also renders a native ambient/SFX track, and narration when the Director writes a line.
+- **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which carries visual state forward from clip to clip; only the first clip of a run is seeded from the reference image. It also renders a native ambient/SFX track, and narration when the Director writes a line.
 - **Playback** is a web player: the film streams to a browser clip by clip, holds the last frame while the next segment renders, and takes typed input at any moment; the Director reports whether each line was absorbed, deferred or declined. Without a video backend the same page plays the film as text at story pace. Clips are muxed and concatenated with ffmpeg.
 - **Spoken voice-over** can alternatively go through ElevenLabs TTS for a fixed narrator voice; both video and audio generation can be disabled entirely for headless development.
 
@@ -39,7 +39,7 @@ The current test story is deliberately minimal — a single LEGO minifigure alon
 Working: end-to-end generation from viewer input to a narrated film streaming in the browser, steered while it plays. Open:
 
 - **Latency.** 17–23 s to generate a 6–8 s clip on an H100, about 3× real time, so the player holds the last frame between clips. Seamless playback needs generation at or below real time.
-- **Cuts reset the look.** A cut re-seeds the renderer from the reference image, so anything the story has changed about a character (a cap picked up mid-film) reverts at the next cut. Identity itself holds through continuous clips on the distilled recipe.
+- **Re-seeding resets the look.** Seeding a clip from the reference image reverts anything the story has changed about a character (a cap picked up mid-film), so the film never cuts: every clip continues the previous one and only the first is seeded from the reference. Identity holds through continuous clips on the distilled recipe; a new angle has to be a camera move.
 - **Continuity vs. steering.** The sliding window trades one against the other directly (`ltxv_continuity_strength`). High continuity means new input barely lands; low means the picture jumps. A better mechanism is needed, not a better setting.
 
 ## Repository

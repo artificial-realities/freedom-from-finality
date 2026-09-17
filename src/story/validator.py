@@ -45,15 +45,9 @@ def resolve_location(world: WorldModel, ref: str):
     return None
 
 
-def check(segment: Segment, world: WorldModel, *, max_shots: int = 3) -> Report:
+def check(segment: Segment, world: WorldModel) -> Report:
     """Pure check: nothing is mutated."""
     r = Report()
-    if not segment.shots:
-        r.violations.append("at least one shot is required")
-    elif len(segment.shots) > max_shots:
-        r.warnings.append(
-            f"{len(segment.shots)} shots given; only the first {max_shots} are used",
-        )
 
     introduced: set[str] = set()
     for op in segment.entity_ops:
@@ -107,23 +101,21 @@ def check(segment: Segment, world: WorldModel, *, max_shots: int = 3) -> Report:
                 f"thread op '{top.op}' on unknown or closed thread '{top.thread}' ignored",
             )
 
-    for shot in segment.shots[:max_shots]:
-        for ref in shot.on_screen:
-            if world.resolve(ref) is None and slugify(ref) not in introduced:
-                r.warnings.append(f"on_screen entity '{ref}' is unknown and was dropped")
+    for ref in segment.shot.on_screen:
+        if world.resolve(ref) is None and slugify(ref) not in introduced:
+            r.warnings.append(f"on_screen entity '{ref}' is unknown and was dropped")
     return r
 
 
-def apply(segment: Segment, world: WorldModel, *, segment_no: int, max_shots: int = 3) -> Report:
+def apply(segment: Segment, world: WorldModel, *, segment_no: int) -> Report:
     """Apply the admissible part of `segment` to `world`, in place.
 
-    Also normalises the segment: shots are truncated to `max_shots`,
-    `on_screen` references become entity ids, invalid dialogue is
-    dropped, and a missing intervention disposition is recorded.
+    Also normalises the segment: `on_screen` references become entity
+    ids, invalid dialogue is dropped, and a missing intervention
+    disposition is recorded.
     """
-    r = check(segment, world, max_shots=max_shots)
+    r = check(segment, world)
     seg = segment_no
-    segment.shots = segment.shots[:max_shots]
 
     for op in segment.entity_ops:
         ent = world.resolve(op.entity)
@@ -201,19 +193,18 @@ def apply(segment: Segment, world: WorldModel, *, segment_no: int, max_shots: in
         if changes:
             r.applied.append(f"update {ent.id}: " + ", ".join(changes))
 
-    # Presence from the shot list; references normalised to ids.
-    for shot in segment.shots:
-        kept: list[str] = []
-        for ref in shot.on_screen:
-            ent = world.resolve(ref)
-            if ent is None or ent.gone:
-                continue
-            if ent.kind != "location":
-                ent.present = True
-            ent.last_seen = seg
-            if ent.id not in kept:
-                kept.append(ent.id)
-        shot.on_screen = kept
+    # Presence from the shot; references normalised to ids.
+    kept: list[str] = []
+    for ref in segment.shot.on_screen:
+        ent = world.resolve(ref)
+        if ent is None or ent.gone:
+            continue
+        if ent.kind != "location":
+            ent.present = True
+        ent.last_seen = seg
+        if ent.id not in kept:
+            kept.append(ent.id)
+    segment.shot.on_screen = kept
 
     segment.dialogue = [
         d for d in segment.dialogue

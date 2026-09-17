@@ -48,10 +48,9 @@ class DialogueLine(BaseModel):
 
 
 class ShotSpec(BaseModel):
-    """One shot inside a segment. The prompt compiler turns this into the
-    video model's dialect; nothing here is model-specific."""
+    """The one continuous shot of a segment. The prompt compiler turns this
+    into the video model's dialect; nothing here is model-specific."""
 
-    transition: Literal["continue", "cut"] = "continue"
     framing: str
     camera_motion: str = "static"
     action_beats: list[str] = Field(default_factory=list)
@@ -67,7 +66,7 @@ class Segment(BaseModel):
     narration: str
     outcome: str
     next_direction: str
-    shots: list[ShotSpec]
+    shot: ShotSpec
     dialogue: list[DialogueLine] = Field(default_factory=list)
     voiceover: str = ""
     entity_ops: list[EntityOp] = Field(default_factory=list)
@@ -79,11 +78,10 @@ class Segment(BaseModel):
 
     def action_text(self) -> str:
         beats: list[str] = []
-        for shot in self.shots:
-            for b in shot.action_beats:
-                b = " ".join(b.split())
-                if b:
-                    beats.append(b if b[-1] in ".!?" else b + ".")
+        for b in self.shot.action_beats:
+            b = " ".join(b.split())
+            if b:
+                beats.append(b if b[-1] in ".!?" else b + ".")
         return " ".join(beats)
 
 

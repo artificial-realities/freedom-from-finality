@@ -28,13 +28,12 @@ class I2VBackend(ABC):
         prompt: str,
         turn: int,
         duration: int | None = None,
-        reset: bool = False,
     ) -> str | None:
         """Render a clip from `image_path` + `prompt`. Return MP4 path or None.
 
         `duration` overrides the backend's default for this call. None = use
-        the backend's configured default. `reset=True` is a cut: a backend
-        that owns continuity re-seeds from the reference image instead of
-        continuing from the previous chunk.
+        the backend's configured default. A backend that owns continuity
+        seeds its first clip from `image_path` and every later clip from
+        the previous one; the story layer never asks for a re-seed.
         """
         ...

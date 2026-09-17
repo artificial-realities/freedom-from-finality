@@ -16,7 +16,6 @@ narration: "ltx"
 min_pause_seconds: 15.0              # story-seconds of silence before the floor reopens
 
 recent_beats: 4
-max_shots_per_segment: 3
 max_segments_per_scene: 12
 compaction_interval: 10
 stagnation_threshold: 5

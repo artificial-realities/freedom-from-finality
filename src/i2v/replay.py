@@ -46,7 +46,6 @@ class ReplayI2V(I2VBackend):
         prompt: str,
         turn: int,
         duration: int | None = None,
-        reset: bool = False,
     ) -> str | None:
         if self.delay:
             await asyncio.sleep(self.delay)
@@ -60,5 +59,5 @@ class ReplayI2V(I2VBackend):
         except OSError:
             logger.exception("replay backend: could not copy %s", src)
             return None
-        logger.info("replay turn %d → %s (from %s, reset=%s)", turn, out, src.name, reset)
+        logger.info("replay turn %d → %s (from %s)", turn, out, src.name)
         return str(out)

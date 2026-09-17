@@ -70,16 +70,16 @@ async def test_director_engine_end_to_end():
 
         transcript = next(Path(d).glob("*.md")).read_text()
         assert "first proposal rejected" in transcript and "retry accepted" in transcript
-        assert "Transition: cut" in transcript or "Shots: 2 (cut, continue)" in transcript
+        assert "Transition" not in transcript and "Shots:" not in transcript, "no cuts, one shot per segment"
         assert "Showrunner spawned: scene_done" in transcript
         assert "showrunner (bootstrap" in transcript and "scene 1 card" in transcript
         assert "**World**" in transcript
 
 
 async def test_fixed_clip_length_overrides_the_directors_durations():
-    """clip_seconds: every clip is that long, whatever the Director's shots
-    add up to (segment 4 of the mock has two shots of 3 + 4 s), and the
-    Director is told the rule in its system prompt."""
+    """clip_seconds: every clip is that long, whatever the Director's shot
+    says (segment 4 of the mock asks for 3 s), and the Director is told the
+    rule in its system prompt."""
     from src.agents.director import SYSTEM_PATH
     assert "{duration_rule}" in SYSTEM_PATH.read_text()
     story = Story.from_json("data/story.json")
