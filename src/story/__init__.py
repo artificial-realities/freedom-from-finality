@@ -3,8 +3,8 @@ from src.story.schemas import (
     EntityNote,
     EntityOp,
     SceneCardOut,
-    Segment,
-    ShotSpec,
+    BeatPlan,
+    ClipSpec,
     ShowrunnerUpdate,
     ThreadOp,
 )
@@ -21,8 +21,8 @@ from src.story.world import (
 )
 
 __all__ = [
-    "DialogueLine", "EntityNote", "EntityOp", "SceneCardOut", "Segment",
-    "ShotSpec", "ShowrunnerUpdate", "ThreadOp",
+    "DialogueLine", "EntityNote", "EntityOp", "SceneCardOut", "BeatPlan",
+    "ClipSpec", "ShowrunnerUpdate", "ThreadOp",
     "Entity", "EventRecord", "Intervention", "Plan", "SceneCard", "Summary",
     "Thread", "WorldModel", "slugify",
 ]

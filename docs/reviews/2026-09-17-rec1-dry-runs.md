@@ -43,6 +43,8 @@ Options, none applied yet:
 
 Together 1–3 bring a line to about N+2 at no cost to playback in the measured regime. They are the next piece of work if steering latency matters more than one clip of safety.
 
+*Done later the same day: the loop renders just in time (`render_slack_seconds`), a line cuts the current beat short and cancels a Director call in flight (see `docs/ARCHITECTURE.md`). Not yet run live.*
+
 ## Files
 
 Dry-run configs, event logs, transcripts and the benchmark script are under `logs/_scratch/investigation-2026-09-17/rec1/`. The runs' Langfuse sessions are `director-dry-gpt41_live_20260917_123733`, `director-dry-mini_live_20260917_123733`, `director-dry-lead0_live_20260917_125100` and `director-dry-prio_live_20260917_130346`; Langfuse's API was timing out while this was written, so the per-call numbers above come from the benchmark and from the loop's own late-start events, not from the traces.

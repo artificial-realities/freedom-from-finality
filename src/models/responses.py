@@ -1,6 +1,6 @@
 """Runner-facing views of a segment.
 
-The Director engine's real output is `src.story.schemas.Segment`; these
+The Director engine's real output is `src.story.schemas.BeatPlan`; these
 three small models are the projection the runner, playback, history and
 transcript consume. They are what a future engine must also produce.
 """
@@ -28,7 +28,7 @@ class Shot(BaseModel):
     camera: str
     motion: str
     end_frame_description: str
-    duration_seconds: int = Field(default=5, ge=3, le=15)
+    duration_seconds: int = Field(default=5, ge=1, le=15)
 
 
 class Commentary(BaseModel):

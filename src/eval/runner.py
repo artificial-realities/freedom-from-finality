@@ -1,8 +1,8 @@
 """The run loops.
 
-`run_live` is the film: a producer generating segments and a `Player`
-(the web player or an ffplay window) showing them while the viewer steers
-mid-stream. `run_play` prompts in the terminal between segments, for
+`run_live` is the film: a producer emitting and rendering clips just in
+time and a `Player` (the web player or an ffplay window) showing them
+while the viewer steers mid-stream. `run_play` prompts in the terminal between segments, for
 headless development without a player.
 """
 
@@ -38,11 +38,12 @@ from src.util.langfuse_setup import set_trace_output, turn_span
 from src.util.media import probe_duration
 from src.util.story_log import StoryLogger
 
-# Late start under pipelining: the Director estimate is scaled by
-# LATE_START_SAFETY and LATE_START_MARGIN_S is kept in hand, so a slower
-# than usual Director call does not leave the renderer idle.
-LATE_START_SAFETY = 1.25
-LATE_START_MARGIN_S = 0.5
+# Just-in-time rendering: the render and Director estimates are scaled by
+# JIT_SAFETY and JIT_MARGIN_S is kept in hand (plus the config's
+# render_slack_seconds), so a slower than usual call still has the clip
+# on air in time.
+JIT_SAFETY = 1.25
+JIT_MARGIN_S = 0.5
 
 logger = logging.getLogger(__name__)
 
@@ -331,34 +332,29 @@ async def run_live(
     player: Player | None = None,
     max_segments: int | None = None,
 ) -> StoryState:
-    """Live loop: a producer generating segments, a player showing them.
+    """Live loop: a producer generating clips, a player showing them.
 
-    The producer keeps generating turns and pushes `Playable` items onto a
-    bounded queue (size = `lead_clips + 1`). The consumer hands them to the
-    player one at a time; the player holds each for its duration, so the
-    server is the clock. Whatever the viewer typed since the previous
-    segment is read from the player at the start of each turn; when
-    nothing arrived the story advances on its own — silent turns are normal.
-
-    With a video backend each item is a rendered clip. Without one it is
-    the segment's text, held for the segment's duration, so a headless
-    config gives a working session in the web player.
-
-    Lead behavior: the consumer waits for `lead_clips + 1` items before
-    the first play. With the default `lead_clips: 0` playback starts as
-    soon as the first item is ready and one render naturally overlaps one
-    playback. `max_segments` stops the producer after that many segments
+    The producer emits one clip per segment from the Director's current
+    beat and pushes each rendered clip onto a bounded queue (size =
+    `lead_clips + 1`). The consumer hands them to the player one at a
+    time; the player holds each for its duration, so the server is the
+    clock. `max_segments` stops the producer after that many clips
     (tests, bounded demos); otherwise it runs until Ctrl+C.
 
-    Late start: with a backend that owns continuity, the Director call for
-    segment N+2 overlaps the render of N+1, which starts when clip N starts
-    playing. Reading the viewer's lines at the start of that call would
-    make a line typed while watching N land only at N+3. The producer
-    therefore starts the call as late as the render allows (the render
-    estimate minus the Director estimate, both running averages of the
-    measured times) and reads the lines then, so a line typed while a clip
-    plays lands two segments later, the earliest the pipeline permits,
-    without delaying any render.
+    Just in time: once playback runs, a clip's render is fired as late as
+    it safely can be (the render estimate times a safety factor, a
+    margin and `render_slack_seconds` before the clip is due on air), and
+    the Director is asked for the next beat only when the current one has
+    no clip left, as late as the render allows. Until then the producer
+    listens for the viewer. A line cuts the beat in progress short (its
+    unrendered clips are dropped), cancels a Director call in flight, and
+    the Director writes the next beat from that line at once, so the line
+    reaches the earliest clip that is not yet rendering. Before playback
+    starts the producer runs flat out to build the lead.
+
+    With a video backend each item is a rendered clip. Without one it is
+    the clip's text, held for the clip's duration, so a headless config
+    gives a working session in the web player.
     """
     state = StoryState.initialize(story, config_name=config.name)
     session_id = _make_session_id(config.name, "live")
@@ -395,7 +391,17 @@ async def run_live(
     queue: asyncio.Queue[Playable | None] = asyncio.Queue(maxsize=queue_size)
     stop_event = asyncio.Event()
     producer_done = asyncio.Event()
+    lead_ready = asyncio.Event()   # the lead is built: playback may start
     played_clips: list[str] = []
+    # The player's clock as the producer sees it: when the clip on air
+    # started (monotonic) and how long it holds, plus the rendered clips
+    # waiting behind it. Durations are in real seconds (story seconds over
+    # the player's time scale).
+    air: dict[str, float | None] = {"start": None, "hold": 0.0}
+    queued_holds: list[float] = []
+
+    def _hold_of(item: Playable) -> float:
+        return float(item.duration) / player.time_scale
 
     # The producer mutates these state fields directly so the next turn's
     # voice-over gate sees up-to-date pacing. Mark the loop as managing
@@ -407,12 +413,11 @@ async def run_live(
     trace_tags = [config.name, "live"]
 
     # A backend that owns continuity (the LTX-2.5 server's sliding window)
-    # depends only on the prompt, so render(N) can overlap agents(N+1).
+    # depends only on the prompt, so render(N) can overlap the Director.
     _pipeline_ok = i2v is not None and i2v.manages_continuity
 
     # Running averages of the measured render and Director times, for the
-    # late start of the Director call (see the docstring). None until the
-    # first measurement; no wait happens before both exist.
+    # just-in-time schedule. None until the first measurement.
     est: dict[str, float | None] = {"render": None, "director": None}
 
     def _learn(key: str, seconds: float) -> None:
@@ -421,6 +426,9 @@ async def run_live(
 
     async def _enqueue(item: Playable) -> None:
         await queue.put(item)
+        queued_holds.append(_hold_of(item))
+        if queue.qsize() >= queue_size:
+            lead_ready.set()
         player.prepare(item)
 
     async def _bg_render_and_enqueue(
@@ -450,15 +458,15 @@ async def run_live(
         nonlocal state
         seed_image = config.i2v_seed_image
         turn = 0
+        clip_hold = float(config.clip_seconds or config.i2v_duration) / player.time_scale
         # Span-pending: collects silent clips behind a voiceover whose audio
         # spills past one clip. Closed (concat+mux+enqueue) once the
         # accumulated clip duration covers the audio.
         # Shape: {"item": Playable, "clips": [paths], "audio": str,
         #         "owed": float, "audio_dur": float, "start_turn": int}
         pending_span: dict | None = None
-        # Background render task for pipelining, and when it was fired.
+        # Background render task for pipelining.
         _prev_render: asyncio.Task | None = None
-        _prev_render_started: float | None = None
 
         async def _drain_prev() -> None:
             nonlocal _prev_render
@@ -469,47 +477,98 @@ async def run_live(
                     logger.warning("Pipelined render failed", exc_info=True)
                 _prev_render = None
 
+        def _needed_at() -> float | None:
+            """Monotonic time at which the next clip to render is due on
+            air; None before playback starts."""
+            if air["start"] is None:
+                return None
+            due = air["start"] + air["hold"] + sum(queued_holds)
+            if _prev_render is not None and not _prev_render.done():
+                due += clip_hold  # the render in flight takes the next slot
+            return due
+
+        async def _plan(text: str) -> None:
+            """Ask the Director for the next beat from `text`. A line that
+            arrives while the call runs cancels it, and the call restarts
+            with everything the viewer typed."""
+            nonlocal state
+            while True:
+                state.user_input = text
+                t0 = time.monotonic()
+                call = asyncio.create_task(graph.plan(state))
+                waiter = asyncio.create_task(player.wait_input(None))
+                done, _ = await asyncio.wait({call, waiter}, return_when=asyncio.FIRST_COMPLETED)
+                if call in done:
+                    waiter.cancel()
+                    await call
+                    _learn("director", time.monotonic() - t0)
+                    return
+                call.cancel()
+                try:
+                    await call
+                except asyncio.CancelledError:
+                    pass
+                graph.discard_pending_input(state.turn_number)
+                more = await player.next_input()
+                text = " ".join(x for x in (text, more) if x)
+                player.status(f"you spoke while the Director was writing; it starts segment {state.turn_number} again")
+
+        async def _listen(turn: int) -> None:
+            """Wait for the just-in-time moment of segment `turn`, taking the
+            viewer's lines as they come: a line cuts the beat short and
+            has the Director write the next one at once."""
+            while True:
+                need = _needed_at()
+                if need is None:
+                    break  # building the lead: as fast as possible
+                fire_at = need - (est["render"] or 0.0) * JIT_SAFETY - JIT_MARGIN_S - config.render_slack_seconds
+                if graph.has_next_clip():
+                    wait_until = fire_at
+                    player.status(f"listening for your input before segment {turn}")
+                else:
+                    wait_until = fire_at - (est["director"] or 0.0) * JIT_SAFETY - JIT_MARGIN_S
+                    player.status(f"listening for your input before the Director writes from segment {turn}")
+                timeout = wait_until - time.monotonic()
+                if timeout <= 0:
+                    break
+                if not await player.wait_input(timeout):
+                    break  # time is up
+                text = await player.next_input()
+                if not text:
+                    continue
+                dropped = graph.abort_beat("the viewer spoke") if graph.has_next_clip() else 0
+                if dropped:
+                    player.status(f"your line cut the beat short; {dropped} planned clip(s) dropped")
+                player.status(f"the Director is writing segment {turn}")
+                await _plan(text)
+            # The moment has come. Anything typed since is taken now.
+            if not graph.has_next_clip():
+                player.status(f"the Director is writing segment {turn}")
+                await _plan(await player.next_input())
+            elif player.has_input():
+                text = await player.next_input()
+                if text:
+                    dropped = graph.abort_beat("the viewer spoke")
+                    player.status(f"your line cut the beat short; {dropped} planned clip(s) dropped")
+                    player.status(f"the Director is writing segment {turn}")
+                    await _plan(text)
+
         try:
             while not stop_event.is_set():
                 if max_segments is not None and turn >= max_segments:
                     break
                 turn += 1
-                if (
-                    _prev_render is not None and not _prev_render.done()
-                    and _prev_render_started is not None
-                    and est["render"] is not None and est["director"] is not None
-                ):
-                    # Late start: the previous clip is playing and its
-                    # successor is rendering. Start this turn's Director
-                    # call only when the render is about to finish, so the
-                    # viewer's lines from watching the clip are read first.
-                    remaining = est["render"] - (time.monotonic() - _prev_render_started)
-                    slack = remaining - est["director"] * LATE_START_SAFETY - LATE_START_MARGIN_S
-                    if slack > 0:
-                        player.status(f"listening for your input before segment {turn} is written")
-                        try:
-                            await asyncio.wait_for(asyncio.shield(_prev_render), timeout=slack)
-                        except asyncio.TimeoutError:
-                            pass  # the render is nearly done: start the Director now
-                        except Exception:
-                            pass  # _drain_prev reports a failed render
-                user_input = await player.next_input()
-
                 state.turn_number = turn
-                state.user_input = user_input
-                player.status(f"the Director is writing segment {turn}")
 
                 with turn_span(
                     turn_number=turn,
                     session_id=session_id,
                     tags=trace_tags,
-                    user_input=user_input,
-                    metadata={"config": config.name, "user_input": user_input},
+                    user_input="",
+                    metadata={"config": config.name},
                 ):
-                    t_director = time.monotonic()
-                    result = await graph.ainvoke(state)
-                    _learn("director", time.monotonic() - t_director)
-                    state = _coerce_state(result)
+                    await _listen(turn)
+                    state = await graph.emit(state)
 
                     silent: str | None = None
                     handled = False
@@ -518,8 +577,8 @@ async def run_live(
                         item = _playable(state)
                         if i2v is None:
                             # ── Text-only film ──────────────────────────
-                            # No renderer: the segment plays as text for
-                            # its own duration. Pacing follows that clock.
+                            # No renderer: the clip plays as text for its
+                            # own duration. Pacing follows that clock.
                             handled = True
                             _pace_expected(state, item.duration)
                             await _enqueue(item)
@@ -531,13 +590,11 @@ async def run_live(
                             # ── Pipelined path ──────────────────────────
                             # Wait for the previous render (the sliding
                             # window is sequential), then fire this one in
-                            # the background — it overlaps with the *next*
-                            # turn's agent calls.
+                            # the background.
                             handled = True
                             await _drain_prev()
                             player.status(f"rendering segment {turn}")
                             shot_dur = state.current_shot.duration_seconds
-                            _prev_render_started = time.monotonic()
                             _prev_render = asyncio.create_task(
                                 _bg_render_and_enqueue(
                                     item,
@@ -705,7 +762,10 @@ async def run_live(
             # producer is already done). At lead=0 this is just "wait for
             # the first segment."
             while queue.qsize() < gate and not stop_event.is_set() and not producer_done.is_set():
-                await asyncio.sleep(0.25)
+                try:
+                    await asyncio.wait_for(lead_ready.wait(), 0.25)
+                except asyncio.TimeoutError:
+                    pass
             if stop_event.is_set():
                 return
             if config.lead_clips > 0:
@@ -717,6 +777,8 @@ async def run_live(
                 item = await queue.get()
                 if item is None:
                     break
+                if queued_holds:
+                    queued_holds.pop(0)
                 if item.path:
                     played_clips.append(item.path)
                 langfuse_event(
@@ -725,6 +787,8 @@ async def run_live(
                 )
                 # The player holds the item for its duration; when the next
                 # one is not ready yet it keeps showing the last frame.
+                air["start"] = time.monotonic()
+                air["hold"] = _hold_of(item)
                 await player.play(item)
                 langfuse_event(
                     "playback_end",
@@ -784,6 +848,8 @@ def _playable(state: StoryState) -> Playable:
         intervention=state.current_intervention,
         intervention_reason=state.current_intervention_reason,
         scene=state.context_brief,
+        beat=state.current_beat_intent,
+        clip=state.current_clip,
     )
 
 

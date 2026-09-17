@@ -108,6 +108,8 @@ What the video model needs for the next six seconds: who is in frame in one clau
 6. **Stop cutting while the look differs from the reference.** Either forbid `cut` unless the world is at reference state, or re-seed cuts from a keyframe of the current look (the deferred costume problem is now also a duplicate-figure problem). *Done the same day, on the user's decision: cuts and multi-shot segments were removed entirely; the renderer re-seeds only on the first clip of a run and after a server restart.*
 7. **Player polish after the holds are gone:** crossfade the audio at the seam, and shorten or keep the 250 ms video crossfade by taste. Nothing else in the player needs work. On the server, overlapping the 0.6 s encode with the next clip's forwards would need an asynchronous submit API and only matters once the render is the bottleneck again.
 
+*Status, end of 2026-09-17: 1 and 6 were implemented and measured in dry runs (see `2026-09-17-rec1-dry-runs.md`); 2, 3, 4, 5 and 7 were implemented later the same day on the user's instruction, together with the steering follow-ups (just-in-time rendering and interruption on input), without a live run. The next session starts with one.*
+
 Not recommended now: a bigger buffer alone (it does not fix a mean above real time), a faster GPU (the GPU is idle 42% of the time), Media Source Extensions in the player (the swap is already within 10 ms), or a streaming autoregressive video model (Rolling Forcing, LongLive, Self-Forcing and Causal Forcing generate multi-minute video in real time on one GPU from a prompt stream and would remove the clip boundary altogether, but that is a substrate change for later, not the MVP).
 
 ### A note on generality

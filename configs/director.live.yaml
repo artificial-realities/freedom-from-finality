@@ -40,8 +40,10 @@ narration: "ltx"
 audio_enabled: false
 min_pause_seconds: 15.0
 
-recent_beats: 4
-max_segments_per_scene: 12
+recent_clips: 6
+max_clips_per_beat: 4
+scene_seconds: 240
 compaction_interval: 10
 showrunner_min_gap: 4
-stagnation_threshold: 5
+render_slack_seconds: 3.0
+stagnation_seconds: 90

@@ -2,12 +2,13 @@
 
 Everything the film has established lives here in structure, not prose:
 entities (characters, props, locations) with status and whereabouts,
-open threads, viewer interventions with their disposition, the plan
-(arc + current scene card), an append-only event log, and the
-summaries the Showrunner compacts the log into.
+each character's posture, activity and position in the frame, open
+threads, viewer interventions with their disposition, the plan (arc +
+current scene card), an append-only event log (one record per clip),
+and the summaries the Showrunner compacts the log into.
 
 Only validated deltas mutate it (see `validator.py`). It is persisted
-after every segment to `logs/sessions/<session>/` so a run can be
+after every clip to `logs/sessions/<session>/` so a run can be
 inspected or resumed.
 """
 
@@ -33,7 +34,8 @@ class Entity(BaseModel):
     kind: EntityKind
     description: str = ""        # who/what it is (for the writer)
     look: str = ""               # how it looks (for the renderer); falls back to description
-    status: str = ""             # short free text: "dented", "balanced on his head"
+    look_short: str = ""         # a few words of look for clips that continue the picture
+    status: str = ""             # props: short free text, "dented", "balanced on his head"
     location: str = ""           # location id
     holder: str = ""             # character id, "" when not held
     present: bool = False        # in the current scene
@@ -44,12 +46,22 @@ class Entity(BaseModel):
     speaks: bool = True
     reference_image: str = ""
     reference_pose: str = ""
+    # Characters: the state the next clip continues from.
+    posture: str = ""            # how the body is arranged: "standing", "lying on his back"
+    activity: str = ""           # what they are doing, sustained: "asleep", "watching the ball"
+    position: str = ""           # where in the frame: "centre frame", "off screen right"
 
     def render_look(self) -> str:
         return self.look or self.description or self.name
 
+    def now(self) -> str:
+        """A character's current state in one clause, or empty."""
+        return "; ".join(x for x in (self.posture, self.activity, self.position) if x)
+
     def line(self) -> str:
         bits = [f"{self.id} ({self.kind}): {self.name}"]
+        if self.kind == "character" and self.now():
+            bits.append(f"now: {self.now()}")
         if self.status:
             bits.append(f"status: {self.status}")
         if self.holder:
@@ -100,12 +112,18 @@ class Summary(BaseModel):
 
 
 class EventRecord(BaseModel):
+    """One clip of the film as it was emitted: which beat it belongs to,
+    what the camera saw, what changed."""
+
     segment: int
     scene_id: int
+    beat: int = 0
+    beat_intent: str = ""
+    clip_index: int = 1          # 1-based position within the beat
+    clip_count: int = 1
     user_input: str = ""
     intervention: str = "none"
     narration: str
-    next_direction: str = ""
     applied_ops: list[str] = Field(default_factory=list)
     thread_ops: list[str] = Field(default_factory=list)
     on_screen: list[str] = Field(default_factory=list)
@@ -126,6 +144,7 @@ class WorldModel(BaseModel):
     act_summary: str = ""
     summaries: list[Summary] = Field(default_factory=list)
     events: list[EventRecord] = Field(default_factory=list)
+    beats: int = 0               # beats planned so far
     last_compacted: int = 0
     last_change: int = 0
     last_showrunner: int = 0
@@ -152,6 +171,7 @@ class WorldModel(BaseModel):
                 id=cid, name=ch.name, kind="character",
                 description=ch.description,
                 look=getattr(ch, "look", "") or "",
+                look_short=getattr(ch, "look_short", "") or "",
                 speaks=getattr(ch, "speaks", True),
                 reference_image=getattr(ch, "reference_image", "") or "",
                 reference_pose=getattr(ch, "reference_pose", "") or "",
@@ -217,14 +237,33 @@ class WorldModel(BaseModel):
         self.interventions.append(item)
         return item
 
+    def drop_pending_interventions(self, segment: int) -> int:
+        """Forget pending lines recorded at `segment` (a cancelled call)."""
+        before = len(self.interventions)
+        self.interventions = [
+            i for i in self.interventions
+            if not (i.segment == segment and i.disposition == "pending")
+        ]
+        return before - len(self.interventions)
+
     def new_thread_id(self) -> str:
         return f"t{len(self.threads) + 1}"
 
+    # ── Clocks, in story seconds ────────────────────────────────────
+
     def scene_length(self) -> int:
+        """Clips in the current scene."""
         return max(0, self.segment - self.scene_started + 1)
 
+    def scene_seconds(self) -> float:
+        return float(sum(e.duration for e in self.events if e.segment >= self.scene_started))
+
     def stagnation(self) -> int:
+        """Clips since anything in the world changed."""
         return max(0, self.segment - self.last_change)
+
+    def seconds_since_change(self) -> float:
+        return float(sum(e.duration for e in self.events if e.segment > self.last_change))
 
     def events_since(self, segment: int) -> list[EventRecord]:
         return [e for e in self.events if e.segment > segment]

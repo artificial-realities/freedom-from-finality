@@ -21,6 +21,7 @@ class Character(BaseModel):
     name: str
     description: str
     look: str = ""              # visual descriptor for the renderer (falls back to description)
+    look_short: str = ""        # a few words of look for clips that continue the picture ("" → name only)
     speaks: bool = True         # False → dialogue from this character is rejected
     reference_image: str = ""   # optional identity anchor for the video model
     reference_pose: str = ""    # what the reference image shows (pose, framing); the first clip starts from it
@@ -30,6 +31,7 @@ class Story(BaseModel):
     title: str
     synopsis: str
     visual_style: str
+    visual_anchor: str = ""     # one sentence of look and framing for clips that continue the picture ("" → the first sentence of visual_style)
     tone_guidelines: str
     locations: list[Location] = Field(default_factory=list)
     characters: list[Character] = Field(default_factory=list)

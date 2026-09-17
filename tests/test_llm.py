@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from src.llm import build_backend
 from src.llm.openai_backend import OpenAIBackend
-from src.story.schemas import Segment
+from src.story.schemas import BeatPlan
 
 
 class _Msg:
-    content = '{"shot": {"framing": "wide", "action_beats": ["He waves."], "on_screen": ["lego_man"], "end_state": "e"}}'
+    content = '{"intent": "a wave", "framing": "wide", "clips": [{"action": "He waves.", "end_state": "e", "on_screen": ["lego_man"]}]}'
 
 
 class _Choice:
@@ -33,9 +33,9 @@ async def test_openai_backend_forwards_service_tier():
     plain = OpenAIBackend(model="gpt-4.1", api_key="test")
     plain.client.chat.completions.create = fake_create
     messages = [{"role": "user", "content": "hi"}]
-    await tiered.generate_structured(messages, Segment)
+    await tiered.generate_structured(messages, BeatPlan)
     await tiered.generate(messages)
-    await plain.generate_structured(messages, Segment)
+    await plain.generate_structured(messages, BeatPlan)
     assert captured[0]["service_tier"] == "priority" and captured[1]["service_tier"] == "priority"
     assert "service_tier" not in captured[2], "unset: the API default, nothing sent"
     assert captured[0]["response_format"]["json_schema"]["strict"] is True

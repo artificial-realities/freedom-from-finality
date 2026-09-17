@@ -1,9 +1,11 @@
 """Context assembler: renders the world model into prompt sections.
 
 Everything the Director and Showrunner read comes through here, so the
-prompt budget is decided in one place: active entities in full, dormant
-ones by name, bounded threads, recent beats verbatim, older history as
-summaries.
+prompt budget is decided in one place: active entities in full with
+each character's current state, dormant ones by name, bounded threads,
+recent clips verbatim, older history as summaries. The system prompt
+(cast, rules, style) never changes during a run so the API's prompt
+cache hits; everything that moves goes into the user prompt.
 """
 
 from __future__ import annotations
@@ -25,11 +27,9 @@ def format_cast(world: WorldModel) -> str:
         if ent.look:
             bits.append(f"  Look (verbatim for shots): {ent.look}")
         if ent.reference_pose:
-            bits.append(f"  Reference image shows: {ent.reference_pose}. The first segment of the film starts from exactly this; begin the action there.")
+            bits.append(f"  Reference image shows: {ent.reference_pose}. The first clip of the film starts from exactly this; begin the action there.")
         if not ent.speaks:
             bits.append("  Never speaks: no dialogue lines for this character.")
-        for note in ent.notes[-6:]:
-            bits.append(f"  Note: {note}")
         lines.append("\n".join(bits))
     return "\n".join(lines) if lines else "(none)"
 
@@ -54,7 +54,7 @@ def format_plan(world: WorldModel, config: Config) -> str:
     else:
         out.append(
             f"Scene {card.id} (opened at segment {card.opened_at}, "
-            f"segment {world.scene_length()} of at most {config.max_segments_per_scene}):"
+            f"running {world.scene_seconds():.0f} s of about {config.scene_seconds:.0f} s):"
         )
         out.append(f"  goal: {card.goal}")
         out.append(f"  tension: {card.tension}")
@@ -69,6 +69,7 @@ def format_plan(world: WorldModel, config: Config) -> str:
 PRESENT_IN_FULL = 12      # most recently seen present entities get a full line
 STATUS_CHARS = 120        # status text is clipped in the prompt, not in the model
 GONE_LISTED = 12
+NOTES_SHOWN = 4
 
 
 def _clip(text: str, n: int) -> str:
@@ -88,6 +89,18 @@ def format_world_now(world: WorldModel) -> str:
         full, rest = present[:PRESENT_IN_FULL], present[PRESENT_IN_FULL:]
         out.append("Present in the scene:")
         for ent in full:
+            if ent.kind == "character":
+                now = ent.now() or "(not recorded yet: describe it in your first op)"
+                held = ", ".join(p.name for p in world.held_props(ent.id))
+                line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATUS_CHARS)}"
+                if held:
+                    line += f" · holding: {held}"
+                if ent.location:
+                    line += f" · at {ent.location}"
+                out.append(line)
+                if ent.notes:
+                    out.append("  notes: " + " | ".join(ent.notes[-NOTES_SHOWN:]))
+                continue
             status = f" · status: {_clip(ent.status, STATUS_CHARS)}" if ent.status else ""
             where = f" · held by {ent.holder}" if ent.holder else (
                 f" · at {ent.location}" if ent.location and ent.kind != "location" else "")
@@ -97,6 +110,11 @@ def format_world_now(world: WorldModel) -> str:
             out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))
     else:
         out.append("Present in the scene: (nothing but the location)")
+    # Characters not in the scene still have a state worth knowing.
+    away = [e for e in world.by_kind("character") if not e.present and not e.gone]
+    if away:
+        out.append("Characters not in the scene: " + "; ".join(
+            f"`{e.id}`" + (f" ({e.now()})" if e.now() else "") for e in away))
     dormant = world.dormant_props()
     if dormant:
         out.append(
@@ -127,12 +145,12 @@ def format_interventions(world: WorldModel, current_input: str) -> str:
     text = (current_input or "").strip()
     if text:
         out.append(
-            f'Viewer input this segment: "{text}"\n'
+            f'Viewer input for this beat: "{text}"\n'
             "Decide its disposition: absorbed (it happens now), deferred (it needs "
             "setup; say what you will do), or declined (only if it breaks the rules)."
         )
     else:
-        out.append("No viewer input this segment.")
+        out.append("No viewer input for this beat.")
     deferred = [i for i in world.interventions if i.disposition == "deferred"]
     if deferred:
         out.append("Earlier requests still owed (deferred):")
@@ -171,22 +189,25 @@ def format_summaries(world: WorldModel, scene_limit: int = 3) -> str:
         if s is scenes[0]:
             continue
         out.append(f"Segments {s.first_segment}-{s.last_segment}: {s.text}")
-    return "\n\n".join(out) if out else "(nothing compacted yet; the recent segments are the whole story)"
+    return "\n\n".join(out) if out else "(nothing compacted yet; the recent clips are the whole story)"
+
+
+def _clip_label(ev) -> str:
+    beat = f" · beat {ev.beat} \"{ev.beat_intent}\" clip {ev.clip_index}/{ev.clip_count}" if ev.beat else ""
+    return f"[segment {ev.segment}{beat}]"
 
 
 def format_recent(world: WorldModel, count: int) -> str:
     events = world.events[-count:] if count > 0 else []
     if not events:
-        return "(no segments yet; you are opening the film)"
+        return "(no clips yet; you are opening the film)"
     lines = []
     for ev in events:
         lines.append(
-            f"[segment {ev.segment}] {ev.narration}\n"
+            f"{_clip_label(ev)} {ev.narration}\n"
             f"  on screen: {', '.join(ev.on_screen) or '(none)'} · ends on: {ev.end_state or '(unspecified)'}"
             + (f" · voice-over: \"{ev.voiceover}\"" if ev.voiceover else "")
         )
-    last = events[-1]
-    lines.append(f"Direction set after the last segment: {last.next_direction or '(none)'}")
     return "\n\n".join(lines)
 
 
@@ -196,7 +217,7 @@ def format_events(world: WorldModel, since: int) -> str:
         return "(no events since the last compaction)"
     lines = []
     for ev in events:
-        bits = [f"[segment {ev.segment}] {ev.narration}"]
+        bits = [f"{_clip_label(ev)} {ev.narration}"]
         if ev.user_input:
             bits.append(f'  viewer: "{ev.user_input}" → {ev.intervention}')
         if ev.applied_ops:

@@ -2,10 +2,12 @@
 
 Returns schema-shaped JSON without calling any API, so the whole engine
 (world model, validator, compiler, triggers, persistence, transcript)
-can be exercised deterministically. The script is keyed on the schema
-name and the segment number it finds in the prompt; it deliberately
-includes proposals the validator must reject (a second character in a
-locked cast, dialogue from a mute character) to exercise the re-ask.
+can be exercised deterministically. The Director script is keyed on
+what it finds in the prompt: the viewer's line, whether a request is
+still owed, which threads are open, whether the film is opening. It
+deliberately includes proposals the validator must reject (a second
+character in a locked cast, dialogue from a mute character) to exercise
+the re-ask.
 """
 
 from __future__ import annotations
@@ -19,20 +21,49 @@ from pydantic import BaseModel
 from src.llm.base import LLMBackend
 
 
+def _user(messages: list[dict]) -> str:
+    return next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+
+
 def _segment_number(messages: list[dict]) -> int:
-    user = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
-    m = re.search(r"^Segment (\d+)", user, re.M)
+    m = re.search(r"^Segment (\d+)", _user(messages), re.M)
     return int(m.group(1)) if m else 0
 
 
 def _corrections_requested(messages: list[dict]) -> bool:
-    user = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
-    return "## Corrections required" in user
+    return "## Corrections required" in _user(messages)
 
 
 def _floor_open(messages: list[dict]) -> bool:
-    user = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
-    return "Voice-over floor: OPEN" in user
+    return "Voice-over floor: OPEN" in _user(messages)
+
+
+def _viewer_line(messages: list[dict]) -> str:
+    m = re.search(r'Viewer input for this beat: "(.*?)"', _user(messages))
+    return m.group(1) if m else ""
+
+
+def _owed(messages: list[dict]) -> bool:
+    return "Earlier requests still owed" in _user(messages)
+
+
+def _thread_open(messages: list[dict], tid: str) -> bool:
+    return f"- `{tid}` [" in _user(messages)
+
+
+def _op(op: str, entity: str, **over) -> dict:
+    base = {"op": op, "entity": entity, "kind": "prop", "description": "", "status": "", "location": "",
+            "holder": "", "present": None, "posture": "", "activity": "", "position": ""}
+    base.update(over)
+    return base
+
+
+def _clip(action: str, end_state: str, **over) -> dict:
+    base = {"action": action, "end_state": end_state, "camera_motion": "static",
+            "ambient_sound": "a soft plastic click as his feet touch the floor",
+            "on_screen": ["lego_man"], "dialogue": [], "entity_ops": []}
+    base.update(over)
+    return base
 
 
 class MockBackend(LLMBackend):
@@ -51,8 +82,8 @@ class MockBackend(LLMBackend):
     async def generate_structured(self, messages, schema: type[BaseModel], temperature=0.7, max_tokens=1024, *, strict=True, trace_name=None, trace_metadata=None):
         self.calls.append({"name": trace_name, "schema": schema.__name__})
         name = schema.__name__
-        if name == "Segment":
-            payload = self._segment(messages)
+        if name == "BeatPlan":
+            payload = self._beat(messages)
         elif name == "ShowrunnerUpdate":
             if self.showrunner_delay:
                 await asyncio.sleep(self.showrunner_delay)
@@ -63,74 +94,92 @@ class MockBackend(LLMBackend):
 
     # ── Director script ─────────────────────────────────────────────
 
-    def _segment(self, messages: list[dict]) -> dict:
+    def _beat(self, messages: list[dict]) -> dict:
         n = _segment_number(messages)
         retry = _corrections_requested(messages)
         vo_open = _floor_open(messages)
+        line = _viewer_line(messages)
         base = {
-            "next_direction": f"Direction after segment {n}.",
-            "shot": {
-                "framing": "medium shot, straight-on, eye level",
-                "camera_motion": "static",
-                "action_beats": [f"Lego Man performs action {n}.", "He looks up."],
-                "on_screen": ["lego_man"],
-                "ambient_sound": "a soft plastic click as his feet touch the floor",
-                "end_state": f"Lego Man standing, end of segment {n}",
-                "duration_seconds": 5,
-            },
-            "dialogue": [],
+            "intent": f"beat from segment {n}",
+            "framing": "medium shot, straight-on, eye level",
+            "clips": [],
             "voiceover": "",
-            "entity_ops": [],
             "thread_ops": [],
             "intervention": "none",
             "intervention_reason": "",
             "scene_done": False,
             "needs_replan": False,
         }
-        if n == 1 and vo_open:
-            base["voiceover"] = "From the stillness, he stirs."
-        if n == 2:
-            base["entity_ops"] = [{"op": "introduce", "entity": "soccer ball", "kind": "prop",
-                                   "description": "a black-and-white studded LEGO soccer ball",
-                                   "status": "at his feet", "location": "", "holder": "", "present": True}]
-            base["shot"]["on_screen"] = ["lego_man", "soccer_ball"]
+        if n == 1:
+            base["intent"] = "he wakes and looks around"
+            base["clips"] = [
+                _clip("Lego Man performs action 1. He looks up.", "Lego Man standing, looking up",
+                      entity_ops=[_op("update", "lego_man", kind="character", posture="standing",
+                                      activity="looking around", position="centre frame")]),
+                _clip("He holds still. Nothing else happens.", "Lego Man standing still"),
+            ]
+            if vo_open:
+                base["voiceover"] = "From the stillness, he stirs."
+        elif "soccer ball" in line:
+            base["intent"] = "a ball arrives"
+            base["clips"] = [_clip(
+                "A soccer ball rolls in and stops at his feet.", "the ball at his feet",
+                on_screen=["lego_man", "soccer_ball"],
+                entity_ops=[_op("introduce", "soccer ball", description="a black-and-white studded LEGO soccer ball",
+                                status="at his feet", present=True)],
+            )]
             base["thread_ops"] = [{"op": "open", "thread": "the soccer ball wants to be kicked", "kind": "setup"}]
             base["intervention"] = "absorbed"
             base["intervention_reason"] = "the ball arrives as asked"
-        if n == 3 and not retry:
-            # Two hard violations: a new character in a locked cast, and a
-            # line of dialogue from a character who never speaks.
-            base["entity_ops"] = [{"op": "introduce", "entity": "Lego Woman", "kind": "character",
-                                   "description": "a second minifigure", "status": "", "location": "",
-                                   "holder": "", "present": True}]
-            base["dialogue"] = [{"speaker": "lego_man", "line": "Hello!", "delivery": ""}]
-        if n == 3 and retry:
-            base["entity_ops"] = [{"op": "update", "entity": "soccer_ball", "kind": "prop", "description": "",
-                                   "status": "kicked across the void", "location": "", "holder": "", "present": True}]
-            base["thread_ops"] = [{"op": "pay_off", "thread": "t1", "kind": "setup"}]
-            base["voiceover"] = "A kick, at last." if vo_open else ""
-        if n == 4:
-            base["shot"] = dict(base["shot"], framing="close-up on the ball", camera_motion="slow push in",
-                                duration_seconds=3, on_screen=["lego_man", "soccer_ball"])
-            base["entity_ops"] = [{"op": "update", "entity": "soccer_ball", "kind": "prop", "description": "",
-                                   "status": "held overhead", "location": "", "holder": "lego_man", "present": True}]
+        elif "trick" in line:
+            base["intent"] = "he lifts the ball"
+            base["clips"] = [_clip(
+                "He lifts the ball overhead.", "the ball held overhead",
+                on_screen=["lego_man", "soccer_ball"],
+                entity_ops=[_op("update", "soccer_ball", status="held overhead", holder="lego_man")],
+            )]
             base["intervention"] = "deferred"
             base["intervention_reason"] = "the trick needs a run-up first"
-        if n == 5:
-            base["entity_ops"] = [{"op": "update", "entity": "soccer_ball", "kind": "prop", "description": "",
-                                   "status": "rolled out of frame", "location": "", "holder": "nobody", "present": False}]
+        elif _owed(messages):
+            base["intent"] = "the trick, and the ball leaves"
+            base["clips"] = [_clip(
+                "He flips the ball up and it rolls out of frame.", "the floor empty",
+                entity_ops=[_op("update", "soccer_ball", status="rolled out of frame", holder="nobody", present=False)],
+            )]
             base["scene_done"] = True
             base["intervention"] = "absorbed"
             base["intervention_reason"] = "the deferred trick happens now"
-        if n >= 6:
-            base["entity_ops"] = [{"op": "update", "entity": "lego_man", "kind": "character", "description": "",
-                                   "status": f"status {n}", "location": "", "holder": "", "present": True}]
+        elif _thread_open(messages, "t1") and not retry:
+            # Two hard violations: a new character in a locked cast, and a
+            # line of dialogue from a character who never speaks.
+            base["intent"] = "a visitor"
+            base["clips"] = [_clip(
+                "A second minifigure walks in and Lego Man greets her.", "two figures",
+                entity_ops=[_op("introduce", "Lego Woman", kind="character", description="a second minifigure", present=True)],
+                dialogue=[{"speaker": "lego_man", "line": "Hello!", "delivery": ""}],
+            )]
+        elif _thread_open(messages, "t1") and retry:
+            base["intent"] = "the kick"
+            base["clips"] = [_clip(
+                "He kicks the ball across the void.", "the ball far away",
+                on_screen=["lego_man", "soccer_ball"],
+                entity_ops=[_op("update", "soccer_ball", status="kicked across the void")],
+            )]
+            base["thread_ops"] = [{"op": "pay_off", "thread": "t1", "kind": "setup"}]
+            if vo_open:
+                base["voiceover"] = "A kick, at last."
+        else:
+            base["clips"] = [
+                _clip(f"Lego Man performs action {n}.", f"end of segment {n}",
+                      entity_ops=[_op("update", "lego_man", kind="character", posture=f"posture {n}")]),
+                _clip("He holds still.", f"still after segment {n}"),
+            ]
         return base
 
     # ── Showrunner script ───────────────────────────────────────────
 
     def _showrunner(self, messages: list[dict]) -> dict:
-        user = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+        user = _user(messages)
         bootstrap = "Trigger: bootstrap" in user
         compact = "compaction pass" in user
         return {

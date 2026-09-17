@@ -1,6 +1,6 @@
-"""End-to-end engine run through the live loop on the scripted mock
-backend: transcript, persistence and history, with a player that feeds one
-scripted line per segment."""
+"""End-to-end engine runs through the live loop on the scripted mock
+backend: beats emitted clip by clip, viewer lines cutting beats short,
+transcript, persistence and history."""
 
 from __future__ import annotations
 
@@ -13,87 +13,113 @@ from src.models.story import Story
 from src.playback.player import Player
 from src.story.world import WorldModel
 
-LINES = ["Look around.", "A soccer ball appears at your feet.", "", "Do a trick with it.", "", ""]
-
 
 class Scripted(Player):
-    """Hands the loop one scripted line per segment and plays instantly."""
+    """Plays instantly and speaks a given line when a given clip starts."""
 
-    def __init__(self, lines: list[str]) -> None:
+    def __init__(self, lines: dict[int, str] | None = None, on_prepare: dict[int, str] | None = None) -> None:
         super().__init__(time_scale=1000)
-        self.lines = list(lines)
+        self.lines = dict(lines or {})
+        self.on_prepare = dict(on_prepare or {})
+        self.turns: list[int] = []
 
-    async def next_input(self) -> str:
-        return self.lines.pop(0) if self.lines else ""
+    def prepare(self, item) -> None:
+        if item.turn in self.on_prepare:
+            self.push_input(self.on_prepare.pop(item.turn))
 
     async def play(self, item) -> None:
+        self.turns.append(item.turn)
+        if item.turn in self.lines:
+            self.push_input(self.lines.pop(item.turn))
         await self._hold(item.duration)
 
 
 def _config(**over) -> Config:
     base = dict(name="mocktest", graph="director", llm_backend="mock", model="mock",
-                min_pause_seconds=6.0, compaction_interval=4, stagnation_threshold=3,
-                showrunner_min_gap=1)
+                min_pause_seconds=6.0, compaction_interval=4, showrunner_min_gap=1,
+                render_slack_seconds=0.0)
     base.update(over)
     return Config(**base)
 
 
 async def test_director_engine_end_to_end():
     story = Story.from_json("data/story.json")
+    player = Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."})
     with tempfile.TemporaryDirectory() as d:
-        state = await run_live(config=_config(), story=story, log_dir=d,
-                               player=Scripted(LINES), max_segments=len(LINES))
+        state = await run_live(config=_config(), story=story, log_dir=d, player=player, max_segments=7)
 
-        assert len(state.history) == len(LINES), "every segment produced beat + shot + commentary"
-        assert [h.user_input for h in state.history] == LINES
+        assert player.turns == [1, 2, 3, 4, 5, 6, 7]
+        assert len(state.history) == 7, "every clip produced beat + shot + commentary"
+        inputs = [h.user_input for h in state.history]
+        # A line spoken while clip k plays reaches the plan for k+2: clip k+1
+        # was already emitted (and, with video, rendering) when it arrived.
+        assert inputs == ["", "", "A soccer ball appears at your feet.", "", "", "Do a trick with it.", ""], inputs
         assert state.history[0].commentary.voiceover == "From the stillness, he stirs."
-        assert state.history[1].commentary.voiceover == "", "floor closed the segment after a line"
+        assert state.history[1].commentary.voiceover == "", "the line plays over the beat's first clip only"
         assert "voice-over (English" in state.history[0].shot.i2v_prompt, "ltx narration folded into the prompt"
-        assert state.history[0].beat.narration.startswith("Lego Man performs action 1."), "the beats are the prose"
+        assert state.history[0].beat.narration.startswith("Lego Man performs action 1."), "the clip's action is the prose"
+        assert state.history[1].beat.narration == "He holds still. Nothing else happens.", "clip 2 of the beat, no LLM call"
 
+        transcript = next(Path(d).glob("*.md")).read_text()
         session_dir = next((Path(d) / "sessions").iterdir())
         world = WorldModel.load(session_dir)
-        assert len(world.events) == len(LINES)
+        assert len(world.events) == 7
+        assert [(e.beat, e.clip_index, e.clip_count) for e in world.events[:3]] == [(1, 1, 2), (1, 2, 2), (2, 1, 1)]
         assert "soccer_ball" in world.entities and "lego_woman" not in world.entities
         ball = world.entities["soccer_ball"]
         assert ball.status == "rolled out of frame" and not ball.present and ball.holder == ""
         assert world.threads[0].status == "paid_off"
-        disp = [i.disposition for i in world.interventions]
-        # Turn 1's input got no disposition from the (scripted) Director, so the
-        # validator recorded it as deferred; turn 4 was deferred and then
-        # absorbed at turn 5 when the Director said so without new input.
-        assert disp == ["deferred", "absorbed", "absorbed"], disp
-        assert world.interventions[2].resolved_at == 5, "deferred at 4, absorbed at 5"
-        assert world.interventions[0].resolved_at is None
-        assert world.showrunner_runs >= 3, "bootstrap + compaction at 4 + scene_done at 5"
+        disp = [(i.text[:12], i.disposition, i.resolved_at) for i in world.interventions]
+        assert disp == [("A soccer bal", "absorbed", 3), ("Do a trick w", "absorbed", 7)], disp
+        hero = world.entities["lego_man"]
+        assert hero.posture == "posture 5" and hero.activity == "looking around", "character state persists until an op changes it"
+        assert "cut short after clip 1 of 2 (the viewer spoke)" in transcript, "the trick line cut the running beat short"
+        assert world.showrunner_runs >= 3, "bootstrap + compaction at 4 + scene_done at 7"
         assert world.plan.scene.id >= 2 and world.plan.arc, "the Showrunner replanned after scene_done"
         assert world.summaries and world.act_summary, "compaction landed"
-        assert world.entities["lego_man"].notes == ["He is proud of the kick."]
+        assert hero.notes == ["He is proud of the kick."]
 
-        transcript = next(Path(d).glob("*.md")).read_text()
         assert "first proposal rejected" in transcript and "retry accepted" in transcript
-        assert "Transition" not in transcript and "Shots:" not in transcript, "no cuts, one shot per segment"
+        assert 'Beat 1 "he wakes and looks around" · clip 1 of 2' in transcript and "clip 2 of 2" in transcript
+        assert "- Now: standing; looking around; centre frame" in transcript
         assert "Showrunner spawned: scene_done" in transcript
         assert "showrunner (bootstrap" in transcript and "scene 1 card" in transcript
         assert "**World**" in transcript
 
 
-async def test_fixed_clip_length_overrides_the_directors_durations():
-    """clip_seconds: every clip is that long, whatever the Director's shot
-    says (segment 4 of the mock asks for 3 s), and the Director is told the
-    rule in its system prompt."""
+async def test_viewer_line_cuts_a_beat_short():
+    """A line that arrives while a beat still has unrendered clips drops
+    them; the Director writes the next beat from the line and is told
+    where the picture actually ends."""
+    story = Story.from_json("data/story.json")
+    player = Scripted(on_prepare={1: "A soccer ball appears at your feet."})
+    with tempfile.TemporaryDirectory() as d:
+        state = await run_live(config=_config(), story=story, log_dir=d, player=player, max_segments=3)
+        transcript = next(Path(d).glob("*.md")).read_text()
+        world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
+    assert [h.user_input for h in state.history] == ["", "A soccer ball appears at your feet.", ""]
+    assert [(e.beat, e.clip_index, e.clip_count) for e in world.events] == [(1, 1, 2), (2, 1, 1), (3, 1, 1)]
+    assert "cut short after clip 1 of 2 (the viewer spoke)" in transcript
+    assert "soccer_ball" in world.entities
+
+
+async def test_fixed_clip_length_sets_every_clip():
+    """clip_seconds: every clip is that long; without it the i2v duration
+    is the clip length. The Director is told the length in its prompt."""
     from src.agents.director import SYSTEM_PATH
-    assert "{duration_rule}" in SYSTEM_PATH.read_text()
+    assert "{clip_seconds}" in SYSTEM_PATH.read_text() and "{max_clips}" in SYSTEM_PATH.read_text()
     story = Story.from_json("data/story.json")
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(clip_seconds=6), story=story, log_dir=d,
-                               player=Scripted(LINES[:4]), max_segments=4)
-    durations = [h.shot.duration_seconds for h in state.history]
-    assert durations == [6, 6, 6, 6], durations
+                               player=Scripted(), max_segments=4)
+    assert [h.shot.duration_seconds for h in state.history] == [6, 6, 6, 6]
+    with tempfile.TemporaryDirectory() as d:
+        state = await run_live(config=_config(), story=story, log_dir=d, player=Scripted(), max_segments=2)
+    assert [h.shot.duration_seconds for h in state.history] == [5, 5]
 
 
 async def test_showrunner_never_blocks_a_segment():
-    """A slow Showrunner lands at a later segment; no segment waits for it,
+    """A slow Showrunner lands at a later plan; no segment waits for it,
     a trigger that finds a run in flight is held, and the end of the run
     still lands the update."""
     import time
@@ -104,17 +130,17 @@ async def test_showrunner_never_blocks_a_segment():
         t0 = time.monotonic()
         with tempfile.TemporaryDirectory() as d:
             state = await run_live(config=_config(compaction_interval=2), story=story, log_dir=d,
-                                   player=Scripted(LINES), max_segments=len(LINES))
+                                   player=Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."}),
+                                   max_segments=7)
             wall = time.monotonic() - t0
             transcript = next(Path(d).glob("*.md")).read_text()
-            session_dir = next((Path(d) / "sessions").iterdir())
-            world = WorldModel.load(session_dir)
+            world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
     finally:
         MockBackend.showrunner_delay = 0.0
-    assert len(state.history) == len(LINES)
+    assert len(state.history) == 7
     # The bootstrap is synchronous (0.25 s) and drain waits for the last run
-    # (0.25 s); had each of the three later triggers been awaited, the run
-    # would have taken over a second.
+    # (0.25 s); had each later trigger been awaited, the run would have
+    # taken over a second.
     assert wall < 0.9, wall
     assert "still running; continuing with the current plan" in transcript
     assert "showrunner trigger held" in transcript and "still in flight" in transcript
@@ -122,13 +148,12 @@ async def test_showrunner_never_blocks_a_segment():
 
 
 async def test_showrunner_min_gap_holds_triggers():
-    """Triggers inside the gap are noted, not run: with a gap of 4 and a
-    compaction interval of 2 over six segments, only the bootstrap and one
-    compaction run."""
+    """Triggers inside the gap are noted, not run."""
     story = Story.from_json("data/story.json")
     with tempfile.TemporaryDirectory() as d:
         await run_live(config=_config(compaction_interval=2, showrunner_min_gap=4), story=story, log_dir=d,
-                       player=Scripted(LINES), max_segments=len(LINES))
+                       player=Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."}),
+                       max_segments=7)
         transcript = next(Path(d).glob("*.md")).read_text()
         world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
     assert world.showrunner_runs == 2, world.showrunner_runs

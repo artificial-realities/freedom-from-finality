@@ -1,10 +1,10 @@
-"""The live loop reads the viewer's lines as late as the render allows.
+"""The live loop renders just in time and lets the viewer cut a beat short.
 
-Under pipelining the Director call for segment N+2 overlaps the render of
-N+1, which starts when clip N starts playing. If the loop read the lines
-at the start of that call, a line typed while watching N would land at
-N+3. The late start reads them just before the render finishes, so the
-line lands at N+2.
+Once playback runs, a clip's render is fired as late as it safely can
+be, and the Director is asked for the next beat only when the current
+one has no clip left. A line typed while a clip plays drops the beat's
+unrendered clips, the Director writes the next beat from the line at
+once, and that beat's first clip is the next one rendered.
 """
 
 from __future__ import annotations
@@ -28,36 +28,44 @@ def _tiny_clip(path: Path, seconds: float = 1.0) -> Path:
 
 
 class Steer(Player):
-    """Plays instantly and posts one line shortly after clip 1 starts."""
+    """Plays in real time and posts one line shortly after a given clip starts."""
 
-    def __init__(self, line: str, after: float) -> None:
-        super().__init__(time_scale=1000)
-        self.line, self.after = line, after
+    def __init__(self, line: str, at_turn: int, after: float) -> None:
+        super().__init__()
+        self.line, self.at_turn, self.after = line, at_turn, after
         self.turns: list[int] = []
+        self.statuses: list[str] = []
+
+    def status(self, text: str) -> None:
+        self.statuses.append(text)
 
     async def play(self, item) -> None:
         self.turns.append(item.turn)
-        if item.turn == 1:
+        if item.turn == self.at_turn:
             asyncio.get_running_loop().call_later(self.after, self.push_input, self.line)
         await self._hold(item.duration)
 
 
-async def test_line_typed_while_a_clip_plays_lands_two_segments_later():
+async def test_line_typed_while_a_clip_plays_cuts_the_beat_and_lands_two_clips_later():
     story = Story.from_json("data/story.json")
     with tempfile.TemporaryDirectory() as d:
         clips = Path(d) / "clips"
         clips.mkdir()
         _tiny_clip(clips / "a.mp4")
-        # Replay backend with a 1 s "render": the mock Director is instant,
-        # so the loop has most of each render to wait for input.
+        # Replay backend with a 0.3 s "render" of 1 s clips: the mock Director
+        # is instant, so the loop has most of each clip to wait for input.
         config = Config(name="timing", graph="director", llm_backend="mock", model="mock",
-                        min_pause_seconds=6.0, video_enabled=True,
-                        i2v_backend="replay", i2v_replay_dir=str(clips), i2v_replay_delay=1.0)
-        player = Steer("a red cap", after=0.1)
-        state = await run_live(config=config, story=story, log_dir=d, player=player, max_segments=4)
+                        min_pause_seconds=6.0, video_enabled=True, clip_seconds=1, lead_clips=0,
+                        render_slack_seconds=0.0,
+                        i2v_backend="replay", i2v_replay_dir=str(clips), i2v_replay_delay=0.3)
+        player = Steer("a red cap", at_turn=2, after=0.1)
+        state = await run_live(config=config, story=story, log_dir=d, player=player, max_segments=5)
+        transcript = next(Path(d).glob("*.md")).read_text()
     inputs = [h.user_input for h in state.history]
-    assert player.turns == [1, 2, 3, 4]
-    # Clip 1 starts playing when render 2 starts; the line arrives 0.1 s in.
-    # Segment 3's Director call is delayed until render 2 is nearly done,
-    # so it reads the line. Before the late start it landed at segment 4.
-    assert inputs == ["", "", "a red cap", ""], inputs
+    assert player.turns == [1, 2, 3, 4, 5]
+    # Clip 2 plays while clip 3 renders; the line arrives 0.1 s in, before
+    # clip 4 is rendered, so it drops the rest of the running beat and the
+    # Director's next beat opens at 4.
+    assert inputs == ["", "", "", "a red cap", ""], inputs
+    assert "cut short" in transcript
+    assert any(s.startswith("listening for your input") for s in player.statuses), "the loop waited for the viewer"

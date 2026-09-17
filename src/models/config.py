@@ -92,14 +92,21 @@ class Config(BaseModel):
     showrunner_model: str = ""          # override `model` for the Showrunner call
     max_tokens_director: int = 2048
     max_tokens_showrunner: int = 2048
-    recent_beats: int = 4               # verbatim recent segments in the Director prompt
-    max_segments_per_scene: int = 12    # hard cap; forces scene_done → Showrunner replan
+    recent_clips: int = 6               # verbatim recent clips in the Director prompt
+    max_clips_per_beat: int = 4         # the Director plans one beat of up to this many clips per call
+    scene_seconds: float = 240.0        # a scene runs about this long; past it the Director is told to close it
     compaction_interval: int = 10       # segments between Showrunner compaction passes
     # Fewest segments between two Showrunner runs (any trigger; the bootstrap
     # is exempt). A trigger that falls inside the gap is noted and looked at
     # again next segment. At most one run is in flight at a time.
     showrunner_min_gap: int = 4
-    stagnation_threshold: int = 5       # segments without structural change before pressure
+    stagnation_seconds: float = 90.0    # story seconds without structural change before pressure
+    # Just-in-time rendering: a clip's render starts this many seconds before
+    # the latest moment that would still have it ready on time (the render
+    # estimate times a safety factor plus a margin). More slack absorbs
+    # slower renders and Director calls; less slack lets a viewer's line
+    # reach the screen sooner, because the clip it changes is rendered later.
+    render_slack_seconds: float = 3.0
     extra: dict = Field(default_factory=dict)
 
     @classmethod

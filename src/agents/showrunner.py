@@ -47,7 +47,8 @@ INSTRUCTIONS = {
     "replan": (
         "This is a scene boundary or a stalled scene. Compact the events since "
         "the last compaction into `scene_summary`, then write the NEXT scene card "
-        "(`replan` = true). Make sure it changes something structural."
+        "(`replan` = true). Change something structural if the scene stalled; "
+        "otherwise let the next scene grow out of this one."
     ),
     "compact": (
         "This is a compaction pass mid-scene. Summarize the events since the last "

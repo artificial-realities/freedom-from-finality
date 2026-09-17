@@ -58,6 +58,7 @@
   .entry .head { display: flex; gap: 8px; align-items: baseline; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .entry .head .n { color: var(--text); font-weight: 500; }
   .entry .head .sc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .entry .head .beat { margin-left: auto; color: var(--muted); flex: none; font-style: italic; }
   .entry.now .head .n { color: var(--accent); }
   .entry p { margin: 6px 0 0; font: 400 14px/1.5 var(--serif); color: var(--text); }
   .entry .vo { margin-top: 6px; color: var(--muted); font: italic 13px/1.45 var(--serif); }
@@ -184,9 +185,23 @@
     if (v !== cur) {
       v.classList.add('active');
       cur.classList.remove('active');
-      setTimeout(() => { if (!cur.classList.contains('active')) cur.pause(); }, 300);
+      // The picture crossfades for 250 ms (CSS); the sound does the same, so
+      // the ambient track of one clip does not cut into the next.
+      fadeAudio(v, 0, 1, 250);
+      fadeAudio(cur, cur.volume, 0, 250, () => { if (!cur.classList.contains('active')) cur.pause(); });
       active = 1 - active;
     }
+  }
+
+  function fadeAudio(el, from, to, ms, done) {
+    const t0 = performance.now();
+    try { el.volume = from; } catch (e) { if (done) done(); return; }
+    const step = now => {
+      const f = Math.min(1, (now - t0) / ms);
+      try { el.volume = from + (to - from) * f; } catch (e) {}
+      if (f < 1) requestAnimationFrame(step); else if (done) done();
+    };
+    requestAnimationFrame(step);
   }
 
   function playText(item) {
@@ -240,8 +255,9 @@
     el.dataset.turn = item.turn;
     const head = document.createElement('div');
     head.className = 'head';
-    head.innerHTML = `<span class="n">#${item.turn}</span><span class="sc"></span>`;
+    head.innerHTML = `<span class="n">#${item.turn}</span><span class="sc"></span><span class="beat"></span>`;
     head.querySelector('.sc').textContent = item.scene || '';
+    head.querySelector('.beat').textContent = item.beat ? `${item.beat} · ${item.clip || ''}` : '';
     el.appendChild(head);
     if (item.user_input) {
       const you = document.createElement('div');

@@ -1,17 +1,21 @@
-"""Validate and apply a Director segment against the world model.
+"""Validate and apply a Director beat against the world model.
 
 Plan → Diff → Validate → Apply. The LLM proposes, this module decides
 what is structurally admissible, applies the admissible part, and
 reports the rest so the caller can re-ask once and log the remainder.
 Hard violations (unknown entities, a locked cast, a mute character
 speaking) are the ones worth a retry; warnings are fixed up silently.
+
+`check` looks at the whole beat before any of it plays. `apply_clip`
+applies one clip when it is emitted, so a beat the viewer cuts short
+leaves the world exactly as far along as the picture.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.story.schemas import Segment, ShowrunnerUpdate
+from src.story.schemas import BeatPlan, EntityOp, ShowrunnerUpdate
 from src.story.world import Entity, SceneCard, Summary, Thread, WorldModel, slugify
 
 
@@ -45,79 +49,82 @@ def resolve_location(world: WorldModel, ref: str):
     return None
 
 
-def check(segment: Segment, world: WorldModel) -> Report:
-    """Pure check: nothing is mutated."""
+def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, where: str) -> None:
+    existing = world.resolve(op.entity)
+    if op.op == "introduce":
+        if existing is not None:
+            r.warnings.append(f"{where}: '{op.entity}' already exists as {existing.id}; treated as update")
+        elif op.kind == "character" and world.cast_locked:
+            r.violations.append(
+                f"{where}: cannot introduce character '{op.entity}': the cast of this world "
+                "is locked and no new characters may appear (creatures and objects are props)",
+            )
+            return
+        else:
+            introduced.add(slugify(op.entity))
+    elif existing is None and slugify(op.entity) not in introduced:
+        r.violations.append(
+            f"{where}: {op.op} of unknown entity '{op.entity}'; use an id from "
+            "'World now' or introduce it first",
+        )
+    if op.holder and op.holder.strip().lower() != "nobody":
+        holder = world.resolve(op.holder)
+        if holder is None or holder.kind != "character":
+            r.violations.append(f"{where}: holder '{op.holder}' is not a known character id")
+        elif existing is not None and existing.kind == "character":
+            r.warnings.append(f"{where}: a character cannot be held; holder on {existing.id} ignored")
+    if op.location:
+        loc = resolve_location(world, op.location)
+        if loc is None and slugify(op.location) not in introduced:
+            r.warnings.append(
+                f"{where}: location '{op.location}' is not a known location id; ignored "
+                "(use `status` for where something sits within the location)",
+            )
+
+
+def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
+    """Pure check of the whole beat: nothing is mutated."""
     r = Report()
+    if not beat.clips:
+        r.violations.append("at least one clip is required")
+    elif len(beat.clips) > max_clips:
+        r.warnings.append(f"{len(beat.clips)} clips given; only the first {max_clips} are used")
 
     introduced: set[str] = set()
-    for op in segment.entity_ops:
-        existing = world.resolve(op.entity)
-        if op.op == "introduce":
-            if existing is not None:
-                r.warnings.append(
-                    f"'{op.entity}' already exists as {existing.id}; treated as update",
-                )
-            elif op.kind == "character" and world.cast_locked:
-                r.violations.append(
-                    f"cannot introduce character '{op.entity}': the cast of this world "
-                    "is locked and no new characters may appear (creatures and "
-                    "objects are props)",
-                )
-                continue
-            else:
-                introduced.add(slugify(op.entity))
-        elif existing is None and slugify(op.entity) not in introduced:
-            r.violations.append(
-                f"{op.op} of unknown entity '{op.entity}'; use an id from "
-                "'World now' or introduce it first",
-            )
-        if op.holder and op.holder.strip().lower() != "nobody":
-            holder = world.resolve(op.holder)
-            if holder is None or holder.kind != "character":
-                r.violations.append(f"holder '{op.holder}' is not a known character id")
-        if op.location:
-            loc = resolve_location(world, op.location)
-            if loc is None and slugify(op.location) not in introduced:
-                r.warnings.append(
-                    f"location '{op.location}' is not a known location id; ignored "
-                    "(use `status` for where something sits within the location)",
-                )
-
-    for line in segment.dialogue:
-        speaker = world.resolve(line.speaker)
-        if speaker is None or speaker.kind != "character":
-            r.violations.append(
-                f"dialogue speaker '{line.speaker}' is not a known character id",
-            )
-        elif not speaker.speaks:
-            r.violations.append(
-                f"{speaker.name} never speaks in this world; remove the dialogue line",
-            )
+    for ci, clip in enumerate(beat.clips[:max_clips], start=1):
+        where = f"clip {ci}"
+        for op in clip.entity_ops:
+            _check_op(op, world, introduced, r, where)
+        for line in clip.dialogue:
+            speaker = world.resolve(line.speaker)
+            if speaker is None or speaker.kind != "character":
+                r.violations.append(f"{where}: dialogue speaker '{line.speaker}' is not a known character id")
+            elif not speaker.speaks:
+                r.violations.append(f"{where}: {speaker.name} never speaks in this world; remove the dialogue line")
+        for ref in clip.on_screen:
+            if world.resolve(ref) is None and slugify(ref) not in introduced:
+                r.warnings.append(f"{where}: on_screen entity '{ref}' is unknown and was dropped")
 
     open_ids = {t.id for t in world.open_threads()}
-    for top in segment.thread_ops:
+    for top in beat.thread_ops:
         if top.op != "open" and top.thread not in open_ids:
-            r.warnings.append(
-                f"thread op '{top.op}' on unknown or closed thread '{top.thread}' ignored",
-            )
-
-    for ref in segment.shot.on_screen:
-        if world.resolve(ref) is None and slugify(ref) not in introduced:
-            r.warnings.append(f"on_screen entity '{ref}' is unknown and was dropped")
+            r.warnings.append(f"thread op '{top.op}' on unknown or closed thread '{top.thread}' ignored")
     return r
 
 
-def apply(segment: Segment, world: WorldModel, *, segment_no: int) -> Report:
-    """Apply the admissible part of `segment` to `world`, in place.
+def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int) -> Report:
+    """Apply clip `index` of `beat` to `world`, in place: its entity ops,
+    presence from its `on_screen`, its dialogue filter. The first clip
+    also lands the beat's thread ops and the viewer disposition.
 
-    Also normalises the segment: `on_screen` references become entity
-    ids, invalid dialogue is dropped, and a missing intervention
-    disposition is recorded.
+    Normalises the clip: `on_screen` references become entity ids and
+    invalid dialogue is dropped.
     """
-    r = check(segment, world)
+    r = Report()
+    clip = beat.clips[index]
     seg = segment_no
 
-    for op in segment.entity_ops:
+    for op in clip.entity_ops:
         ent = world.resolve(op.entity)
         if op.op == "introduce" and ent is None:
             if op.kind == "character" and world.cast_locked:
@@ -138,8 +145,7 @@ def apply(segment: Segment, world: WorldModel, *, segment_no: int) -> Report:
             ent.present = True
             world.entities[eid] = ent
             r.applied.append(
-                f"introduce {ent.kind} {ent.id}"
-                + (f" ({ent.description})" if ent.description else ""),
+                f"introduce {ent.kind} {ent.id}" + (f" ({ent.description})" if ent.description else ""),
             )
             r.changed = True
         if ent is None:
@@ -161,19 +167,30 @@ def apply(segment: Segment, world: WorldModel, *, segment_no: int) -> Report:
         if status and status != ent.status:
             ent.status = status
             changes.append(f"status={status}")
+        for attr in ("posture", "activity", "position"):
+            value = " ".join(getattr(op, attr).split())
+            if value and value != getattr(ent, attr):
+                if ent.kind != "character":
+                    r.warnings.append(f"{attr} on {ent.id} ignored: not a character")
+                    continue
+                setattr(ent, attr, value)
+                changes.append(f"{attr}={value}")
         if op.holder:
-            if op.holder.strip().lower() == "nobody":
-                new_holder = ""
+            if ent.kind == "character":
+                r.warnings.append(f"holder on character {ent.id} ignored")
             else:
-                holder = world.resolve(op.holder)
-                new_holder = (
-                    holder.id if holder is not None and holder.kind == "character"
-                    else ent.holder
-                )
-            if new_holder != ent.holder:
-                ent.holder = new_holder
-                changes.append(f"holder={new_holder or 'nobody'}")
-                r.changed = True
+                if op.holder.strip().lower() == "nobody":
+                    new_holder = ""
+                else:
+                    holder = world.resolve(op.holder)
+                    new_holder = (
+                        holder.id if holder is not None and holder.kind == "character"
+                        else ent.holder
+                    )
+                if new_holder != ent.holder:
+                    ent.holder = new_holder
+                    changes.append(f"holder={new_holder or 'nobody'}")
+                    r.changed = True
         if op.location:
             loc = resolve_location(world, op.location)
             if loc is not None and loc.id != ent.location:
@@ -193,9 +210,9 @@ def apply(segment: Segment, world: WorldModel, *, segment_no: int) -> Report:
         if changes:
             r.applied.append(f"update {ent.id}: " + ", ".join(changes))
 
-    # Presence from the shot; references normalised to ids.
+    # Presence from the clip; references normalised to ids.
     kept: list[str] = []
-    for ref in segment.shot.on_screen:
+    for ref in clip.on_screen:
         ent = world.resolve(ref)
         if ent is None or ent.gone:
             continue
@@ -204,57 +221,52 @@ def apply(segment: Segment, world: WorldModel, *, segment_no: int) -> Report:
         ent.last_seen = seg
         if ent.id not in kept:
             kept.append(ent.id)
-    segment.shot.on_screen = kept
+    clip.on_screen = kept
 
-    segment.dialogue = [
-        d for d in segment.dialogue
+    clip.dialogue = [
+        d for d in clip.dialogue
         if (sp := world.resolve(d.speaker)) is not None and sp.kind == "character" and sp.speaks
     ]
 
-    for top in segment.thread_ops:
-        if top.op == "open":
-            text = top.thread.strip()
-            if not text:
-                continue
-            thread = Thread(id=world.new_thread_id(), text=text, kind=top.kind, opened_at=seg)
-            world.threads.append(thread)
-            r.applied.append(f"thread {thread.id} opened: {thread.text}")
-            r.changed = True
-        else:
-            thread = next(
-                (t for t in world.threads if t.id == top.thread and t.status == "open"), None,
-            )
-            if thread is None:
-                continue
-            thread.status = "paid_off" if top.op == "pay_off" else "dropped"
-            thread.closed_at = seg
-            r.applied.append(f"thread {thread.id} {thread.status}: {thread.text}")
-            if top.op == "pay_off":
+    if index == 0:
+        for top in beat.thread_ops:
+            if top.op == "open":
+                text = top.thread.strip()
+                if not text:
+                    continue
+                thread = Thread(id=world.new_thread_id(), text=text, kind=top.kind, opened_at=seg)
+                world.threads.append(thread)
+                r.applied.append(f"thread {thread.id} opened: {thread.text}")
                 r.changed = True
+            else:
+                thread = next((t for t in world.threads if t.id == top.thread and t.status == "open"), None)
+                if thread is None:
+                    continue
+                thread.status = "paid_off" if top.op == "pay_off" else "dropped"
+                thread.closed_at = seg
+                r.applied.append(f"thread {thread.id} {thread.status}: {thread.text}")
+                if top.op == "pay_off":
+                    r.changed = True
 
-    reason = segment.intervention_reason.strip()
-    pending = [i for i in world.interventions if i.disposition == "pending"]
-    if pending:
-        if segment.intervention == "none":
-            r.warnings.append("viewer input had no disposition; recorded as deferred")
-            segment.intervention = "deferred"
-        for item in pending:
-            item.disposition = segment.intervention
-            item.reason = reason
-            item.resolved_at = None if segment.intervention == "deferred" else seg
-        r.applied.append(
-            f"viewer request {segment.intervention}" + (f": {reason}" if reason else ""),
-        )
-    elif segment.intervention in ("absorbed", "declined"):
-        deferred = [i for i in world.interventions if i.disposition == "deferred"]
-        if deferred:
-            item = deferred[-1]
-            item.disposition = segment.intervention
-            item.reason = reason
-            item.resolved_at = seg
-            r.applied.append(
-                f"deferred viewer request now {segment.intervention}: {item.text!r}",
-            )
+        reason = beat.intervention_reason.strip()
+        pending = [i for i in world.interventions if i.disposition == "pending"]
+        if pending:
+            if beat.intervention == "none":
+                r.warnings.append("viewer input had no disposition; recorded as deferred")
+                beat.intervention = "deferred"
+            for item in pending:
+                item.disposition = beat.intervention
+                item.reason = reason
+                item.resolved_at = None if beat.intervention == "deferred" else seg
+            r.applied.append(f"viewer request {beat.intervention}" + (f": {reason}" if reason else ""))
+        elif beat.intervention in ("absorbed", "declined"):
+            deferred = [i for i in world.interventions if i.disposition == "deferred"]
+            if deferred:
+                item = deferred[-1]
+                item.disposition = beat.intervention
+                item.reason = reason
+                item.resolved_at = seg
+                r.applied.append(f"deferred viewer request now {beat.intervention}: {item.text!r}")
 
     if r.changed:
         world.last_change = seg

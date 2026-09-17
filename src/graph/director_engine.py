@@ -2,23 +2,29 @@
 
 Two LLM roles on two clocks, everything else deterministic:
 
-- **Director** — one structured call per segment on the critical path.
-  Reads the assembled context, returns a `Segment` (shot, audio, world
-  delta, thread ops, viewer disposition, flags).
+- **Director** — one structured call per **beat**: one action or state
+  of the film that lasts one to a few clips. Reads the assembled context
+  and returns a `BeatPlan`; the engine then emits its clips one per
+  segment with no LLM on the way, applying each clip's world changes as
+  it goes. The Director is called again when the beat has played out, or
+  at once when the viewer speaks: the rest of the beat is dropped and the
+  next call is told where the picture actually ends.
 - **Showrunner** — an async task on a slow clock, spawned on triggers
   (bootstrap, scene exit, stagnation, a replan flag, or every
   `compaction_interval` segments), at most one in flight and at least
   `showrunner_min_gap` segments apart. Its update lands at the start of
-  the first segment that finds it finished; a segment never waits for
-  it. Compacts the event log and writes the plan.
+  the first plan that finds it finished; nothing ever waits for it.
+  Compacts the event log and writes the plan.
 
 Code owns the rest: the typed `WorldModel`, validation and apply, the
-prompt compiler, the pacing gates, and persistence per segment.
+prompt compiler, the pacing gates, and persistence per clip.
 
 For the runner the engine keeps the legacy `StoryState` surface: it
 fills `current_beat`, `current_shot`, `current_commentary` as views of
-the segment, so rendering, playback, history and the transcript work
-unchanged for either engine.
+the clip, so rendering, playback, history and the transcript work
+unchanged. `ainvoke` is the one-call form (plan if needed, then emit)
+for the terminal loop and tests; the live loop calls `plan`, `emit` and
+`abort_beat` itself so it can render just in time and interrupt.
 """
 
 from __future__ import annotations
@@ -34,10 +40,10 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.models.responses import Beat, Commentary, Shot
 from src.state.story_state import StoryState
-from src.story.compiler import compile_prompt
+from src.story.compiler import compile_clip
 from src.story.pacing import pacing_note, scene_note, tick_story_clock, voiceover_gate
-from src.story.schemas import Segment
-from src.story.validator import Report, apply, apply_showrunner
+from src.story.schemas import BeatPlan, ClipSpec
+from src.story.validator import Report, apply_clip, apply_showrunner
 from src.story.world import EventRecord, WorldModel
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.util.langfuse_setup import event as langfuse_event
@@ -72,16 +78,48 @@ class DirectorEngine:
         self._showrunner_meta: tuple[int, bool, str] | None = None  # (at_segment, force_replan, reason)
         self._showrunner_notes: list[str] = []
         self._last_spawn: int = 0   # segment the last Showrunner run was spawned at
+        # The beat being emitted, clip by clip.
+        self._beat: BeatPlan | None = None
+        self._clip_index: int = 0
+        self._beat_no: int = 0
+        self._beat_input: str = ""          # the viewer line the beat answered
+        self._plan_notes: list[str] = []    # transcript notes from the plan, shown on its first clip
+        self._plan_meta: dict = {}          # vo_open, pacing, trigger, forced for the transcript
+        self._last_end_state: str = ""      # the image the last emitted clip ends on
+        self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
+        self._pending_note: str = ""        # how the previous beat ended, for the next call
 
-    # ── Turn ────────────────────────────────────────────────────────
+    @property
+    def clip_seconds(self) -> int:
+        return int(self.config.clip_seconds or self.config.i2v_duration)
+
+    # ── The one-call form ───────────────────────────────────────────
 
     async def ainvoke(self, state: StoryState) -> StoryState:
+        """Plan a beat if none is in progress (a viewer line cuts a beat in
+        progress short), then emit its next clip."""
+        text = (state.user_input or "").strip()
+        if text and self.has_next_clip():
+            self.abort_beat("the viewer spoke")
+        if not self.has_next_clip():
+            await self.plan(state)
+        return await self.emit(state)
+
+    def has_next_clip(self) -> bool:
+        return self._beat is not None and self._clip_index < len(self._beat.clips)
+
+    # ── Plan: the Director call ─────────────────────────────────────
+
+    async def plan(self, state: StoryState) -> None:
+        """Ask the Director for the next beat, starting at `state.turn_number`
+        and answering `state.user_input`. Cancellable while the LLM runs:
+        the world is untouched until the call returns."""
         if self.world is None:
             self.world = self._init_world(state)
             self._last_spawn = self.world.last_showrunner
         world = self.world
-
         seg = state.turn_number
+
         self._land_if_done(seg)
         notes: list[str] = list(self._showrunner_notes)
         self._showrunner_notes = []
@@ -100,78 +138,30 @@ class DirectorEngine:
         pnote = pacing_note(world, self.config)
         snote = scene_note(world, self.config)
 
-        segment, dnotes = await director_agent.run(
+        beat, dnotes = await director_agent.run(
             world=world, state=state, llm=self.llm_director, config=self.config,
             voiceover_open=vo_open, pacing_note=pnote, scene_note=snote,
+            beat_status=self._beat_status(),
         )
         notes.extend(dnotes)
-
-        if segment is None:
-            state.current_beat = None
-            state.current_shot = None
-            state.current_commentary = None
-            state.current_audio_path = ""
-            state.current_intervention = "none"
-            state.current_intervention_reason = ""
-            state.turn_notes = "**World**\n\n- Director call failed; no segment this turn.\n"
-            self._tick(state)
-            return state
-
-        report = apply(segment, world, segment_no=seg)
+        if beat is None:
+            beat = self._fallback_beat()
+            notes.append("director: call failed; holding the picture for one clip")
+        beat.clips = beat.clips[: self.config.max_clips_per_beat]
         if not vo_open:
-            segment.voiceover = ""
-
-        prompt, duration = compile_prompt(
-            segment, world,
-            visual_style=state.visual_style,
-            narration_mode=self.config.narration,
-            voiceover_style=self.config.voiceover_style,
-            clip_seconds=self.config.clip_seconds,
-            # The renderer seeds the first clip of a run from the reference
-            # image, so that prompt opens from the reference pose.
-            opening=(seg == 1),
-        )
-        self._write_views(state, segment, prompt, duration)
-
-        audio_path = ""
-        if (
-            segment.voiceover
-            and self.config.narration == "tts"
-            and self.config.audio_enabled
-            and self.tts is not None
-        ):
-            result = await self.tts.synthesize(segment.voiceover, turn=seg)
-            langfuse_event(
-                "tts", input=segment.voiceover, output=result,
-                metadata={"turn": seg, "success": result is not None},
-                level="DEFAULT" if result else "WARNING",
-            )
-            audio_path = result or ""
-        state.current_audio_path = audio_path
+            beat.voiceover = ""
 
         forced_done = False
-        if not segment.scene_done and world.scene_length() >= self.config.max_segments_per_scene:
-            segment.scene_done = True
+        if not beat.scene_done and world.scene_seconds() >= self.config.scene_seconds:
+            beat.scene_done = True
             forced_done = True
 
-        card = world.plan.scene
-        world.events.append(EventRecord(
-            segment=seg,
-            scene_id=card.id if card else 0,
-            user_input=text,
-            intervention=segment.intervention,
-            narration=segment.action_text(),
-            next_direction=segment.next_direction,
-            applied_ops=list(report.applied),
-            thread_ops=[a for a in report.applied if a.startswith("thread ")],
-            on_screen=list(segment.shot.on_screen),
-            end_state=segment.shot.end_state,
-            voiceover=segment.voiceover,
-            duration=duration,
-        ))
-        self._save()
+        world.beats += 1
+        self._beat, self._clip_index, self._beat_no = beat, 0, world.beats
+        self._beat_input = text
+        self._pending_note = ""
 
-        reason, mode = self._trigger(segment, forced_done)
+        reason, mode = self._trigger(beat, forced_done)
         spawned: str | None = None
         if reason:
             held = self._hold_reason(seg)
@@ -180,11 +170,144 @@ class DirectorEngine:
             else:
                 self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg)
                 spawned = reason
+        self._plan_notes = notes
+        self._plan_meta = {"vo_open": vo_open, "pacing": pnote, "trigger": spawned, "forced": forced_done}
 
-        state.turn_notes = self._format_notes(
-            segment, report, notes, vo_open=vo_open, pacing=pnote, trigger=spawned, forced=forced_done,
+    def discard_pending_input(self, segment: int) -> None:
+        """A plan was cancelled before it returned: forget the line it had
+        recorded, so the restarted plan records the full line once."""
+        if self.world is not None:
+            self.world.drop_pending_interventions(segment)
+
+    def abort_beat(self, reason: str) -> int:
+        """Drop the clips of the current beat that have not been emitted.
+        Returns how many were dropped. The next plan is told where the
+        picture actually ends."""
+        beat = self._beat
+        if beat is None:
+            return 0
+        done, total = self._clip_index, len(beat.clips)
+        dropped = max(0, total - done)
+        if done == 0:
+            self._pending_note = (
+                f'The beat "{beat.intent}" was dropped before any of it played ({reason}). '
+                + (f"The picture still ends on: {self._last_end_state}" if self._last_end_state
+                   else "The picture is still the reference image.")
+            )
+        else:
+            self._pending_note = (
+                f'The previous beat "{beat.intent}" was cut short after clip {done} of {total} ({reason}); '
+                f"its remaining clips were never rendered. The picture ends on: {self._last_end_state}"
+            )
+        self._last_beat = (beat.intent, done, total)
+        self._beat = None
+        self._clip_index = 0
+        # Notes from the plan that never showed (a beat cut before its first clip) carry over.
+        if done == 0 and self._plan_notes:
+            self._showrunner_notes = self._plan_notes + self._showrunner_notes
+            self._plan_notes = []
+        self._showrunner_notes.append(
+            f'beat "{beat.intent}" cut short after clip {done} of {total} ({reason}); {dropped} clip(s) dropped',
         )
+        return dropped
+
+    def _beat_status(self) -> str:
+        if self._pending_note:
+            return self._pending_note
+        if self._last_beat is not None:
+            intent, done, total = self._last_beat
+            return (f'The previous beat "{intent}" ({done} clip{"s" if done != 1 else ""}) played out in full. '
+                    f"The picture ends on: {self._last_end_state}")
+        return "You are opening the film; the picture starts from the reference image."
+
+    def _fallback_beat(self) -> BeatPlan:
+        world = self.world
+        assert world is not None
+        hero = world.entities.get(world.protagonist)
+        name = hero.name if hero else "The character"
+        return BeatPlan(
+            intent="holding the picture",
+            framing="medium shot",
+            clips=[ClipSpec(action=f"{name} holds still. Nothing else happens.",
+                            end_state="unchanged", on_screen=[hero.id] if hero else [])],
+        )
+
+    # ── Emit: one clip of the beat ──────────────────────────────────
+
+    async def emit(self, state: StoryState) -> StoryState:
+        """Emit the next clip of the current beat as segment `state.turn_number`:
+        apply its world changes, compile its prompt, fill the views, log it."""
+        world = self.world
+        beat = self._beat
+        assert world is not None and beat is not None and self._clip_index < len(beat.clips)
+        i = self._clip_index
+        clip = beat.clips[i]
+        seg = state.turn_number
+        world.segment = seg
+        first = i == 0
+        state.user_input = self._beat_input if first else ""
+
+        report = apply_clip(beat, i, world, segment_no=seg)
+        prompt = compile_clip(
+            beat, i, world,
+            visual_style=state.visual_style,
+            visual_anchor=state.visual_anchor,
+            narration_mode=self.config.narration,
+            voiceover_style=self.config.voiceover_style,
+            opening=(seg == 1),
+            segment_no=seg,
+        )
+        duration = self.clip_seconds
+        voiceover = beat.voiceover if first else ""
+        self._write_views(state, beat, clip, prompt, duration, voiceover, first)
+
+        audio_path = ""
+        if (
+            voiceover
+            and self.config.narration == "tts"
+            and self.config.audio_enabled
+            and self.tts is not None
+        ):
+            result = await self.tts.synthesize(voiceover, turn=seg)
+            langfuse_event(
+                "tts", input=voiceover, output=result,
+                metadata={"turn": seg, "success": result is not None},
+                level="DEFAULT" if result else "WARNING",
+            )
+            audio_path = result or ""
+        state.current_audio_path = audio_path
+
+        card = world.plan.scene
+        world.events.append(EventRecord(
+            segment=seg,
+            scene_id=card.id if card else 0,
+            beat=self._beat_no,
+            beat_intent=beat.intent,
+            clip_index=i + 1,
+            clip_count=len(beat.clips),
+            user_input=state.user_input,
+            intervention=beat.intervention if first else "none",
+            narration=clip.action_text(),
+            applied_ops=list(report.applied),
+            thread_ops=[a for a in report.applied if a.startswith("thread ")],
+            on_screen=list(clip.on_screen),
+            end_state=clip.end_state,
+            voiceover=voiceover,
+            duration=duration,
+        ))
+        self._save()
+
+        notes = self._plan_notes if first else []
+        self._plan_notes = [] if first else self._plan_notes
+        state.turn_notes = self._format_notes(beat, i, report, notes, first=first)
         self._tick(state)
+
+        self._last_end_state = clip.end_state
+        self._clip_index += 1
+        if self._clip_index >= len(beat.clips):
+            self._last_beat = (beat.intent, len(beat.clips), len(beat.clips))
+            self._beat = None
+            self._clip_index = 0
         return state
 
     async def drain(self, state: StoryState) -> None:
@@ -214,17 +337,17 @@ class DirectorEngine:
 
     # ── Showrunner clock ───────────────────────────────────────────
 
-    def _trigger(self, segment: Segment, forced_done: bool) -> tuple[str | None, str]:
+    def _trigger(self, beat: BeatPlan, forced_done: bool) -> tuple[str | None, str]:
         world = self.world
         assert world is not None
         cfg = self.config
-        if segment.scene_done:
-            return ("scene_done" + (" (scene cap)" if forced_done else ""), "replan")
-        if segment.needs_replan:
+        if beat.scene_done:
+            return ("scene_done" + (" (scene length)" if forced_done else ""), "replan")
+        if beat.needs_replan:
             return ("needs_replan", "replan")
-        t = max(1, cfg.stagnation_threshold)
-        if world.stagnation() >= 2 * t and world.segment - world.last_showrunner >= t:
-            return (f"stagnation: {world.stagnation()} segments without change", "replan")
+        quiet = world.seconds_since_change()
+        if quiet >= 2 * cfg.stagnation_seconds and world.segment - world.last_showrunner >= cfg.showrunner_min_gap:
+            return (f"stagnation: {quiet:.0f} s without change", "replan")
         if world.segment - world.last_compacted >= cfg.compaction_interval:
             return ("compaction interval", "compact")
         return (None, "")
@@ -272,7 +395,7 @@ class DirectorEngine:
 
     def _land_if_done(self, seg: int) -> None:
         """Land the in-flight Showrunner update if it has finished. Never
-        waits: a segment on the clock does not pay for the slow clock."""
+        waits: the fast clock does not pay for the slow one."""
         task, meta = self._showrunner_task, self._showrunner_meta
         if task is None:
             return
@@ -293,7 +416,7 @@ class DirectorEngine:
 
     async def _join_showrunner(self) -> None:
         """Wait for the in-flight run and land it. Only `drain` (the end of a
-        run) does this; segments use `_land_if_done`."""
+        run) does this; plans use `_land_if_done`."""
         if self._showrunner_task is None:
             return
         task, meta = self._showrunner_task, self._showrunner_meta
@@ -345,34 +468,35 @@ class DirectorEngine:
 
     # ── Views for the runner ───────────────────────────────────────
 
-    def _write_views(self, state: StoryState, segment: Segment, prompt: str, duration: int) -> None:
+    def _write_views(self, state: StoryState, beat: BeatPlan, clip: ClipSpec, prompt: str,
+                     duration: int, voiceover: str, first: bool) -> None:
         world = self.world
         assert world is not None
-        shot = segment.shot
-        action = segment.action_text()
+        action = clip.action_text()
         state.current_beat = Beat(
             narration=action,
             action=action,
-            outcome=shot.end_state,
-            short_term_narrative=segment.next_direction,
+            outcome=clip.end_state,
+            short_term_narrative=beat.intent,
             long_term_narrative=None,
         )
-        state.short_term_narrative = segment.next_direction or state.short_term_narrative
         on_screen_names = []
-        for eid in shot.on_screen:
+        for eid in clip.on_screen:
             ent = world.resolve(eid)
             on_screen_names.append(ent.name if ent else eid)
         state.current_shot = Shot(
             i2v_prompt=prompt,
             on_screen=on_screen_names,
-            camera=shot.framing,
-            motion=shot.camera_motion,
-            end_frame_description=shot.end_state,
+            camera=beat.framing,
+            motion=clip.camera_motion,
+            end_frame_description=clip.end_state,
             duration_seconds=duration,
         )
-        state.current_commentary = Commentary(voiceover=segment.voiceover)
-        state.current_intervention = segment.intervention
-        state.current_intervention_reason = segment.intervention_reason
+        state.current_commentary = Commentary(voiceover=voiceover)
+        state.current_intervention = beat.intervention if first else "none"
+        state.current_intervention_reason = beat.intervention_reason if first else ""
+        state.current_beat_intent = beat.intent
+        state.current_clip = f"{self._clip_index + 1}/{len(beat.clips)}"
         here = world.current_location()
         state.world_state = {
             "protagonist_location": here.id if here else "",
@@ -382,24 +506,26 @@ class DirectorEngine:
         card = world.plan.scene
         state.context_brief = f"scene {card.id}: {card.goal}" if card else ""
 
-    def _format_notes(
-        self, segment: Segment, report: Report, notes: list[str], *,
-        vo_open: bool, pacing: str, trigger: str | None, forced: bool,
-    ) -> str:
+    def _format_notes(self, beat: BeatPlan, index: int, report: Report, notes: list[str], *, first: bool) -> str:
         world = self.world
         assert world is not None
+        cfg = self.config
         card = world.plan.scene
+        meta = self._plan_meta
         out = ["**World**\n"]
+        line = f"- Beat {self._beat_no} \"{beat.intent}\" · clip {index + 1} of {len(beat.clips)}"
         if card is not None:
-            out.append(f"- Scene {card.id} · segment {world.scene_length()} · goal: {card.goal}")
+            line += f" · scene {card.id} · {world.scene_seconds():.0f} s of about {cfg.scene_seconds:.0f} s"
+        out.append(line)
         if report.applied:
             out.append("- Applied: " + "; ".join(report.applied))
         else:
             out.append("- Applied: (no world change)")
         if report.warnings:
             out.append("- Warnings: " + "; ".join(report.warnings))
-        if report.violations:
-            out.append("- Rejected: " + "; ".join(report.violations))
+        hero = world.entities.get(world.protagonist)
+        if hero is not None and hero.now():
+            out.append(f"- Now: {hero.now()}")
         present = ", ".join(e.line() for e in world.present_entities()) or "(nothing)"
         out.append(f"- Present: {present}")
         dormant = world.dormant_props()
@@ -408,16 +534,19 @@ class DirectorEngine:
         threads = world.open_threads()
         if threads:
             out.append("- Open threads: " + "; ".join(f"{t.id} {t.text}" for t in threads[-6:]))
-        if segment.intervention != "none":
-            out.append(f"- Viewer: {segment.intervention}" + (f" ({segment.intervention_reason})" if segment.intervention_reason else ""))
-        out.append(f"- Voice-over floor: {'open' if vo_open else 'closed'} · pacing: {pacing}")
-        if segment.dialogue:
-            out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in segment.dialogue))
-        flags = [f for f, v in (("scene_done", segment.scene_done), ("needs_replan", segment.needs_replan)) if v]
-        if flags:
-            out.append("- Flags: " + ", ".join(flags) + (" (forced by scene cap)" if forced else ""))
-        if trigger:
-            out.append(f"- Showrunner spawned: {trigger}")
+        if first and beat.intervention != "none":
+            out.append(f"- Viewer: {beat.intervention}" + (f" ({beat.intervention_reason})" if beat.intervention_reason else ""))
+        if first:
+            out.append(f"- Voice-over floor: {'open' if meta.get('vo_open') else 'closed'} · pacing: {meta.get('pacing', '')}")
+        clip = beat.clips[index]
+        if clip.dialogue:
+            out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in clip.dialogue))
+        if first:
+            flags = [f for f, v in (("scene_done", beat.scene_done), ("needs_replan", beat.needs_replan)) if v]
+            if flags:
+                out.append("- Flags: " + ", ".join(flags) + (" (forced by scene length)" if meta.get("forced") else ""))
+            if meta.get("trigger"):
+                out.append(f"- Showrunner spawned: {meta['trigger']}")
         for n in notes:
             out.append(f"- {n}")
         return "\n".join(out) + "\n"

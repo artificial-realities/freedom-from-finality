@@ -1,10 +1,12 @@
-"""Director: the one LLM call on the per-segment critical path.
+"""Director: the one LLM call on the critical path, once per beat.
 
 Reads the assembled context (plan, world, threads, viewer, summaries,
-recent beats, gates) and returns a `Segment`: narration, shot, audio,
-world delta, thread ops, intervention disposition, flags. The world
-validator checks the proposal; a hard violation earns exactly one
-re-ask with the violations spelled out.
+recent clips, where the picture is, gates) and returns a `BeatPlan`:
+one action or state of the film as one to a few clips, each with its
+picture and the world changes that happen in it, plus voice-over, thread
+ops, the viewer disposition and flags. The world validator checks the
+proposal; a hard violation earns exactly one re-ask with the violations
+spelled out.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from src.story.context import (
     format_threads,
     format_world_now,
 )
-from src.story.schemas import Segment
+from src.story.schemas import BeatPlan
 from src.story.validator import check
 from src.story.world import WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
@@ -41,7 +43,7 @@ SYSTEM_PATH: Path = prompt_path("director.system.md")
 USER_PATH: Path = prompt_path("director.user.md")
 
 
-async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: Config, turn: int) -> Segment | None:
+async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: Config, turn: int) -> BeatPlan | None:
     parsed = await call_llm_structured(
         agent="director",
         system_prompt=system_prompt,
@@ -49,15 +51,15 @@ async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: C
         llm=llm,
         config=config,
         turn=turn,
-        schema=Segment,
+        schema=BeatPlan,
         max_tokens=config.max_tokens_director,
     )
     if parsed is None:
         return None
     try:
-        return Segment(**parsed)
+        return BeatPlan(**parsed)
     except ValidationError as exc:
-        logger.warning("Director segment validation failed on segment %s: %s", turn, exc)
+        logger.warning("Director beat validation failed at segment %s: %s", turn, exc)
         return None
 
 
@@ -70,8 +72,10 @@ async def run(
     voiceover_open: bool,
     pacing_note: str,
     scene_note: str,
-) -> tuple[Segment | None, list[str]]:
-    """Return (segment, notes). `segment` is None on a parse failure."""
+    beat_status: str,
+) -> tuple[BeatPlan | None, list[str]]:
+    """Return (beat, notes). `beat` is None on a parse failure."""
+    clip_seconds = config.clip_seconds or config.i2v_duration
     system_prompt = load_prompt(
         SYSTEM_PATH,
         title=state.title or world.title,
@@ -81,12 +85,8 @@ async def run(
         cast=format_cast(world),
         locations=format_locations(world),
         tone_guidelines=state.tone_guidelines or "(no register defined; leave voiceover empty)",
-        duration_rule=(
-            f"every segment is rendered as exactly {config.clip_seconds} seconds of video. Write action that "
-            f"fills {config.clip_seconds} seconds, no more, and set this to {config.clip_seconds}."
-            if config.clip_seconds > 0
-            else "3 to 15. Default 5. Longer only when the action needs it."
-        ),
+        clip_seconds=clip_seconds,
+        max_clips=config.max_clips_per_beat,
     )
     user_prompt = load_prompt(
         USER_PATH,
@@ -96,7 +96,8 @@ async def run(
         threads=format_threads(world),
         interventions=format_interventions(world, state.user_input),
         summaries=format_summaries(world),
-        recent=format_recent(world, config.recent_beats),
+        recent=format_recent(world, config.recent_clips),
+        beat_status=beat_status,
         gates=format_gates(
             voiceover_open=voiceover_open,
             pacing=pacing_note,
@@ -106,25 +107,25 @@ async def run(
     )
 
     notes: list[str] = []
-    segment = await _call(system_prompt, user_prompt, llm, config, state.turn_number)
-    if segment is None:
+    beat = await _call(system_prompt, user_prompt, llm, config, state.turn_number)
+    if beat is None:
         return None, ["director: structured parse failed"]
 
-    report = check(segment, world)
+    report = check(beat, world, max_clips=config.max_clips_per_beat)
     if report.violations:
         notes.append("director: first proposal rejected: " + "; ".join(report.violations))
         retry_prompt = (
             user_prompt
             + "\n\n## Corrections required\n\n"
-            "Your previous segment was rejected by the world validator:\n"
+            "Your previous beat was rejected by the world validator:\n"
             + "\n".join(f"- {v}" for v in report.violations)
-            + "\n\nReturn a corrected segment as a single JSON object."
+            + "\n\nReturn a corrected beat as a single JSON object."
         )
         second = await _call(system_prompt, retry_prompt, llm, config, state.turn_number)
         if second is not None:
-            report2 = check(second, world)
+            report2 = check(second, world, max_clips=config.max_clips_per_beat)
             if len(report2.violations) <= len(report.violations):
-                segment = second
+                beat = second
             if report2.violations:
                 notes.append(
                     "director: retry still had violations (invalid ops dropped): "
@@ -132,4 +133,4 @@ async def run(
                 )
             else:
                 notes.append("director: retry accepted")
-    return segment, notes
+    return beat, notes

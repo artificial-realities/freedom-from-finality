@@ -1,32 +1,33 @@
 # Architecture
 
-Artificial Realities generates a film as a sequence of short segments while a viewer watches and steers. This document describes the current orchestration, the **Director engine** (`graph: "director"`). The previous four-role engine was removed after a 30-turn A/B and a 180-segment run; its design is documented under [`docs/legacy/`](legacy/). The review that motivated the change is [`docs/reviews/2026-09-08-orchestration-review.md`](reviews/2026-09-08-orchestration-review.md).
+Artificial Realities generates a film as a sequence of short clips while a viewer watches and steers. This document describes the current orchestration, the **Director engine** (`graph: "director"`). The previous four-role engine was removed after a 30-turn A/B and a 180-segment run; its design is documented under [`docs/legacy/`](legacy/). The review that motivated the change is [`docs/reviews/2026-09-08-orchestration-review.md`](reviews/2026-09-08-orchestration-review.md); the investigation that reshaped the loop around beats is [`docs/reviews/2026-09-17-continuity-and-buffering.md`](reviews/2026-09-17-continuity-and-buffering.md).
 
 ## Design in one paragraph
 
-Two LLM roles on two clocks, everything else deterministic. The **Director** makes one structured call per segment on the critical path and returns everything the segment needs: what happens, how it is shot, what is said, what changed in the world, and how the viewer's input was handled. The **Showrunner** runs off the critical path on triggers (scene boundaries, stagnation, a compaction interval) and does memory and planning in one call: it compacts the event log into summaries, records durable facts, prunes dead threads, and writes the next scene card. Code owns the rest: a typed world model that is the only source of truth, a validator that decides what the Director may change, a context assembler that decides what goes into the prompt, a prompt compiler that speaks the video model's dialect, pacing gates, and persistence.
+Two LLM roles on two clocks, everything else deterministic. The **Director** makes one structured call per **beat**, one action or state of the film that lasts one to a few clips, and returns everything the beat needs: each clip's picture, what is said, what changes in the world in that clip, and how the viewer's input was handled. The engine then emits the beat's clips one per segment with no LLM on the way, and asks the Director again when the beat has played out, or at once when the viewer speaks, dropping the rest of the beat. The **Showrunner** runs off the critical path on triggers (scene boundaries, stagnation, a compaction interval) and does memory and planning in one call: it compacts the event log into summaries, records durable facts, prunes dead threads, and writes the next scene card; nothing ever waits for it. Code owns the rest: a typed world model that is the only source of truth, with each character's posture, activity and position; a validator that decides what the Director may change, clip by clip; a context assembler that decides what goes into the prompt; a prompt compiler that speaks the video model's dialect in as few words as the next clip needs; pacing gates counted in story seconds; persistence; and a live loop that renders each clip just in time so a viewer's line reaches the earliest clip that is not yet rendering.
 
 ```
 viewer input ─▶ Engine (deterministic, asyncio)
-                 · keeps every input · voice-over gate · stagnation ladder · pipelining · persistence
+                 · keeps every input · voice-over gate · stagnation ladder · just-in-time render · persistence
                      │ assemble context                         │ triggers: scene exit, stagnation,
                      ▼                                          │ replan flag, every N segments
         Context assembler (code)                                ▼
-        bible · scene card · active entities · threads     Showrunner (LLM, slow clock)
-        · last K beats · pending interventions · gates     compact log → summaries · cast notes
-                     │                     ◀── plan + summaries land before next read ── · prune threads · arc · next scene card
+        bible · scene card · active entities + character   Showrunner (LLM, slow clock)
+        state · threads · last K clips · where the         compact log → summaries · cast notes
+        picture is · pending interventions · gates         · prune threads · arc · next scene card
+                     │                     ◀── plan + summaries land at the next plan ──
                      ▼                                          ▲ reads log + state
-        Director (LLM, once per segment)                        │
-        beat · shot · dialogue/voice-over · entity ops          │
-        · thread ops · viewer disposition · flags               │
+        Director (LLM, once per beat)                           │
+        clips (action · end state · ops) · dialogue             │
+        · voice-over · thread ops · viewer disposition · flags  │
                      │ proposes    ◀── reject, re-ask once      │
                      ▼                                          │
-        Validator (code): schema · cast registry · entity existence · structural rules
-                     │ apply                                    │
+        Validator (code): schema · cast registry · entity existence · structural rules, per clip
+                     │ apply one clip per segment               │
                      ▼                                          │
-        World model (typed, persisted per segment) ────────────┘
-        entities · threads · interventions · plan · event log · summaries
-                     │ segment spec
+        World model (typed, persisted per clip) ───────────────┘
+        entities + character state · threads · interventions · plan · event log · summaries
+                     │ clip spec
                      ▼
         Prompt compiler (code) ─▶ LTX-2.5 server (sliding window, native audio) ─▶ Player (web / ffplay)
                                                                                     ▲ viewer types here, mid-stream
@@ -36,78 +37,90 @@ viewer input ─▶ Engine (deterministic, asyncio)
 
 | Component | File | Kind | Responsibility |
 |---|---|---|---|
-| Engine | `src/graph/director_engine.py` | code | Turn sequence, Showrunner clock and joins, views for the runner, transcript notes |
-| Director | `src/agents/director.py`, `src/prompts/director.*.md` | LLM | One `Segment` per turn; one re-ask on hard violations |
+| Engine | `src/graph/director_engine.py` | code | Plan a beat, emit its clips, cut it short, Showrunner clock and landings, views for the runner, transcript notes |
+| Director | `src/agents/director.py`, `src/prompts/director.*.md` | LLM | One `BeatPlan` per beat; one re-ask on hard violations |
 | Showrunner | `src/agents/showrunner.py`, `src/prompts/showrunner.*.md` | LLM | `ShowrunnerUpdate`: compaction + plan, on triggers |
-| World model | `src/story/world.py` | code | Entities, threads, interventions, plan, event log, summaries; save/load |
-| Validator | `src/story/validator.py` | code | `check` (pure) and `apply` (mutating) for segments; `apply_showrunner` for updates |
+| World model | `src/story/world.py` | code | Entities with character state, threads, interventions, plan, event log (one record per clip), summaries; save/load |
+| Validator | `src/story/validator.py` | code | `check` (pure, the whole beat) and `apply_clip` (mutating, one clip); `apply_showrunner` for updates |
 | Context assembler | `src/story/context.py` | code | Every prompt section, so the prompt budget is decided in one place |
-| Prompt compiler | `src/story/compiler.py` | code | `Segment` → LTX-2.5 prompt text and total duration |
-| Pacing | `src/story/pacing.py` | code | Voice-over gate, story clock, stagnation ladder, scene cap |
-| Schemas | `src/story/schemas.py` | code | `Segment`, `ShotSpec`, `EntityOp`, `ThreadOp`, `DialogueLine`, `ShowrunnerUpdate` |
-| Live loop | `src/eval/runner.py` (`run_live`) | code | Producer (segments → clips) and consumer (clips → player) on a bounded queue |
+| Prompt compiler | `src/story/compiler.py` | code | One clip of a beat → LTX-2.5 prompt text |
+| Pacing | `src/story/pacing.py` | code | Voice-over gate, story clock, stagnation ladder and scene length in story seconds |
+| Schemas | `src/story/schemas.py` | code | `BeatPlan`, `ClipSpec`, `EntityOp`, `ThreadOp`, `DialogueLine`, `ShowrunnerUpdate` |
+| Live loop | `src/eval/runner.py` (`run_live`) | code | Producer (plan, emit, render just in time, interrupt) and consumer (clips → player) on a bounded queue |
 | Player | `src/playback/player.py`, `src/web/` | code | `Playable` + `Player` boundary; `TerminalPlayer` (ffplay + stdin), `WebPlayer` (browser page over SSE) |
 
-## The segment, step by step
+## A beat, then its clips
 
-1. **Land.** If a Showrunner task spawned earlier has finished, land its update (summaries, notes, pruned threads, arc, and a new scene card when it replanned). A task still running is left alone and the segment proceeds on the current plan: a segment never waits for the slow clock. Only the end of a run awaits it.
-2. **Record input.** A non-empty viewer line becomes an `Intervention` with disposition `pending`. Nothing is dropped: the live loop still coalesces lines typed between clips, but every line the engine sees is recorded.
-3. **Bootstrap.** On the first segment the Showrunner runs synchronously to write the arc and the opening scene card from the blueprint.
-4. **Gates.** The voice-over gate opens when no audio is owed and the silence floor (`min_pause_seconds`, in story seconds) has elapsed since the last line. The stagnation ladder turns "segments since anything structural changed" into prompt pressure at `stagnation_threshold` and a required shift at twice that. The scene cap forces `scene_done` at `max_segments_per_scene`.
-5. **Director call.** The context assembler renders the bible (static, cache-friendly system prompt), the plan, the world now, open threads, the viewer section, summaries, the recent segments verbatim, and the gates. The Director returns a `Segment`: the shot (framing, camera, two to four action beats, who is on screen, sound, end state), dialogue, voice-over, entity ops for what changed, thread ops, the viewer disposition, a few words of `next_direction` and the flags. The action beats are the only prose; the transcript, the player and the Showrunner's event log all read them. The output was cut from about 500 to under 250 tokens on 2026-09-17 because the call is the per-clip critical path.
-6. **Validate and apply.** Hard violations (an unknown entity, a new character in a locked cast, dialogue from a mute character, a holder that is not a character) trigger exactly one re-ask with the violations spelled out. Then `apply` mutates the world: entity ops, presence from the shot list, thread ops, the intervention disposition. Unresolvable ops are dropped and logged as warnings, never silently.
-7. **Compile.** The compiler turns the shot into one flowing prompt in the order LTX-2.5 responds to (sound, camera, who is on screen described from their sheet, the action, dialogue in quotes, the image the shot ends on). The first segment of a run opens from the cast sheet's `reference_pose`, because the renderer seeds that clip from the reference image. When `narration: "ltx"`, the voice-over line is folded into the prompt for native audio. With `clip_seconds` set the clip is that long whatever the shots add up to, and the Director's system prompt tells it to plan for that length.
-8. **Views.** The engine fills the legacy `current_beat`, `current_shot`, `current_commentary` fields so the runner, playback, history and the transcript work unchanged for either engine.
-9. **Persist.** The event record is appended and the world is saved to `logs/sessions/<session>/world.json` plus `events.jsonl`.
-10. **Trigger.** `scene_done` or `needs_replan` → Showrunner in replan mode; stagnation past twice the threshold → replan; `compaction_interval` segments since the last compaction → compact mode. At most one run is in flight and runs are at least `showrunner_min_gap` segments apart; a trigger that falls inside the gap or finds a run in flight is noted in the transcript and looked at again next segment. The task runs on a snapshot of the world and lands at step 1 of the first later segment that finds it finished.
+**Plan** (the Director call, once per beat):
+
+1. **Land.** If a Showrunner task spawned earlier has finished, land its update (summaries, notes, pruned threads, arc, and a new scene card when it replanned). A task still running is left alone and the plan proceeds on the current plan: the fast clock never pays for the slow one. Only the end of a run awaits it.
+2. **Record input.** A non-empty viewer line becomes an `Intervention` with disposition `pending`. Nothing is dropped: the live loop joins lines typed together, but every line the engine sees is recorded.
+3. **Bootstrap.** On the first segment the Showrunner runs synchronously to write the arc and the opening scene card from the blueprint; nothing is on air yet.
+4. **Gates.** The voice-over gate opens when no audio is owed and the silence floor (`min_pause_seconds`, in story seconds) has elapsed since the last line. The stagnation ladder turns story seconds without a structural change into prompt pressure at `stagnation_seconds` and a required shift at twice that. Past `scene_seconds` the Director is told to close the scene.
+5. **Director call.** The context assembler renders the bible (static, cache-friendly system prompt: rules, style, cast sheets with their looks, locations, register), then in the user prompt the plan, the world now (with each character's `now` line and the Showrunner's notes), open threads, the viewer section, summaries, the recent clips verbatim with the beat each belongs to, where the picture is (how the previous beat ended, in full or cut short, and the image the last rendered clip ends on), and the gates. The Director returns a `BeatPlan`: an intent, a framing, one to `max_clips_per_beat` clips each with one or two sentences of action, an end state, camera motion, sound, who is on screen, dialogue and the entity ops that happen in that clip; plus voice-over, thread ops, the viewer disposition and the flags.
+6. **Validate.** Hard violations anywhere in the beat (an unknown entity, a new character in a locked cast, dialogue from a mute character, a holder that is not a character) trigger exactly one re-ask with the violations spelled out. The beat is then held by the engine; nothing has been applied yet.
+7. **Trigger.** `scene_done` or `needs_replan` → Showrunner in replan mode; stagnation past twice the threshold → replan; `compaction_interval` segments since the last compaction → compact mode. At most one run is in flight and runs are at least `showrunner_min_gap` segments apart; a trigger inside the gap or with a run in flight is noted and looked at again at the next plan. The task runs on a snapshot of the world and lands at step 1 of the first later plan that finds it finished.
+
+**Emit** (one clip per segment, no LLM):
+
+8. **Apply.** `apply_clip` mutates the world with that clip's ops (entity introduce/update/remove, a character's posture, activity and position, presence from the clip's `on_screen`), and on the beat's first clip also lands the thread ops and the intervention disposition. Unresolvable ops are dropped and logged as warnings, never silently. Because ops ride on the clip where they happen, a beat cut short leaves the world exactly as far along as the picture.
+9. **Compile.** The compiler turns the clip into one flowing prompt in the order LTX-2.5 responds to (sound, camera, who is on screen, the action, dialogue in quotes, the image the clip ends on). The first clip of a run carries the full `visual_style`, each character's full look and the cast sheet's `reference_pose`, because the renderer seeds that clip from the reference image. Every later clip carries the blueprint's one-sentence `visual_anchor` (or the first sentence of the style), each character's `look_short` (or just the name), props by name, and a prop's description only on the clip that introduces it. When `narration: "ltx"`, the voice-over line is folded into the beat's first clip for native audio. Every clip is `clip_seconds` long (or `i2v_duration` when unset).
+10. **Views and persistence.** The engine fills the legacy `current_beat`, `current_shot`, `current_commentary` fields so the runner, playback, history and the transcript work unchanged; the clip's action is the only prose. The event record (with its beat, intent and clip index) is appended and the world is saved to `logs/sessions/<session>/world.json` plus `events.jsonl`.
+
+**Cut short.** When the viewer speaks while a beat still has unemitted clips, the live loop drops them, the next plan is told how the beat ended and on which image, and the Director writes the next beat from the line.
 
 ## World model tiers
 
 | Tier | Where | Lifetime | In the Director prompt |
 |---|---|---|---|
 | Story bible | `data/story.json` → system prompt | immutable | always (rules, premise, style, cast sheets, locations, voice-over register) |
-| World state | `WorldModel.entities` | current truth, mutated only by validated deltas | active entities in full; dormant props by id with `last_seen`; gone props by id |
-| Scene context | `plan.scene`, last K events | one scene | always |
+| World state | `WorldModel.entities` | current truth, mutated only by validated deltas | active entities in full, each character with `now: posture; activity; position` and what it holds; dormant props by id with `last_seen`; gone props by id |
+| Cast notes | `Entity.notes` | durable facts from the Showrunner | in the world section (the system prompt stays byte-identical, so the API's prompt cache hits) |
+| Scene context | `plan.scene`, last K clips | one scene | always |
 | Open threads | `WorldModel.threads` | until paid off or pruned | always, bounded |
 | Interventions | `WorldModel.interventions` | whole run | current input, deferred requests still owed, the last few handled |
-| Event log | `WorldModel.events` / `events.jsonl` | append-only | only the last `recent_beats` verbatim |
+| Event log | `WorldModel.events` / `events.jsonl` | append-only, one record per clip | only the last `recent_clips` verbatim |
 | Summaries | `WorldModel.summaries`, `act_summary` | derived, rebuildable | act summary + recent scene summaries |
 
-Entities carry `kind` (character, prop, location), `description` (for the writer), `look` (verbatim for the renderer), `status`, `location`, `holder`, `present`, `gone`, `first_seen`/`last_seen`, `notes` (durable facts added by the Showrunner), `speaks`, and `reference_image`. `cast_locked` on the story makes introducing characters a hard violation; creatures and objects are props.
+Entities carry `kind` (character, prop, location), `description` (for the writer), `look` and `look_short` (verbatim for the renderer), `status` (props), `posture`, `activity`, `position` (characters), `location`, `holder`, `present`, `gone`, `first_seen`/`last_seen`, `notes`, `speaks`, `reference_image` and `reference_pose`. `cast_locked` on the story makes introducing characters a hard violation; creatures and objects are props.
 
 ## The player: watch and steer
 
-The live loop (`run_live`) is a producer and a consumer on a bounded queue. The producer runs the segment above, renders it (pipelined with the next Director call when the backend owns continuity), and queues a `Playable`: the clip path, its measured duration, and the viewer-facing views of the segment (narration, voice-over, who is on screen, the scene, and how the viewer's line was handled). The consumer hands items to a `Player` one at a time and the player holds each for its duration, so **the server is the clock**: the film advances at story pace whether or not anyone is watching, and a browser that joins late is told what is on air and seeks into it.
+The live loop (`run_live`) is a producer and a consumer on a bounded queue. The consumer hands rendered clips to a `Player` one at a time and the player holds each for its duration, so **the server is the clock**: the film advances at story pace whether or not anyone is watching, and a browser that joins late is told what is on air and seeks into it.
 
-`WebPlayer` (`src/web/`) is an aiohttp server: `/` serves a single-page player, `/events` is a server-sent-events stream (`hello` with the history, `queued` for prefetch, `playing`, `input`, `status`, `ended`), `/input` takes a typed line at any moment, and `/clips/N.mp4` serves the clip for segment N with Range support. The page plays clips back to back on two stacked video elements, holds the last frame while the next segment renders, shows the voice-over as a caption, and keeps a script column where each segment appears with the viewer's line and the Director's disposition (absorbed / deferred / declined, with the reason). Lines typed while a segment renders are joined and reach the Director at the start of the next segment it writes. Under pipelining that call would otherwise begin the moment a clip starts playing, so the producer starts it as late as the running render allows (render estimate minus Director estimate, both running averages of measured times) and reads the lines then: a line typed while clip N plays lands at N+2, the earliest the pipeline permits, and no render waits for it.
+The producer renders **just in time**. Before playback starts it runs flat out to build the lead (`lead_clips` + 1 clips). Once the player has a clock, the render of the next clip is fired as late as it safely can be: the render estimate times a safety factor, a margin and `render_slack_seconds` before the clip is due on air; and the Director is asked for the next beat only when the current one has no clip left, as late as the render allows. Until then the producer listens for the viewer. A line that arrives cuts the beat in progress short (its unrendered clips are dropped), cancels a Director call in flight, and the Director writes the next beat from the line at once, so the line reaches the earliest clip that is not yet rendering: with the renderer under real time that is two clips after it was typed. More slack absorbs slower renders and calls; less slack lets a line land sooner.
 
-Without a video backend the same page plays the film as text: each segment is held for its planned duration and shows its narration, so a headless config gives a working session and the loop, the pacing and the input path are all exercised offline. `configs/director.replay.yaml` uses the `replay` i2v backend, which serves clips left by an earlier live run, to develop the player with real video and no GPU. `TerminalPlayer` keeps the original ffplay window and stdin reader behind the same interface.
+`WebPlayer` (`src/web/`) is an aiohttp server: `/` serves a single-page player, `/events` is a server-sent-events stream (`hello` with the history, `queued` for prefetch, `playing`, `input`, `status`, `ended`), `/input` takes a typed line at any moment, and `/clips/N.mp4` serves the clip for segment N with Range support. The page plays clips back to back on two stacked video elements, crossfades picture and sound for 250 ms at each seam, holds the last frame while the next clip is late, shows the voice-over as a caption, and keeps a script column where each clip appears with its beat, the viewer's line and the Director's disposition (absorbed / deferred / declined, with the reason).
+
+Without a video backend the same page plays the film as text: each clip is held for its planned duration and shows its action, so a headless config gives a working session and the loop, the pacing and the input path are all exercised offline. `configs/director.replay.yaml` uses the `replay` i2v backend, which serves clips left by an earlier live run, to develop the player with real video and no GPU. `TerminalPlayer` keeps the original ffplay window and stdin reader behind the same interface.
 
 ## Viewer influence
 
-Input is absorbed at the lowest level that fits. The Director classifies each request as `absorbed` (it happens now), `deferred` (it needs setup; the reason is recorded and the request stays visible as owed), or `declined` (only when it breaks the rules of the world). A later segment can absorb a deferred request without new input. The Showrunner sees the whole intervention list and is told to make room for deferred requests in the next scene. Structural rule checks (cast lock, entity existence, mute characters) are the validator's; judgment calls stay with the Director, which is told to bend toward the spirit of a request rather than refuse.
+Input is absorbed at the lowest level that fits. The Director classifies each request as `absorbed` (it happens now), `deferred` (it needs setup; the reason is recorded and the request stays visible as owed), or `declined` (only when it breaks the rules of the world). A later beat can absorb a deferred request without new input. The Showrunner sees the whole intervention list and is told to make room for deferred requests in the next scene. Structural rule checks (cast lock, entity existence, mute characters) are the validator's; judgment calls stay with the Director, which is told to bend toward the spirit of a request rather than refuse. A line never waits for a beat to end: it interrupts.
 
 ## Narration
 
-Narration is a capability, not an agent. `voiceover` is an optional Director field behind the deterministic gate. `narration: "ltx"` folds the line into the video prompt so LTX-2.5 renders it natively; `"tts"` sends it through ElevenLabs when `audio_enabled` and mixes it over the clip's native track; `"off"` removes narration from the film and closes the gate. The text is produced whenever the gate is open regardless of rendering, so headless runs behave like live runs.
+Narration is a capability, not an agent. `voiceover` is an optional Director field behind the deterministic gate, spoken over the beat's first clip. `narration: "ltx"` folds the line into the video prompt so LTX-2.5 renders it natively; `"tts"` sends it through ElevenLabs when `audio_enabled` and mixes it over the clip's native track; `"off"` removes narration from the film and closes the gate. The text is produced whenever the gate is open regardless of rendering, so headless runs behave like live runs.
 
 ## The video boundary
 
-The renderer receives a compiled prompt and a duration. Every clip is conditioned on the previous clip's tail (the server's sliding window); the first clip of a run, and the first clip after a server restart, is seeded from the reference image instead, and the compiler opens that clip from the cast sheet's `reference_pose`. There are no cuts: a segment is one continuous shot, and a change of angle or distance is a camera move inside it. Cuts were removed on 2026-09-17 because re-seeding from the reference reset costume, props and position to the reference's state (`docs/reviews/2026-09-17-continuity-and-buffering.md`). Only the compiler knows the model's dialect; the `Segment` schema does not change when the model does.
+The renderer receives a compiled prompt and a duration. Every clip is conditioned on the previous clip's tail (the server's sliding window); the first clip of a run, and the first clip after a server restart, is seeded from the reference image instead, and the compiler opens that clip from the cast sheet's `reference_pose`. There are no cuts: a beat is one continuous picture, and a change of angle or distance is a camera move inside a clip. Cuts were removed on 2026-09-17 because re-seeding from the reference reset costume, props and position to the reference's state. Only the compiler knows the model's dialect; the schemas do not change when the model does.
 
 ## Configuration
 
 ```yaml
 graph: "director"
-clip_seconds: 6                # every clip this long (0 = the Director's shot durations, 3-15 s)
-lead_clips: 1                  # clips rendered ahead of the one on air
+clip_seconds: 6                # every clip this long (0 = i2v_duration)
+lead_clips: 1                  # clips rendered before playback starts
+render_slack_seconds: 3.0      # how early, beyond the estimate, a just-in-time render fires
 narration: "ltx"               # ltx | tts | off
 min_pause_seconds: 15.0        # silence floor before the voice-over gate reopens
-recent_beats: 4                # verbatim segments in the Director prompt
-max_segments_per_scene: 12     # hard cap → scene_done → Showrunner replan
-compaction_interval: 10        # Showrunner compaction cadence
+recent_clips: 6                # verbatim clips in the Director prompt
+max_clips_per_beat: 4          # the Director plans one beat of up to this many clips per call
+scene_seconds: 240             # a scene runs about this long; past it the Director is told to close it
+stagnation_seconds: 90         # story seconds without a structural change before pressure
+compaction_interval: 10        # Showrunner compaction cadence, in segments
 showrunner_min_gap: 4          # fewest segments between two Showrunner runs
-stagnation_threshold: 5        # segments without structural change before pressure
 director_model: ""             # optional per-role model overrides
 showrunner_model: ""
 director_service_tier: ""      # OpenAI processing tier for the Director call ("priority": ~2.5x the tokens/s)
@@ -115,12 +128,12 @@ ltxv_negative_prompt: ""       # "" → the server's default
 ltxv_seed: null                # fixed seed for reproducible renders
 ```
 
-`configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5.
+`configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5. The blueprint (`data/story.json`) carries the story: `visual_style` and a one-sentence `visual_anchor`, each character's `look`, `look_short`, `reference_image` and `reference_pose`, the rules of the world. Everything in `src/prompts/`, the schemas, the compiler and the engine is story-agnostic.
 
 ## Testing
 
-`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler and pacing, plus an end-to-end run of the engine through the live loop on the scripted mock backend (`llm_backend: "mock"`), which exercises the re-ask path, deferred interventions, compaction and replanning without an API key. `tests/test_web.py` runs the live loop through the web player over HTTP, in text mode and with replayed clips.
+`python -m tests.run` runs the suite without pytest: unit tests for the world model, validator, compiler, context and pacing, plus end-to-end runs of the engine through the live loop on the scripted mock backend (`llm_backend: "mock"`), which exercise beats emitted clip by clip, a viewer line cutting a beat short, the re-ask path, deferred interventions, the non-blocking Showrunner, its minimum gap, compaction and replanning without an API key. `tests/test_live_timing.py` pins the just-in-time schedule with the replay backend on a real clock; `tests/test_web.py` runs the live loop through the web player over HTTP, in text mode and with replayed clips.
 
 ## Not built yet, by design
 
-Per-character reference images and keyframe conditioning from the current look; semantic retrieval over the event log; character knowledge and relationship graphs; a cinematic-language rewriter; multi-viewer input aggregation. See the review for the reasoning and the order.
+Per-character reference images and keyframe conditioning from the current look; semantic retrieval over the event log; character knowledge and relationship graphs; a cinematic-language rewriter; multi-viewer input aggregation. See the reviews for the reasoning and the order.

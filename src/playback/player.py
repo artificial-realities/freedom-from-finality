@@ -42,6 +42,8 @@ class Playable(BaseModel):
     intervention: str = "none"       # how the Director handled `user_input`
     intervention_reason: str = ""
     scene: str = ""                  # "scene N: goal"
+    beat: str = ""                   # the beat this clip belongs to, in a few words
+    clip: str = ""                   # "2/3": the clip's place in its beat
 
 
 class Player(ABC):
@@ -51,6 +53,7 @@ class Player(ABC):
         # >1 shortens every wait; only tests use it.
         self.time_scale = max(time_scale, 1e-6)
         self._inputs: asyncio.Queue[str] = asyncio.Queue()
+        self._arrived = asyncio.Event()   # set while a line is waiting
 
     async def start(self, *, title: str, session_id: str) -> None:
         """Bring the surface up before the first segment."""
@@ -76,10 +79,26 @@ class Player(ABC):
             line = (await self._inputs.get()).strip()
             if line:
                 lines.append(line)
+        self._arrived.clear()
         return " ".join(lines)
+
+    def has_input(self) -> bool:
+        return not self._inputs.empty()
+
+    async def wait_input(self, timeout: float | None) -> bool:
+        """Wait until the viewer has typed something or `timeout` seconds
+        pass. True when a line is waiting."""
+        if self.has_input():
+            return True
+        try:
+            await asyncio.wait_for(self._arrived.wait(), timeout)
+        except asyncio.TimeoutError:
+            return False
+        return True
 
     def push_input(self, text: str) -> None:
         self._inputs.put_nowait(text)
+        self._arrived.set()
 
     async def _hold(self, seconds: float) -> None:
         await asyncio.sleep(max(0.0, seconds) / self.time_scale)

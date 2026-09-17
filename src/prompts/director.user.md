@@ -15,10 +15,13 @@ Segment {segment}
 ## Story so far
 {summaries}
 
-## Recent segments (newest last)
+## Recent clips (newest last)
 {recent}
+
+## Where the picture is
+{beat_status}
 
 ## Pacing and gates
 {gates}
 
-Write segment {segment} now, as a single JSON object.
+Write the next beat now, starting at segment {segment}, as a single JSON object.

@@ -34,6 +34,8 @@ class StoryState(BaseModel):
     # deferred | declined) and why; the player shows this to the viewer.
     current_intervention: str = "none"
     current_intervention_reason: str = ""
+    current_beat_intent: str = ""   # the beat this clip belongs to, in a few words
+    current_clip: str = ""          # "2/3": the clip's place in its beat
     turn_notes: str = ""  # engine-specific markdown appended to the transcript
 
     # Compact views of the world model for the transcript (the engine
@@ -70,6 +72,7 @@ class StoryState(BaseModel):
     title: str = ""
     synopsis: str = ""
     visual_style: str = ""
+    visual_anchor: str = ""
     tone_guidelines: str = ""
     locations: list[Location] = Field(default_factory=list)
     characters: list[Character] = Field(default_factory=list)
@@ -88,6 +91,7 @@ class StoryState(BaseModel):
             title=story.title,
             synopsis=story.synopsis,
             visual_style=story.visual_style,
+            visual_anchor=story.visual_anchor,
             tone_guidelines=story.tone_guidelines,
             locations=list(story.locations),
             characters=list(story.characters),
