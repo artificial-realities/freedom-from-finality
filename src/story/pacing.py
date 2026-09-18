@@ -45,16 +45,18 @@ def pacing_note(world: WorldModel, config: Config) -> str:
     t = max(1.0, config.stagnation_seconds)
     if quiet < t:
         return "The story is moving; no pacing pressure. A quiet beat is fine."
-    if quiet < 2 * t:
+    if quiet < 1.5 * t:
         return (
             f"{quiet:.0f} s of film since anything in the world changed. Land a concrete "
-            "development in this beat or the next: a new prop, a reveal, a reversal, "
-            "something changing hands or place, or a thread paying off."
+            "development in this beat or the next: introduce a new prop, reveal "
+            "something, change who holds what, pay off a thread — anything that "
+            "moves the world, not just the character's posture."
         )
     return (
         f"{quiet:.0f} s of film without structural change. A structural shift is REQUIRED "
-        "in this beat (new prop, new goal, a payoff, a failure that changes the "
-        "situation). If the scene has run out, set scene_done or needs_replan."
+        "NOW: introduce a prop (just have it appear), pay off or escalate, change "
+        "the situation. The audience is watching a character do the same thing. "
+        "If the scene has run out, set scene_done or needs_replan."
     )
 
 

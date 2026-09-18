@@ -39,8 +39,22 @@ class Story(BaseModel):
     narrative_premise: str
     long_term_narrative: str = ""
     short_term_narrative: str = ""
+    seed_image: str = ""        # reference image for the video model, resolved relative to the story dir
     cast_locked: bool = False   # True → no new characters may be introduced (props are fine)
 
     @classmethod
     def from_json(cls, path: Path | str) -> "Story":
-        return cls(**json.loads(Path(path).read_text(encoding="utf-8")))
+        """Load a story from a JSON file or a directory containing story.json."""
+        path = Path(path)
+        if path.is_dir():
+            story_dir = path
+            path = path / "story.json"
+        else:
+            story_dir = path.parent
+        story = cls(**json.loads(path.read_text(encoding="utf-8")))
+        if story.seed_image and not Path(story.seed_image).is_absolute():
+            story.seed_image = str(story_dir / story.seed_image)
+        for ch in story.characters:
+            if ch.reference_image and not Path(ch.reference_image).is_absolute():
+                ch.reference_image = str(story_dir / ch.reference_image)
+        return story

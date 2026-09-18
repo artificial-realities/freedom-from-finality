@@ -29,7 +29,8 @@ tests/                       # python -m tests.run (no pytest needed)
 scripts/steer.py             # scripted viewer: posts lines to a running web player at given segments
 scripts/latency_probe.py     # seconds per clip second for one server setting (the real-time work)
 configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5) · director.replay.yaml (replayed clips)
-data/                        # story.json blueprint · legoman.png reference image
+stories/                     # per-story folders (story.json blueprint, reference image, assets)
+data/                        # legacy path for the default story (still works; stories/ is preferred)
 docs/                        # ARCHITECTURE.md · reviews/ · legacy/
 server/                      # LTX-2.5 inference server (runs on a GPU box; see server/README.md)
 ```
@@ -42,7 +43,7 @@ server/                      # LTX-2.5 inference server (runs on a GPU box; see 
 - **Rendering is opt-out, content is not.** The Director produces the voice-over field whenever the gate is open; only its rendering depends on `narration` / `audio_enabled`. Never gate content generation on rendering flags.
 - **The video model's dialect lives in one place**: `src/story/compiler.py`. Schemas do not change when the model does.
 - **Structured outputs are strict**: keep `BeatPlan` and `ShowrunnerUpdate` inside OpenAI's strict subset (no free-form dicts). Enforce structure in the validator, not the schema.
-- **Prompts, schemas, compiler and engine are story-agnostic.** The Lego story is one blueprint; anything story-specific (looks, anchors, rules) lives in `data/story.json`.
+- **Prompts, schemas, compiler and engine are story-agnostic.** The Lego story is one blueprint; anything story-specific (looks, anchors, rules) lives in its story folder under `stories/`. Each story is a directory with `story.json`, a reference image, and any other assets. `--story stories/lego-void` (the default).
 
 ## Running
 

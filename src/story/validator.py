@@ -324,6 +324,8 @@ def apply_showrunner(
         world.plan.scene = card
         world.scene_started = at_segment + 1
         world.last_change = max(world.last_change, at_segment)
+        world.viewer_momentum = ""
+        world.viewer_momentum_segment = 0
         notes.append(f"scene {card.id} opened: {card.goal}")
 
     world.showrunner_runs += 1

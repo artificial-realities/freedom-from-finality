@@ -26,7 +26,7 @@ from src.models.story import Story  # noqa: E402
 from src.playback import TerminalPlayer  # noqa: E402
 from src.ui.terminal import TerminalUI  # noqa: E402
 
-DEFAULT_STORY = Path("data/story.json")
+DEFAULT_STORY = Path("stories/lego-void")
 DEFAULT_LOG_DIR = Path("logs")
 
 
@@ -64,6 +64,8 @@ def build_parser() -> argparse.ArgumentParser:
 async def cmd_play(args: argparse.Namespace) -> None:
     story = Story.from_json(args.story)
     config = Config.from_yaml(args.config)
+    if story.seed_image:
+        config.i2v_seed_image = story.seed_image
 
     if args.player is not None or config.live:
         if args.player == "web":

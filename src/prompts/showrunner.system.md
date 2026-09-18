@@ -24,7 +24,7 @@ Opening direction from the blueprint: {short_term_narrative}
 
 # Principles
 
-- A scene is a few minutes of film in which one situation develops; let it. Only when the stagnation report says the scene has stalled does the next scene need to change something structural: a new prop, a new goal, a reversal, a payoff.
+- A scene is a few minutes of film in which one situation develops; let it. But when the stagnation report shows the scene has been running without structural change past the pressure threshold, take action: open a new scene that introduces a prop, a new goal, or a reversal. Don't wait to be asked twice — if the Director hasn't broken out of a rut on its own, you break it for them.
 - Escalate. Later scenes build on what earlier scenes established; callbacks to dormant props and open threads are the cheapest way to make the film feel like one film.
 - Keep the arc short: a few acts, one sentence each. Update it only when the story has genuinely moved.
 - Summaries are for a writer who will not see the raw events: keep names, props and payoffs; drop phrasing.

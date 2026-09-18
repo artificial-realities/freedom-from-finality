@@ -248,6 +248,9 @@ class DirectorEngine:
         state.user_input = self._beat_input if first else ""
 
         report = apply_clip(beat, i, world, segment_no=seg)
+        if first and beat.intervention == "absorbed" and self._beat_input:
+            world.viewer_momentum = self._beat_input
+            world.viewer_momentum_segment = seg
         prompt = compile_clip(
             beat, i, world,
             visual_style=state.visual_style,
@@ -346,7 +349,7 @@ class DirectorEngine:
         if beat.needs_replan:
             return ("needs_replan", "replan")
         quiet = world.seconds_since_change()
-        if quiet >= 2 * cfg.stagnation_seconds and world.segment - world.last_showrunner >= cfg.showrunner_min_gap:
+        if quiet >= 1.5 * cfg.stagnation_seconds and world.segment - world.last_showrunner >= cfg.showrunner_min_gap:
             return (f"stagnation: {quiet:.0f} s without change", "replan")
         if world.segment - world.last_compacted >= cfg.compaction_interval:
             return ("compaction interval", "compact")
@@ -536,6 +539,8 @@ class DirectorEngine:
             out.append("- Open threads: " + "; ".join(f"{t.id} {t.text}" for t in threads[-6:]))
         if first and beat.intervention != "none":
             out.append(f"- Viewer: {beat.intervention}" + (f" ({beat.intervention_reason})" if beat.intervention_reason else ""))
+        elif first and world.viewer_momentum:
+            out.append(f"- Viewer momentum (seg {world.viewer_momentum_segment}): \"{world.viewer_momentum}\"")
         if first:
             out.append(f"- Voice-over floor: {'open' if meta.get('vo_open') else 'closed'} · pacing: {meta.get('pacing', '')}")
         clip = beat.clips[index]

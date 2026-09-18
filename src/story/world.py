@@ -150,6 +150,8 @@ class WorldModel(BaseModel):
     last_showrunner: int = 0
     scene_started: int = 1
     showrunner_runs: int = 0
+    viewer_momentum: str = ""    # the viewer's last absorbed input; persists across beats
+    viewer_momentum_segment: int = 0
 
     _saved_events: int = PrivateAttr(default=0)
 

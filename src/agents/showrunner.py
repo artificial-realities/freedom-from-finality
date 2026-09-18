@@ -52,9 +52,11 @@ INSTRUCTIONS = {
     ),
     "compact": (
         "This is a compaction pass mid-scene. Summarize the events since the last "
-        "compaction; keep the current scene unless it clearly needs replacing "
-        "(`replan` = false unless you change it, in which case `next_scene` is the "
-        "new card)."
+        "compaction. Check the stagnation report: if the scene has stalled (the "
+        "stagnation timer is above the pressure threshold and the recent events show "
+        "no new props, no structural changes, just variations on the same activity), "
+        "set `replan` = true and write a next scene card that introduces something "
+        "new. Otherwise keep the current scene (`replan` = false)."
     ),
 }
 

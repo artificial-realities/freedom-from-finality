@@ -151,6 +151,14 @@ def format_interventions(world: WorldModel, current_input: str) -> str:
         )
     else:
         out.append("No viewer input for this beat.")
+        if world.viewer_momentum:
+            out.append(
+                f'The viewer\'s last direction (segment {world.viewer_momentum_segment}): '
+                f'"{world.viewer_momentum}"\n'
+                "This energy should still shape your beats — develop it naturally, "
+                "build on its consequences, let the story grow from it. Don't snap "
+                "back to the scene card as if the viewer never spoke."
+            )
     deferred = [i for i in world.interventions if i.disposition == "deferred"]
     if deferred:
         out.append("Earlier requests still owed (deferred):")
