@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "label": "session-a-2026-09-18",
+  "updated": "2026-09-22",
+  "provenance": "Reconstructed by review 03 (docs/reviews/03_runtime_duration_interactivity_review.md §1.3, §1.5, §2.2-2.4, appendix) from clip file mtimes and Langfuse events. The run predates timing.jsonl; the first live run with a timing log replaces this record with its `scripts/bench_report.py --json` measurements, and this file moves to benchmarks/runtime/2026-09-18-session-a.json.",
+  "identity": {
+    "session": "director-ltxv_live_20260918_145552",
+    "transcript": "logs/live-box/director-ltxv_live_20260918_145552.md",
+    "revision": "265e9fd",
+    "dirty": null,
+    "config": "configs/director.live.yaml",
+    "story": "Lego Man in the White Void"
+  },
+  "hardware": {
+    "gpu": "H100, SXM or NVL (the offer was not recorded)",
+    "client_on_box": true,
+    "note": "Review 03 §2.4: the hardware of session A is not known beyond the card family."
+  },
+  "recipe": {
+    "model": "Lightricks/LTX-2.5-Diffusers",
+    "variant": "distilled",
+    "sampling": "8 sigmas, unguided",
+    "quant": "fp8 (torchao dynamic, per row)",
+    "compile": "regional torch.compile",
+    "attention": "sdpa",
+    "encoder": "libx264 ultrafast",
+    "offload": "gpu",
+    "prompt_enhancer": false
+  },
+  "shape": {
+    "width": 640,
+    "height": 352,
+    "fps": 24,
+    "render_frames": 145,
+    "overlap_frames": 9,
+    "delivered_seconds": 6.0417,
+    "continuity_strength": 1.0,
+    "anchor_strength": 0.0,
+    "seed": "random per clip"
+  },
+  "cold_warm": {
+    "server_warmup_frames": [145, 145, 145],
+    "warm_after_clips": 3,
+    "note": "Warm clips are counted from the fourth render of the film (review 03 §9.1)."
+  },
+  "stages": {
+    "server": null,
+    "note": "Server stage timings for session A went to server.log on a destroyed box (review 03 §2.4)."
+  },
+  "renders": {
+    "n": 62,
+    "render_s": {"mean": 4.80, "sd": 0.046, "p95": 4.85, "max": 4.96},
+    "ratio": {"mean": 0.794, "p50": 0.795, "p95": 0.802, "max": 0.820},
+    "slope_ms_per_clip": 2.2,
+    "mid_film_compiles": 0
+  },
+  "director": {
+    "model": "gpt-4.1",
+    "service_tier": "priority",
+    "n": 35,
+    "seconds": {"mean": 2.98, "sd": 0.59, "p95": 3.80, "max": 4.37}
+  },
+  "film": {
+    "clips": 67,
+    "stalls": 0,
+    "min_queue_margin_s": 1.87,
+    "steering_s": [10.9, 12.5, 11.1, 14.6],
+    "steering_note": "From the Director's start, a close lower bound on receipt (receipt times were not logged).",
+    "first_picture_s": 17.9
+  },
+  "seams": {
+    "swap_ms": "1-25 ms (2026-09-17, headless Chromium)",
+    "reloads_on_playing": "at most 2 of 62, plus startup",
+    "duplicate_frames_per_seam": 9,
+    "crossfade_dip": 0.24,
+    "hold_minus_media_ms": 0.3
+  },
+  "gates": {
+    "source": "Decision record RUN-04 (APPROVED) and review 03 §9.3; warm-up rule from §9.1.",
+    "render_ratio_p50": {"max": 0.82},
+    "render_ratio_p95": {"max": 0.85},
+    "render_ratio_max": {"max": 0.92},
+    "render_slope_ms_per_clip": {"max": 1.0, "min_clips": 150},
+    "mid_film_compiles": {"max": 0, "factor": 3.0},
+    "stalls": {"max": 0, "threshold_s": 0.05},
+    "min_queue_margin_s": {"min": 1.0},
+    "steering_p50_s": {"max": 12.5},
+    "steering_p95_s": {"max": 16.0},
+    "first_picture_s": {"max": 25.0},
+    "swap_p95_ms": {"max": 50.0},
+    "reloads_on_playing": {"max": 0},
+    "hold_minus_media_ms": {"max": 5.0},
+    "duplicate_frames_per_seam": {"max": 0, "measured_by": "scripts/seam_check.py (RUN-13 part c)"},
+    "crossfade_dip": {"max": 0.05, "measured_by": "scripts/seam_check.py (RUN-13 part c)"}
+  }
+}

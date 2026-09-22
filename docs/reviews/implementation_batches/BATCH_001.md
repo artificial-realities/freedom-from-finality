@@ -160,4 +160,4 @@ and the page's swap, loadstart_on_playing and waiting beacons through
 a new POST /beacon. Nothing reads it during a run (RUN-05).
 ```
 
-Commit: not created (not explicitly permitted by the loop prompt).
+Commit: not created by the batch session (not permitted by the loop prompt). The owner asked for it afterwards: `b5e6d3d` "Every run writes a timing log, and the page reports its swaps" (recorded at the start of BATCH_002).
