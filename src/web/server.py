@@ -14,6 +14,8 @@ Routes:
     GET  /              the player page
     GET  /events        server-sent events: hello, queued, playing, input, status, ended
     POST /input         {"text": "..."} → queued for the next segment
+    POST /beacon        {"kind": "swap" | "loadstart_on_playing" | "waiting", ...}: the
+                        page's own timing, written to the run's timing log
     GET  /clips/N.mp4   the clip that played for segment N (Range requests supported)
     GET  /state         JSON snapshot (what /events sends as `hello`)
 """
@@ -23,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from pathlib import Path
 
@@ -34,6 +37,12 @@ logger = logging.getLogger(__name__)
 
 PAGE = Path(__file__).with_name("player.html")
 HEARTBEAT_S = 15.0
+# Browser timing beacons: the kinds the page sends, the fields kept from
+# each (anything else is dropped), and the largest body accepted.
+BEACON_KINDS = {"swap", "loadstart_on_playing", "waiting"}
+BEACON_NUMBERS = ("turn", "ms", "media_time", "offset")
+BEACON_FLAGS = ("armed", "prefetched")
+BEACON_MAX_BYTES = 2048
 
 
 class WebPlayer(Player):
@@ -70,6 +79,7 @@ class WebPlayer(Player):
             web.get("/", self._page),
             web.get("/events", self._events),
             web.post("/input", self._input),
+            web.post("/beacon", self._beacon),
             web.get("/state", self._state),
             web.get("/clips/{turn}.mp4", self._clip),
         ])
@@ -139,6 +149,30 @@ class WebPlayer(Player):
         self._broadcast("input", record)
         logger.info("viewer input: %s", text)
         return web.json_response({"ok": True, **record})
+
+    async def _beacon(self, request: web.Request) -> web.Response:
+        """A timing beacon from the page (`navigator.sendBeacon`, so the body
+        is JSON sent as text/plain). Only known kinds and fields pass."""
+        text = await request.text()
+        if len(text) > BEACON_MAX_BYTES:
+            return web.json_response({"error": "beacon too large"}, status=413)
+        try:
+            body = json.loads(text)
+        except ValueError:
+            return web.json_response({"error": "expected a JSON body"}, status=400)
+        if not isinstance(body, dict) or body.get("kind") not in BEACON_KINDS:
+            return web.json_response({"error": "unknown beacon"}, status=400)
+        record: dict = {"kind": body["kind"]}
+        for key in BEACON_NUMBERS:
+            value = body.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+                record[key] = value
+        for key in BEACON_FLAGS:
+            if isinstance(body.get(key), bool):
+                record[key] = body[key]
+        if self.on_beacon is not None:
+            self.on_beacon(record)
+        return web.Response(status=204)
 
     async def _clip(self, request: web.Request) -> web.StreamResponse:
         try:

@@ -9,6 +9,7 @@ headless development without a player.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import shutil
 import subprocess
@@ -37,6 +38,7 @@ from src.util.langfuse_setup import flush as langfuse_flush
 from src.util.langfuse_setup import set_trace_output, turn_span
 from src.util.media import probe_duration
 from src.util.story_log import StoryLogger
+from src.util.timing_log import TimingLog, git_revision
 
 # Just-in-time rendering: the render and Director estimates are scaled by
 # JIT_SAFETY and JIT_MARGIN_S is kept in hand (plus the config's
@@ -59,6 +61,40 @@ def _trace_output(state: StoryState) -> dict:
         "narration": state.current_beat.narration if state.current_beat else None,
         "voiceover": state.current_commentary.voiceover if state.current_commentary else None,
     }
+
+
+def _start_timing(
+    config: Config, story: Story, session_id: str, session_dir: Path, *, loop: str, **fields,
+) -> TimingLog:
+    """Open the session's timing log and write what the run is: code
+    revision, config and the clip length every segment is planned for."""
+    timing = TimingLog(session_dir / "timing.jsonl")
+    revision, dirty = git_revision()
+    timing.write(
+        "session_start", session=session_id, loop=loop, config=config.name, story=story.title,
+        revision=revision, dirty=dirty, llm_backend=config.llm_backend,
+        director_model=config.director_model or config.model,
+        director_service_tier=config.director_service_tier or None,
+        video=config.video_enabled, i2v_backend=config.i2v_backend if config.video_enabled else None,
+        clip_seconds=config.clip_seconds or config.i2v_duration,
+        **fields,
+    )
+    return timing
+
+
+def _line_fields(text: str) -> dict:
+    """A viewer line as the timing log keeps it: its length and a short
+    hash (the transcript has the words)."""
+    return {"chars": len(text), "sha": hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]}
+
+
+def _log_emit(timing: TimingLog, graph, turn: int) -> None:
+    """The clip the engine just emitted, from its event record."""
+    ev = graph.world.events[-1] if graph.world is not None and graph.world.events else None
+    if ev is None or ev.segment != turn:
+        return
+    timing.write("emit", turn=turn, beat=ev.beat, clip=ev.clip_index, of=ev.clip_count,
+                 seconds=ev.duration, voiceover=bool(ev.voiceover))
 
 
 def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
@@ -272,9 +308,11 @@ async def run_play(
     tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir)
 
+    session_dir = Path(log_dir) / "sessions" / session_id
+    timing = _start_timing(config, story, session_id, session_dir, loop="play")
     graph = build_graph(
         config.graph, llm=llm, config=config, tts=tts,
-        session_dir=Path(log_dir) / "sessions" / session_id,
+        session_dir=session_dir, timing=timing,
     )
 
     ui = ui or TerminalUI()
@@ -286,12 +324,18 @@ async def run_play(
     trace_tags = [config.name, "play"]
 
     turn_number = 0
+    line_no = 0
     try:
         while True:
             turn_number += 1
             user_input = await ui.prompt_for_input()
             state.turn_number = turn_number
             state.user_input = user_input
+            line = user_input.strip()
+            if line:
+                line_no += 1
+                timing.write("line_received", line=line_no, **_line_fields(line))
+                timing.write("line_taken", turn=turn_number, lines=[line_no])
 
             with turn_span(
                 turn_number=turn_number,
@@ -302,8 +346,13 @@ async def run_play(
             ):
                 result = await graph.ainvoke(state)
                 state = _coerce_state(result)
+                _log_emit(timing, graph, turn_number)
+                if line:
+                    timing.write("line_landed", turn=turn_number, lines=[line_no])
 
                 if i2v is not None and state.current_shot is not None:
+                    timing.write("fire", turn=turn_number, seconds=state.current_shot.duration_seconds)
+                    t0 = time.monotonic()
                     seed_image, _silent, _playable = await _render_turn(
                         state=state,
                         i2v=i2v,
@@ -311,6 +360,8 @@ async def run_play(
                         frames_dir=frames_dir,
                         video_dir=video_dir,
                     )
+                    timing.write("render_done", turn=turn_number, ok=_silent is not None,
+                                 render_s=round(time.monotonic() - t0, 4), server=dict(i2v.last_render))
 
                 set_trace_output(_trace_output(state))
 
@@ -320,6 +371,8 @@ async def run_play(
         print("\n(quit)")
     finally:
         await graph.drain(state)
+        timing.write("session_end", turn=state.turn_number)
+        timing.close()
         langfuse_flush()
     return state
 
@@ -355,6 +408,10 @@ async def run_live(
     With a video backend each item is a rendered clip. Without one it is
     the clip's text, held for the clip's duration, so a headless config
     gives a working session in the web player.
+
+    The run's timing (fires, renders, the queue, air time, viewer lines,
+    Director calls, the page's beacons) goes to
+    `logs/sessions/<id>/timing.jsonl`; see `src.util.timing_log`.
     """
     state = StoryState.initialize(story, config_name=config.name)
     session_id = _make_session_id(config.name, "live")
@@ -371,12 +428,18 @@ async def run_live(
     i2v = _maybe_i2v(config, log_dir)
     player = player or TerminalPlayer()
 
+    queue_size = max(1, config.lead_clips + 1)
+    session_dir = Path(log_dir) / "sessions" / session_id
+    timing = _start_timing(
+        config, story, session_id, session_dir, loop="live",
+        lead_clips=config.lead_clips, queue_size=queue_size,
+        render_slack_seconds=config.render_slack_seconds, jit_safety=JIT_SAFETY,
+        jit_margin=JIT_MARGIN_S, time_scale=player.time_scale,
+    )
     graph = build_graph(
         config.graph, llm=llm, config=config, tts=tts,
-        session_dir=Path(log_dir) / "sessions" / session_id,
+        session_dir=session_dir, timing=timing,
     )
-
-    queue_size = max(1, config.lead_clips + 1)
     mode = "video" if i2v is not None else "text (no video backend)"
     if config.lead_clips > 0:
         print(f"Live, {mode}: pre-buffering {queue_size} segments before playback "
@@ -393,12 +456,26 @@ async def run_live(
     producer_done = asyncio.Event()
     lead_ready = asyncio.Event()   # the lead is built: playback may start
     played_clips: list[str] = []
-    # The player's clock as the producer sees it: when the clip on air
-    # started (monotonic) and how long it holds, plus the rendered clips
-    # waiting behind it. Durations are in real seconds (story seconds over
-    # the player's time scale).
-    air: dict[str, float | None] = {"start": None, "hold": 0.0}
+    played_turns: list[int] = []
+    # The player's clock as the producer sees it: which clip is on air,
+    # when it started (monotonic) and how long it holds, plus the rendered
+    # clips waiting behind it. Durations are in real seconds (story seconds
+    # over the player's time scale).
+    air: dict = {"turn": None, "start": None, "hold": 0.0}
     queued_holds: list[float] = []
+    # Viewer lines as the timing log follows them, by the player's line id:
+    # taken into a Director call, then carried by the planned beat until
+    # its first clip is emitted (landed) or the beat is cut first (dropped).
+    plan_lines: list[int] = []
+    beat_lines: list[int] = []
+
+    def _on_line(line_id: int, text: str) -> None:
+        into = time.monotonic() - air["start"] if air["start"] is not None else None
+        timing.write("line_received", line=line_id, on_air=air["turn"],
+                     into=round(into, 4) if into is not None else None, **_line_fields(text))
+
+    player.on_line = _on_line
+    player.on_beacon = lambda record: timing.write("beacon", **record)
 
     def _hold_of(item: Playable) -> float:
         return float(item.duration) / player.time_scale
@@ -426,7 +503,13 @@ async def run_live(
 
     async def _enqueue(item: Playable) -> None:
         await queue.put(item)
+        # How long before it goes on air the clip is ready (negative: the
+        # picture is already holding for it). None while the lead builds.
+        margin = (air["start"] + air["hold"] + sum(queued_holds) - time.monotonic()
+                  if air["start"] is not None else None)
         queued_holds.append(_hold_of(item))
+        timing.write("enqueued", turn=item.turn, duration=item.duration, queued=queue.qsize(),
+                     margin=round(margin, 4) if margin is not None else None)
         if queue.qsize() >= queue_size:
             lead_ready.set()
         player.prepare(item)
@@ -440,7 +523,10 @@ async def run_live(
         video_path = await i2v.synthesize(
             image_path=seed_image, prompt=prompt, turn=item.turn, duration=duration,
         )
-        _learn("render", time.monotonic() - t0)
+        render_s = time.monotonic() - t0
+        _learn("render", render_s)
+        timing.write("render_done", turn=item.turn, ok=bool(video_path), render_s=round(render_s, 4),
+                     server=dict(i2v.last_render))
         if video_path:
             item.path = video_path
             item.duration = await _get_clip_duration(
@@ -487,6 +573,25 @@ async def run_live(
                 due += clip_hold  # the render in flight takes the next slot
             return due
 
+        async def _take() -> str:
+            """Everything the viewer typed since the last call. The lines
+            join the next plan."""
+            text = await player.next_input()
+            if player.taken:
+                plan_lines.extend(player.taken)
+                timing.write("line_taken", turn=state.turn_number, lines=list(player.taken))
+            return text
+
+        def _abort(reason: str) -> int:
+            """Cut the current beat short; lines its plan carried and no clip
+            has shown yet are dropped with it."""
+            dropped = graph.abort_beat(reason)
+            if beat_lines:
+                timing.write("line_dropped", turn=state.turn_number, lines=list(beat_lines),
+                             reason="the beat that carried them was cut before its first clip")
+                beat_lines.clear()
+            return dropped
+
         async def _plan(text: str) -> None:
             """Ask the Director for the next beat from `text`. A line that
             arrives while the call runs cancels it, and the call restarts
@@ -502,6 +607,8 @@ async def run_live(
                     waiter.cancel()
                     await call
                     _learn("director", time.monotonic() - t0)
+                    beat_lines[:] = plan_lines
+                    plan_lines.clear()
                     return
                 call.cancel()
                 try:
@@ -509,7 +616,7 @@ async def run_live(
                 except asyncio.CancelledError:
                     pass
                 graph.discard_pending_input(state.turn_number)
-                more = await player.next_input()
+                more = await _take()
                 text = " ".join(x for x in (text, more) if x)
                 player.status(f"you spoke while the Director was writing; it starts segment {state.turn_number} again")
 
@@ -533,10 +640,10 @@ async def run_live(
                     break
                 if not await player.wait_input(timeout):
                     break  # time is up
-                text = await player.next_input()
+                text = await _take()
                 if not text:
                     continue
-                dropped = graph.abort_beat("the viewer spoke") if graph.has_next_clip() else 0
+                dropped = _abort("the viewer spoke") if graph.has_next_clip() else 0
                 if dropped:
                     player.status(f"your line cut the beat short; {dropped} planned clip(s) dropped")
                 player.status(f"the Director is writing segment {turn}")
@@ -544,11 +651,11 @@ async def run_live(
             # The moment has come. Anything typed since is taken now.
             if not graph.has_next_clip():
                 player.status(f"the Director is writing segment {turn}")
-                await _plan(await player.next_input())
+                await _plan(await _take())
             elif player.has_input():
-                text = await player.next_input()
+                text = await _take()
                 if text:
-                    dropped = graph.abort_beat("the viewer spoke")
+                    dropped = _abort("the viewer spoke")
                     player.status(f"your line cut the beat short; {dropped} planned clip(s) dropped")
                     player.status(f"the Director is writing segment {turn}")
                     await _plan(text)
@@ -569,6 +676,10 @@ async def run_live(
                 ):
                     await _listen(turn)
                     state = await graph.emit(state)
+                    _log_emit(timing, graph, turn)
+                    if beat_lines:
+                        timing.write("line_landed", turn=turn, lines=list(beat_lines))
+                        beat_lines.clear()
 
                     silent: str | None = None
                     handled = False
@@ -595,6 +706,11 @@ async def run_live(
                             await _drain_prev()
                             player.status(f"rendering segment {turn}")
                             shot_dur = state.current_shot.duration_seconds
+                            # How long until this clip is due on air (None
+                            # while the lead builds): the render's budget.
+                            need = _needed_at()
+                            timing.write("fire", turn=turn, seconds=shot_dur,
+                                         due_in=round(need - time.monotonic(), 4) if need is not None else None)
                             _prev_render = asyncio.create_task(
                                 _bg_render_and_enqueue(
                                     item,
@@ -610,6 +726,10 @@ async def run_live(
                             # ── Serial path (audio / span) ──
                             await _drain_prev()
                             player.status(f"rendering segment {turn}")
+                            need = _needed_at()
+                            timing.write("fire", turn=turn, seconds=state.current_shot.duration_seconds,
+                                         due_in=round(need - time.monotonic(), 4) if need is not None else None)
+                            t0 = time.monotonic()
                             seed_image, silent, _ = await _render_turn(
                                 state=state,
                                 i2v=i2v,
@@ -618,6 +738,8 @@ async def run_live(
                                 video_dir=video_dir,
                                 mux_inline=False,  # live loop owns muxing
                             )
+                            timing.write("render_done", turn=turn, ok=silent is not None,
+                                         render_s=round(time.monotonic() - t0, 4), server=dict(i2v.last_render))
 
                     set_trace_output(_trace_output(state))
 
@@ -745,8 +867,9 @@ async def run_live(
             if _prev_render is not None:
                 _prev_render.cancel()
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Live producer crashed on turn %s", turn)
+            timing.write("error", where="producer", turn=turn, error=repr(exc))
             stop_event.set()
         finally:
             producer_done.set()
@@ -774,7 +897,11 @@ async def run_live(
             while not stop_event.is_set():
                 if queue.empty() and producer_done.is_set():
                     break
+                # Time spent here after a hold ended is time the viewer
+                # watched a held frame: a stall.
+                asked = time.monotonic()
                 item = await queue.get()
+                waited = time.monotonic() - asked
                 if item is None:
                     break
                 if queued_holds:
@@ -787,17 +914,24 @@ async def run_live(
                 )
                 # The player holds the item for its duration; when the next
                 # one is not ready yet it keeps showing the last frame.
+                air["turn"] = item.turn
                 air["start"] = time.monotonic()
                 air["hold"] = _hold_of(item)
+                timing.write("playing", turn=item.turn, duration=item.duration,
+                             hold=round(air["hold"], 4), waited=round(waited, 4),
+                             first=not played_turns)
+                played_turns.append(item.turn)
                 await player.play(item)
+                timing.write("hold_end", turn=item.turn)
                 langfuse_event(
                     "playback_end",
                     metadata={"turn": item.turn, "clip_path": item.path},
                 )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Live consumer crashed")
+            timing.write("error", where="consumer", error=repr(exc))
             stop_event.set()
 
     await player.start(title=story.title, session_id=session_id)
@@ -820,6 +954,8 @@ async def run_live(
                 pass
         await player.stop()
         await graph.drain(state)
+        timing.write("session_end", turn=state.turn_number, played=len(played_turns))
+        timing.close()
         langfuse_flush()
 
         if played_clips:

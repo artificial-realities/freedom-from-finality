@@ -21,10 +21,10 @@ src/
   tts/elevenlabs.py          # opt-in voice-over TTS (narration: "tts")
   playback/mux.py            # ffmpeg concat + audio mux
   playback/player.py         # Playable + Player boundary of the live loop; TerminalPlayer (ffplay + stdin)
-  web/                       # WebPlayer (aiohttp: SSE stream, /input, clips) + player.html
+  web/                       # WebPlayer (aiohttp: SSE stream, /input, clips, /beacon) + player.html
   eval/runner.py             # run_live (the film: just-in-time render, viewer interrupts) · run_play (terminal, turn by turn)
   ui/terminal.py             # free-text input between clips (run_play)
-  util/                      # json sanitizer, langfuse, media, prompt loader, story log
+  util/                      # json sanitizer, langfuse, media, prompt loader, story log, timing log
 tests/                       # python -m tests.run (no pytest needed)
 scripts/steer.py             # scripted viewer: posts lines to a running web player at given segments
 scripts/latency_probe.py     # seconds per clip second for one server setting (the real-time work)
@@ -55,7 +55,7 @@ python main.py play --config configs/director.replay.yaml --player web          
 python -m tests.run                                                                       # offline test suite (mock LLM)
 ```
 
-Default to the headless config. Live runs need an LTX-2.5 server reachable at `ltxv_server_url` on a GPU box, so they are not available by default in this environment. The live film runs **on the GPU box**: `server/vast_run.sh up` rents it and starts the server, `server/vast_run.sh run` ships the working tree there, runs `main.py play --player web` next to the server and tunnels the player to `http://127.0.0.1:8765/`, `pull` fetches the logs and clips, `down` destroys the box. `--player web` serves the player at `http://127.0.0.1:8765/` (`--port`, `--host`); `--segments N` bounds a live run. Runs write a markdown transcript to `logs/` and the world model to `logs/sessions/<session>/`.
+Default to the headless config. Live runs need an LTX-2.5 server reachable at `ltxv_server_url` on a GPU box, so they are not available by default in this environment. The live film runs **on the GPU box**: `server/vast_run.sh up` rents it and starts the server, `server/vast_run.sh run` ships the working tree there, runs `main.py play --player web` next to the server and tunnels the player to `http://127.0.0.1:8765/`, `pull` fetches the logs and clips, `down` destroys the box. `--player web` serves the player at `http://127.0.0.1:8765/` (`--port`, `--host`); `--segments N` bounds a live run. Runs write a markdown transcript to `logs/` and the world model and a timing log (`timing.jsonl`: fires, renders, queue margins, stalls, viewer lines, Director calls, browser beacons) to `logs/sessions/<session>/`.
 
 ## Current constraints
 

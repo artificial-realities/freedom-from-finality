@@ -41,6 +41,19 @@ DEFAULT_SIZE = (960, 544)
 # Fraction of the frame height the reference subject is scaled to when
 # letterboxed: a wide product shot with margins, not a crop.
 REFERENCE_SCALE = 0.8
+# The server's per-clip response headers, as `last_render` keys for the
+# run's timing log.
+RENDER_HEADERS: dict[str, tuple[str, type]] = {
+    "X-Latency-S": ("latency_s", float),
+    "X-Encode-S": ("encode_s", float),
+    "X-Timings": ("timings", str),
+    "X-Num-Frames": ("num_frames", int),
+    "X-Duration-S": ("duration_s", float),
+    "X-Frame-Rate": ("frame_rate", float),
+    "X-Has-Audio": ("has_audio", str),
+    "X-Variant": ("variant", str),
+    "X-Encoder": ("encoder", str),
+}
 
 
 class LtxvI2V(I2VBackend):
@@ -72,9 +85,6 @@ class LtxvI2V(I2VBackend):
         # with this strength, so the clip has to return to the sheet. 0 = off.
         self.anchor_strength = anchor_strength
         self.anchor_index = anchor_index
-        # Server-reported render time of the last clip (X-Latency-S), for
-        # the sweep and the run log; None until a clip has rendered.
-        self.last_latency_s: float | None = None
         # "pad": letterbox the seed image onto a `reference_fill` canvas at
         # the server's render size so nothing is cropped (a square reference
         # sent to a 3:2 render otherwise loses the top of the subject and the
@@ -94,6 +104,13 @@ class LtxvI2V(I2VBackend):
         # silently disagree about the frame rate or the render size.
         self._frame_rate: int | None = None
         self._size: tuple[int, int] | None = None
+
+    @property
+    def last_latency_s(self) -> float | None:
+        """Server-reported render time of the last clip (X-Latency-S);
+        None until a clip has rendered."""
+        value = self.last_render.get("latency_s")
+        return value if isinstance(value, float) else None
 
     # ── Frame-count helpers ──────────────────────────────────────────
 
@@ -189,6 +206,8 @@ class LtxvI2V(I2VBackend):
             payload["anchor_index"] = self.anchor_index
         if not self._initialized:
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
+        self.last_render = {"requested_frames": payload["num_frames"],
+                            "reference": "reference_image" in payload}
 
         url = f"{self.server_url}/generate"
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
@@ -197,8 +216,11 @@ class LtxvI2V(I2VBackend):
         if resp.status_code == 400 and "reference_image" in resp.text:
             logger.warning("LTX-2.5 server lost state — re-seeding reference")
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
+            self.last_render = {**self.last_render, "reference": True, "reseeded": True}
             resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
 
+        self.last_render = {**self.last_render, "status": resp.status_code,
+                            **render_headers(resp.headers)}
         if resp.status_code != 200:
             logger.warning(
                 "LTX-2.5 server returned %s on turn %s: %s",
@@ -207,10 +229,6 @@ class LtxvI2V(I2VBackend):
             return None
 
         self._initialized = True
-        try:
-            self.last_latency_s = float(resp.headers.get("X-Latency-S", ""))
-        except ValueError:
-            self.last_latency_s = None
 
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = self.output_dir / f"turn_{turn:04d}_{stamp}.mp4"
@@ -228,6 +246,21 @@ class LtxvI2V(I2VBackend):
         if resp.headers.get("X-Timings"):
             logger.info("LTX-2.5 turn %d timings: %s", turn, resp.headers["X-Timings"])
         return str(out_path)
+
+
+def render_headers(headers) -> dict:
+    """The server's per-clip headers present in `headers`, typed; a value
+    that does not parse is kept as the raw string."""
+    out: dict = {}
+    for name, (key, cast) in RENDER_HEADERS.items():
+        raw = headers.get(name)
+        if raw is None:
+            continue
+        try:
+            out[key] = cast(raw)
+        except ValueError:
+            out[key] = raw
+    return out
 
 
 def snap_to_frame_grid(raw_frames: int) -> int:

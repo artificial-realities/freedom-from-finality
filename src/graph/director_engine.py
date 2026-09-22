@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from src.agents import director as director_agent
@@ -47,6 +48,7 @@ from src.story.validator import Report, apply_clip, apply_showrunner
 from src.story.world import EventRecord, WorldModel
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.util.langfuse_setup import event as langfuse_event
+from src.util.timing_log import TimingLog
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +61,14 @@ class DirectorEngine:
         config: Config,
         tts: ElevenLabsTTS | None = None,
         session_dir: Path | str | None = None,
+        timing: TimingLog | None = None,
     ) -> None:
         self.llm = llm
         self.config = config
         self.tts = tts
         self.session_dir = Path(session_dir) if session_dir else None
+        # The run's timing log: each plan writes director_start/director_end.
+        self.timing = timing or TimingLog(None)
         self.world: WorldModel | None = None
         self.llm_director = (
             build_backend(config.llm_backend, config.director_model or config.model,
@@ -114,6 +119,27 @@ class DirectorEngine:
         """Ask the Director for the next beat, starting at `state.turn_number`
         and answering `state.user_input`. Cancellable while the LLM runs:
         the world is untouched until the call returns."""
+        seg = state.turn_number
+        answers = bool((state.user_input or "").strip())
+        started = time.monotonic()
+        self.timing.write("director_start", turn=seg, input=answers)
+        try:
+            cost = await self._plan(state)
+        except BaseException as exc:
+            cancelled = isinstance(exc, asyncio.CancelledError)
+            self.timing.write("director_end", turn=seg, input=answers, cancelled=cancelled,
+                              plan_s=round(time.monotonic() - started, 4),
+                              **({} if cancelled else {"error": type(exc).__name__}))
+            raise
+        self.timing.write("director_end", turn=seg, input=answers,
+                          plan_s=round(time.monotonic() - started, 4), **cost)
+
+    async def _plan(self, state: StoryState) -> dict:
+        """The plan itself. Returns what it cost, for the timing log: the
+        beat number, its clip count, the Director call(s) alone
+        (`director_s`, inside the whole plan's `plan_s`; `retry` = the
+        validator re-ask ran), whether it fell back to holding the picture,
+        and whether the bootstrap ran first."""
         if self.world is None:
             self.world = self._init_world(state)
             self._last_spawn = self.world.last_showrunner
@@ -129,7 +155,8 @@ class DirectorEngine:
         if text:
             world.add_intervention(seg, text)
 
-        if world.plan.scene is None:
+        bootstrap = world.plan.scene is None
+        if bootstrap:
             await self._run_showrunner_now(state, reason="bootstrap: opening the film", mode="bootstrap", at_segment=seg - 1)
             notes.extend(self._showrunner_notes)
             self._showrunner_notes = []
@@ -138,12 +165,15 @@ class DirectorEngine:
         pnote = pacing_note(world, self.config)
         snote = scene_note(world, self.config)
 
-        beat, dnotes = await director_agent.run(
+        called = time.monotonic()
+        beat, dnotes, retried = await director_agent.run(
             world=world, state=state, llm=self.llm_director, config=self.config,
             voiceover_open=vo_open, pacing_note=pnote, scene_note=snote,
             beat_status=self._beat_status(),
         )
+        director_s = time.monotonic() - called
         notes.extend(dnotes)
+        fallback = beat is None
         if beat is None:
             beat = self._fallback_beat()
             notes.append("director: call failed; holding the picture for one clip")
@@ -172,6 +202,8 @@ class DirectorEngine:
                 spawned = reason
         self._plan_notes = notes
         self._plan_meta = {"vo_open": vo_open, "pacing": pnote, "trigger": spawned, "forced": forced_done}
+        return {"beat": world.beats, "clips": len(beat.clips), "director_s": round(director_s, 4),
+                "retry": retried, "fallback": fallback, "bootstrap": bootstrap}
 
     def discard_pending_input(self, segment: int) -> None:
         """A plan was cancelled before it returned: forget the line it had
@@ -563,6 +595,6 @@ class DirectorEngine:
 
 def build_director_engine(
     *, llm: LLMBackend, config: Config, tts: ElevenLabsTTS | None = None,
-    session_dir: Path | str | None = None,
+    session_dir: Path | str | None = None, timing: TimingLog | None = None,
 ) -> DirectorEngine:
-    return DirectorEngine(llm=llm, config=config, tts=tts, session_dir=session_dir)
+    return DirectorEngine(llm=llm, config=config, tts=tts, session_dir=session_dir, timing=timing)

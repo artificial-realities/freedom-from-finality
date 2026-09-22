@@ -73,8 +73,9 @@ async def run(
     pacing_note: str,
     scene_note: str,
     beat_status: str,
-) -> tuple[BeatPlan | None, list[str]]:
-    """Return (beat, notes). `beat` is None on a parse failure."""
+) -> tuple[BeatPlan | None, list[str], bool]:
+    """Return (beat, notes, retried). `beat` is None on a parse failure;
+    `retried` says the validator re-ask was made (a second LLM call)."""
     clip_seconds = config.clip_seconds or config.i2v_duration
     system_prompt = load_prompt(
         SYSTEM_PATH,
@@ -109,9 +110,10 @@ async def run(
     notes: list[str] = []
     beat = await _call(system_prompt, user_prompt, llm, config, state.turn_number)
     if beat is None:
-        return None, ["director: structured parse failed"]
+        return None, ["director: structured parse failed"], False
 
     report = check(beat, world, max_clips=config.max_clips_per_beat)
+    retried = bool(report.violations)
     if report.violations:
         notes.append("director: first proposal rejected: " + "; ".join(report.violations))
         retry_prompt = (
@@ -133,4 +135,4 @@ async def run(
                 )
             else:
                 notes.append("director: retry accepted")
-    return beat, notes
+    return beat, notes, retried

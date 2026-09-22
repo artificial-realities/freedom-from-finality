@@ -139,9 +139,34 @@
   const serverNow = () => Date.now() / 1000 - skew;
   let stalled = false;            // the active video is waiting for data mid-clip
   videos.forEach(v => {
-    v.addEventListener('waiting', () => { if (v.classList.contains('active')) stalled = true; });
+    v.addEventListener('waiting', () => {
+      if (!v.classList.contains('active')) return;
+      stalled = true;
+      beacon('waiting', { turn: +v.dataset.turn, media_time: round1(v.currentTime) });
+    });
     ['playing', 'pause', 'ended'].forEach(ev => v.addEventListener(ev, () => { stalled = false; }));
   });
+
+  // ── Timing beacons ───────────────────────────────────────────────
+  // The page's own timing, for the run's timing log. Fire and forget:
+  // nothing on screen depends on them.
+  function beacon(kind, data) {
+    const body = JSON.stringify(Object.assign({ kind }, data));
+    try {
+      if (navigator.sendBeacon && navigator.sendBeacon('/beacon', body)) return;
+      fetch('/beacon', { method: 'POST', body, keepalive: true }).catch(() => {});
+    } catch (e) {}
+  }
+  const round1 = x => Math.round(x * 10) / 10;
+
+  // The swap as the page sees it: from the `playing` event to the element
+  // actually playing. Sent once per clip.
+  function watchSwap(v, turn, t0, prefetched, offset) {
+    const wasArmed = armed;
+    v.addEventListener('playing', () => {
+      if (v.dataset.turn == turn) beacon('swap', { turn, ms: round1(performance.now() - t0), prefetched, offset: round1(offset), armed: wasArmed });
+    }, { once: true });
+  }
 
   // ── Status ───────────────────────────────────────────────────────
   function setStatus(text, kind) {
@@ -168,8 +193,12 @@
     const standby = videos[1 - active];
     const cur = videos[active];
     const v = (cur.dataset.url === item.url && cur.dataset.turn == item.turn) ? cur : standby;
+    const t0 = performance.now();
+    const prefetched = v.dataset.url === item.url;
+    if (!prefetched) beacon('loadstart_on_playing', { turn: item.turn });
     if (v.dataset.url !== item.url) { v.src = item.url; v.dataset.url = item.url; v.load(); }
     v.dataset.turn = item.turn;
+    if (v !== cur) watchSwap(v, item.turn, t0, prefetched, offset);
     v.muted = muted;
     const seekAndPlay = () => {
       const dur = isFinite(v.duration) ? v.duration : item.duration;

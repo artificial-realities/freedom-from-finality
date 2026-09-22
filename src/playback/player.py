@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 from abc import ABC, abstractmethod
+from typing import Callable
 
 from pydantic import BaseModel, Field
 
@@ -52,8 +53,16 @@ class Player(ABC):
     def __init__(self, *, time_scale: float = 1.0) -> None:
         # >1 shortens every wait; only tests use it.
         self.time_scale = max(time_scale, 1e-6)
-        self._inputs: asyncio.Queue[str] = asyncio.Queue()
+        self._inputs: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
         self._arrived = asyncio.Event()   # set while a line is waiting
+        self._line_no = 0
+        # For the timing log: every line gets an id as it arrives;
+        # `taken` holds the ids of the lines the last `next_input` returned.
+        self.taken: list[int] = []
+        # Observers the live loop sets for the timing log: a non-blank line
+        # arrived (id, text), and a browser beacon arrived (web player only).
+        self.on_line: Callable[[int, str], None] | None = None
+        self.on_beacon: Callable[[dict], None] | None = None
 
     async def start(self, *, title: str, session_id: str) -> None:
         """Bring the surface up before the first segment."""
@@ -75,11 +84,15 @@ class Player(ABC):
         """Everything the viewer typed since the last call, oldest first,
         joined into one line. Empty when nothing arrived."""
         lines: list[str] = []
+        ids: list[int] = []
         while not self._inputs.empty():
-            line = (await self._inputs.get()).strip()
+            line_id, line = await self._inputs.get()
+            line = line.strip()
             if line:
                 lines.append(line)
+                ids.append(line_id)
         self._arrived.clear()
+        self.taken = ids
         return " ".join(lines)
 
     def has_input(self) -> bool:
@@ -97,8 +110,11 @@ class Player(ABC):
         return True
 
     def push_input(self, text: str) -> None:
-        self._inputs.put_nowait(text)
+        self._line_no += 1
+        self._inputs.put_nowait((self._line_no, text))
         self._arrived.set()
+        if self.on_line is not None and text.strip():
+            self.on_line(self._line_no, text.strip())
 
     async def _hold(self, seconds: float) -> None:
         await asyncio.sleep(max(0.0, seconds) / self.time_scale)

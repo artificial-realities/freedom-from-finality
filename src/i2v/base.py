@@ -20,6 +20,11 @@ class I2VBackend(ABC):
     #: calls).
     manages_continuity: bool = False
 
+    #: What the backend learned about its last render, for the run's timing
+    #: log (the LTX server's per-clip headers, for example). Replaced, never
+    #: mutated in place, on every `synthesize`; empty when nothing is known.
+    last_render: dict = {}
+
     @abstractmethod
     async def synthesize(
         self,
