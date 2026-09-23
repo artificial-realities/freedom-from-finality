@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_003 (RUN-13 part b), 2026-09-22
+- **Latest completed batch:** BATCH_004 (RUN-13 part c), 2026-09-22
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -64,7 +64,7 @@ The execution state of every decision in the final decision record. The record i
 | RUN-10 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-01 | — | — | Gated by X-11 (GPU); RUN-01 first. |
 | RUN-11 | APPROVED | 1 | NOT_STARTED | none | — | — | Static checks + fallback now; the 16:9 asset swap stays gated by X-12 (GPU). |
 | RUN-12 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-02, LTX-12 | — | — | Built only if X-02 leaves a swap gate unmet. |
-| RUN-13 | APPROVED | 0 | IN_PROGRESS | RUN-05 | BATCH_002, BATCH_003 | Part a: `python -m tests.run` 42/42 (10 new in `tests/test_bench.py`); `bench_report` on the BATCH_001 logs (`logs/batch-002/bench-*.txt`): the real headless run fails `stalls` and `min_queue_margin_s` as expected. Part b: `python -m tests.run` 45/45 (3 new in `tests/test_jit.py`); `test_jit` 5/5 repeat runs and under full CPU load; five scheduler mutations of `runner.py` all caught (`logs/batch-003/mutations.txt`) | Done: a = `benchmarks/runtime/baseline.json`, `scripts/bench_report.py`, README table, CLAUDE.md pointer; b = `tests/jit_sim.py` + `tests/test_jit.py` (live config at 25×, baseline draws, adversarial lines, zero stalls; the ≥ 1 s margin gate is not met under a line 0.3 s before a fire, by design of the current policy: X-09/RUN-06). Remaining: c = `seam_check.py`, `audio_check.py`; d = compiler replay harness, `latency_probe --warm 30` with +3 % tolerance. |
+| RUN-13 | APPROVED | 0 | IN_PROGRESS | RUN-05 | BATCH_002, BATCH_003, BATCH_004 | Part a: `python -m tests.run` 42/42 (10 new in `tests/test_bench.py`); `bench_report` on the BATCH_001 logs (`logs/batch-002/bench-*.txt`): the real headless run fails `stalls` and `min_queue_margin_s` as expected. Part b: `python -m tests.run` 45/45 (3 new in `tests/test_jit.py`); `test_jit` 5/5 repeat runs and under full CPU load; five scheduler mutations of `runner.py` all caught (`logs/batch-003/mutations.txt`). Part c: `python -m tests.run` 53/53 (8 new in `tests/test_checks.py`); `seam_check` and `audio_check` on the 2026-09-18 clips reproduce review 03 §3 and review 04 §9.1 (`logs/batch-004/`: dip 24.9 %, swap p95 2.1 ms, 6 reloads with two queued, 3 fades with the outgoing element replaced; 16 clips above −18 LUFS, 14 over −1 dBTP, narrated-to-next 20.8 LU); canvas dip against screenshots within 0.3 % | Done: a = `benchmarks/runtime/baseline.json`, `scripts/bench_report.py`, README table, CLAUDE.md pointer; b = `tests/jit_sim.py` + `tests/test_jit.py` (live config at 25×, baseline draws, adversarial lines, zero stalls; the ≥ 1 s margin gate is not met under a line 0.3 s before a fire, by design of the current policy: X-09/RUN-06). c = `scripts/seam_check.py` (files + headless Chromium), `scripts/audio_check.py` (clips + played mix), `tests/test_checks.py`. Remaining: d = compiler replay harness, `latency_probe --warm 30` with +3 % tolerance (GPU-validated only). |
 | AUD-01 | APPROVED | — | NOT_STARTED | none | — | — | Approved direction with no direct code scope; realised through AUD-04/05/06/07. Validation needs X-01 (listeners) and X-15/X-29 (GPU). |
 | AUD-02 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-12, RUN-01, AUD-03 | — | — | One design with LTX-12/AUD-03; gated by X-02. |
 | AUD-03 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-12, AUD-02 | — | — | One design with LTX-12/AUD-02; value from X-13 (local), rollout with X-02. |
@@ -93,7 +93,7 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | ID | Kind | Gates | Prerequisites before it can run | Needs | State | GPU $ | Result |
 |---|---|---|---|---|---|---|---|
 | X-01 | blocking | AUD-05 | Session A clips (local); blind pairs prepared | ≥ 3 human listeners (owner) | NOT_STARTED | 0 | — |
-| X-02 | blocking | AUD-02, LTX-12, RUN-12 | RUN-01; AUD-02/AUD-03/LTX-12 candidate as an off-by-default variant; `scripts/seam_check.py` (RUN-13) | local, headless Chromium | NOT_STARTED | 0 | — |
+| X-02 | blocking | AUD-02, LTX-12, RUN-12 | RUN-01; AUD-02/AUD-03/LTX-12 candidate as an off-by-default variant; `scripts/seam_check.py` and `scripts/audio_check.py --policy overlap` (done, BATCH_004) | local, headless Chromium | NOT_STARTED | 0 | — |
 | X-03 | blocking | LTX-12 shape; RUN-04 | RUN-01, RUN-05, RUN-13 (`latency_probe --warm`, `bench_report`), LTX-09 | GPU (~30 min), session 1 | NOT_STARTED | 0 | — |
 | X-04 | blocking | LTX-11 | as X-03; replayable Director outputs | GPU (~45 min), session 1 | NOT_STARTED | 0 | — |
 | X-05 | blocking | LTX-01 flag default | LTX-01 arm (flag off), RUN-13 compiler replay harness, LTX-09 | GPU (~45 min), session 1 | NOT_STARTED | 0 | — |
@@ -104,7 +104,7 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | X-10 | blocking (long-film trust) | RUN-04 for long films | phases 0-5 | GPU (~40 min), session 2 | NOT_STARTED | 0 | — |
 | X-11 | blocking | RUN-10 flag default | RUN-01; RUN-10 behind a flag | GPU (~20 min), session 2 | NOT_STARTED | 0 | — |
 | X-12 | blocking | RUN-11 asset swap | RUN-11 static checks; a 16:9 master | GPU (~10 min), session 2 | NOT_STARTED | 0 | — |
-| X-13 | blocking | AUD-03 value | session A clips; `scripts/audio_check.py` (RUN-13) | local + listening H2 | NOT_STARTED | 0 | — |
+| X-13 | blocking | AUD-03 value | session A clips (local); `scripts/audio_check.py` (done, BATCH_004; the ceiling arm needs the AUD-03 candidate encode) | local + listening H2 | NOT_STARTED | 0 | — |
 | X-14 | conditional | AUD-09 | only if X-02 leaves audible gaps and AUD-09 is reopened | local + listening | NOT_STARTED | 0 | — |
 | X-15 | blocking | AUD-07; informs RUN-02 | X-18 candidate durations; LTX-05; AUD-06 | GPU (45-60 min) + listeners | NOT_STARTED | 0 | — |
 | X-18 | blocking | RUN-02 | RUN-01, RUN-05, RUN-08, LTX-09; multi-shape warm-up | GPU (60-90 min) | NOT_STARTED | 0 | — |
@@ -128,10 +128,13 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 |---|---|---|---|---|
 | BATCH_001 | 2026-09-22 | RUN-05 | COMPLETED (commit `b5e6d3d`) | `implementation_batches/BATCH_001.md` |
 | BATCH_002 | 2026-09-22 | RUN-13 (part a) | COMPLETED (row stays IN_PROGRESS; commit `e77c787`) | `implementation_batches/BATCH_002.md` |
-| BATCH_003 | 2026-09-22 | RUN-13 (part b) | COMPLETED (row stays IN_PROGRESS) | `implementation_batches/BATCH_003.md` |
+| BATCH_003 | 2026-09-22 | RUN-13 (part b) | COMPLETED (row stays IN_PROGRESS; commit `a14c44a`) | `implementation_batches/BATCH_003.md` |
+| BATCH_004 | 2026-09-22 | RUN-13 (part c) | COMPLETED (row stays IN_PROGRESS) | `implementation_batches/BATCH_004.md` |
 
 ## Reconciliation notes
 
+- 2026-09-22 (BATCH_004 close): RUN-13 part c validated; the row stays `IN_PROGRESS` for part d. X-02's and X-13's measurement tools now exist. Recorded as evidence for the experiment-gated seam rows, not as a status change: today's player shows a 24.9 % crossfade dip at every seam, reloads on `playing` for both clips whenever two are queued (review 03 §3 2c), and replaces the fading element with the next prefetch when a clip is queued inside the fade (2d), an 85 % one-frame blink; the mix has a 21.5 dB median seam step under the fade-in and 36 dB at the raw join.
+- 2026-09-22 (session 4 start): record SHA-256 unchanged; `python -m tests.run` 45/45. The owner committed BATCH_003 as `a14c44a`; recorded in the Batches table. BATCH_004 selected: RUN-13 part c (seam and audio checks), local material and tooling available; part d waits (its `latency_probe --warm` needs a GPU).
 - 2026-09-22 (BATCH_003 close): RUN-13 part b validated; the row stays `IN_PROGRESS` for parts c and d. The JIT simulation (the X-09 prerequisite) exists; X-09 still waits for ARCH-06. Recorded for RUN-06/X-09: under the current policy a line 0.3 s before a fire, answered by a ~4 s Director call, leaves ~1.0 s of queue margin (the RUN-04 gate's floor).
 - 2026-09-22 (session 3 start): record SHA-256 unchanged; `python -m tests.run` 42/42. The owner committed BATCH_002 as `e77c787` (with the ledger and BATCH_001 report updates); recorded here and in the Batches table. BATCH_003 selected: RUN-13 part b, as BATCH_002 recommended.
 - 2026-09-22 (BATCH_002 close): RUN-13 part a validated; the row stays `IN_PROGRESS` for parts b-d. RUN-04's thresholds now exist in the baseline file as `bench_report`'s input; RUN-04 is not marked started.
