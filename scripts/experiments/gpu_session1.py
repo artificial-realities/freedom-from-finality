@@ -179,11 +179,12 @@ def render_arm(server: str, folder: Path, reference: str) -> None:
         row = {"segment": clip["segment"], "index": n + 1, "path": path.name, "wall_s": round(wall, 3),
                "seed": payload["seed"], "frames": spec["frames"], "window": spec["window"],
                "sha256": hashlib.sha256(resp.content).hexdigest(),
-               "headers": {k: v for k, v in resp.headers.items() if k.startswith("X-")}}
+               # uvicorn sends header names in lower case: keep them lower case.
+               "headers": {k.lower(): v for k, v in resp.headers.items() if k.lower().startswith("x-")}}
         with done.open("a") as f:
             f.write(json.dumps(row) + "\n")
         print(f"  {folder.parent.name}/{folder.name} {n + 1:2}/{len(spec['chain'])} seg {clip['segment']:3} "
-              f"{wall:5.2f} s  {row['headers'].get('X-Timings', '')[:60]}", flush=True)
+              f"{wall:5.2f} s  {row['headers'].get('x-timings', '')[:60]}", flush=True)
 
 
 def run(server: str, out: Path, only: list[str] | None) -> None:
@@ -281,7 +282,7 @@ def analyse(out: Path) -> dict:
             ratios = [r["wall_s"] / delivered for r in rows]
             warm = ratios[3:] or ratios
             # The server's own generate + encode, without the HTTP transfer.
-            server = [(float(r["headers"].get("X-Latency-S", 0)) + float(r["headers"].get("X-Encode-S", 0))) / delivered
+            server = [(float(r["headers"].get("x-latency-s", 0)) + float(r["headers"].get("x-encode-s", 0))) / delivered
                       for r in rows]
             server_warm = server[3:] or server
             figure = []
