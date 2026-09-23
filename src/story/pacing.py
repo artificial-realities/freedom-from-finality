@@ -13,6 +13,13 @@ from src.models.config import Config
 from src.state.story_state import StoryState
 from src.story.world import WorldModel
 
+# The stagnation ladder, in multiples of `stagnation_seconds`: pressure on
+# the Director from 1x, a REQUIRED shift from 1.5x, and a Showrunner replan
+# from 2x, one beat after the Director was required to act, so each rung
+# has one owner (ARCH-05).
+REQUIRED_AT = 1.5
+SHOWRUNNER_REPLAN_AT = 2.0
+
 
 def voiceover_gate(state: StoryState, config: Config) -> bool:
     """True when the Director may fill `voiceover` this beat."""
@@ -45,7 +52,7 @@ def pacing_note(world: WorldModel, config: Config) -> str:
     t = max(1.0, config.stagnation_seconds)
     if quiet < t:
         return "The story is moving; no pacing pressure. A quiet beat is fine."
-    if quiet < 1.5 * t:
+    if quiet < REQUIRED_AT * t:
         return (
             f"{quiet:.0f} s of film since anything in the world changed. Land a concrete "
             "development in this beat or the next: introduce a new prop, reveal "
@@ -78,7 +85,9 @@ def scene_note(world: WorldModel, config: Config) -> str:
 
 def stagnation_report(world: WorldModel, config: Config) -> str:
     quiet = world.seconds_since_change()
-    parts = [f"{quiet:.0f} s of film since the last structural change (pressure from {config.stagnation_seconds:.0f} s)."]
+    t = config.stagnation_seconds
+    parts = [f"{quiet:.0f} s of film since the last structural change (pressure on the Director from {t:.0f} s, "
+             f"a required shift from {REQUIRED_AT * t:.0f} s, your replan from {SHOWRUNNER_REPLAN_AT * t:.0f} s)."]
     card = world.plan.scene
     if card is not None:
         parts.append(f"The current scene has run {world.scene_seconds():.0f} s (intended about {config.scene_seconds:.0f} s).")

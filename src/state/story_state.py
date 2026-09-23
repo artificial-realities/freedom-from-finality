@@ -78,6 +78,7 @@ class StoryState(BaseModel):
     characters: list[Character] = Field(default_factory=list)
     world_constraints: list[str] = Field(default_factory=list)
     narrative_premise: str = ""
+    thread_guidance: str = ""
     cast_locked: bool = False
 
     def get_recent_history(self, count: int = 5) -> list[HistoryEntry]:
@@ -97,6 +98,7 @@ class StoryState(BaseModel):
             characters=list(story.characters),
             world_constraints=list(story.world_constraints),
             narrative_premise=story.narrative_premise,
+            thread_guidance=story.thread_guidance,
             cast_locked=story.cast_locked,
             long_term_narrative=story.long_term_narrative,
             short_term_narrative=story.short_term_narrative,

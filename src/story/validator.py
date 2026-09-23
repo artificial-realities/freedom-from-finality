@@ -13,10 +13,11 @@ leaves the world exactly as far along as the picture.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from src.story.schemas import BeatPlan, EntityOp, ShowrunnerUpdate
-from src.story.world import Entity, SceneCard, Summary, Thread, WorldModel, slugify
+from src.story.world import MAX_NOTES, Entity, SceneCard, Summary, Thread, WorldModel, slugify
 
 
 @dataclass
@@ -273,6 +274,48 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     return r
 
 
+_NOTE_STOPWORDS = frozenset(
+    "with that this from have been their they them into onto only just also very most more "
+    "some such than then there here what when where which while your about after before over under".split()
+)
+# A note whose significant words are at least this share of the cast
+# description's (with at least `_NOTE_MIN_WORDS` of them) restates it.
+_NOTE_RESTATES = 0.75
+_NOTE_MIN_WORDS = 4
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9']+", text.lower()))
+
+
+def _significant(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z0-9']+", text.lower()) if len(w) >= 4 and w not in _NOTE_STOPWORDS]
+
+
+def redundant_note(body: str, ent: Entity, world: WorldModel, update: ShowrunnerUpdate) -> str | None:
+    """Why a Showrunner note adds nothing, or None: it is already a note,
+    it is contained in a summary (the stored ones or this update's), or it
+    restates the entity's cast description (contained in it, or three
+    quarters of its words drawn from it)."""
+    note = _norm(body)
+    if not note:
+        return "empty"
+    if any(note == _norm(n) for n in ent.notes):
+        return "already noted"
+    sheet = " ".join((ent.description, ent.look, ent.look_short, ent.reference_pose))
+    if note in _norm(sheet):
+        return "contained in the cast description"
+    words = _significant(body)
+    if len(words) >= _NOTE_MIN_WORDS:
+        known = set(_significant(sheet))
+        if sum(w in known for w in words) / len(words) >= _NOTE_RESTATES:
+            return "restates the cast description"
+    summaries = [s.text for s in world.summaries] + [world.act_summary, update.scene_summary, update.act_summary]
+    if any(note in _norm(text) for text in summaries if text):
+        return "contained in a summary"
+    return None
+
+
 def apply_showrunner(
     world: WorldModel, update: ShowrunnerUpdate, *, at_segment: int, force_replan: bool,
 ) -> list[str]:
@@ -291,12 +334,26 @@ def apply_showrunner(
         world.act_summary = update.act_summary.strip()
         notes.append("act summary updated")
 
+    # Notes: characters only (nothing shows a prop's notes), never a
+    # restatement of the cast sheet or a summary, at most MAX_NOTES each.
     for note in update.entity_notes:
         ent = world.resolve(note.entity)
-        body = note.note.strip()
-        if ent is not None and body and body not in ent.notes:
-            ent.notes.append(body)
-            notes.append(f"note on {ent.id}: {body}")
+        body = " ".join(note.note.split())
+        if ent is None or not body:
+            continue
+        if ent.kind != "character":
+            notes.append(f"note on {ent.id} not kept (only characters keep notes): {body}")
+            continue
+        why = redundant_note(body, ent, world, update)
+        if why:
+            notes.append(f"note on {ent.id} not kept ({why}): {body}")
+            continue
+        ent.notes.append(body)
+        notes.append(f"note on {ent.id}: {body}")
+        if len(ent.notes) > MAX_NOTES:
+            dropped = ent.notes[: len(ent.notes) - MAX_NOTES]
+            del ent.notes[: len(dropped)]
+            notes.append(f"oldest note on {ent.id} dropped (cap {MAX_NOTES}): " + " | ".join(dropped))
 
     for tid in update.threads_to_drop:
         thread = next((t for t in world.threads if t.id == tid and t.status == "open"), None)

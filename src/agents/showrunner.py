@@ -53,10 +53,11 @@ INSTRUCTIONS = {
     "compact": (
         "This is a compaction pass mid-scene. Summarize the events since the last "
         "compaction. Check the stagnation report: if the scene has stalled (the "
-        "stagnation timer is above the pressure threshold and the recent events show "
+        "stagnation timer has reached your replan threshold and the recent events show "
         "no new props, no structural changes, just variations on the same activity), "
         "set `replan` = true and write a next scene card that introduces something "
-        "new. Otherwise keep the current scene (`replan` = false)."
+        "new. Otherwise keep the current scene (`replan` = false): below that "
+        "threshold the Director is the one asked to break the rut."
     ),
 }
 
@@ -79,6 +80,7 @@ async def run(
         world_constraints=format_rules(state.world_constraints),
         cast=format_cast(world),
         locations=format_locations(world),
+        thread_guidance=state.thread_guidance.strip() or "(none given: judge each thread by the story)",
     )
     user_prompt = load_prompt(
         USER_PATH,

@@ -22,6 +22,10 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 EntityKind = Literal["character", "prop", "location"]
 
+# Durable notes kept per character (the Showrunner's `entity_notes`); the
+# oldest goes when a new one arrives past the cap. Every kept note is shown.
+MAX_NOTES = 4
+
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
@@ -42,7 +46,7 @@ class Entity(BaseModel):
     gone: bool = False           # removed from the story world
     first_seen: int = 0
     last_seen: int = 0
-    notes: list[str] = Field(default_factory=list)   # durable facts (Showrunner)
+    notes: list[str] = Field(default_factory=list)   # durable facts (Showrunner; characters only, at most MAX_NOTES)
     speaks: bool = True
     reference_pose: str = ""
     # Characters: the state the next clip continues from.
@@ -264,6 +268,10 @@ class WorldModel(BaseModel):
 
     def seconds_since_change(self) -> float:
         return float(sum(e.duration for e in self.events if e.segment > self.last_change))
+
+    def seconds_since(self, segment: int) -> float:
+        """Story seconds played from `segment` on (inclusive): a thread's age."""
+        return float(sum(e.duration for e in self.events if e.segment >= segment))
 
     def events_since(self, segment: int) -> list[EventRecord]:
         return [e for e in self.events if e.segment > segment]

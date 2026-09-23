@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_009 (LTX-09, RUN-11), 2026-09-23
+- **Latest completed batch:** BATCH_010 (ARCH-01, 02, 03, 05, 16, 17), 2026-09-23
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -18,11 +18,11 @@ The execution state of every decision in the final decision record. The record i
 
 | ID | Owner status | Phase | Execution | Depends on | Batch | Validation evidence | Note |
 |---|---|---|---|---|---|---|---|
-| ARCH-01 | APPROVED | 1* | NOT_STARTED | none | — | — | Unplaced in §2; placed with phase 1 (prompts/docs, no code beyond ARCH-02..09). Validation needs a live-run transcript review. |
-| ARCH-02 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
-| ARCH-03 | APPROVED | 1 | NOT_STARTED | ARCH-02 | — | — |  |
+| ARCH-01 | APPROVED | 1* | IN_PROGRESS | none | BATCH_010 | `test_the_showrunner_reads_the_story_thread_guidance` asserts the rule in the Showrunner prompt; suite 77/77 | Rule written into both system prompts, ARCHITECTURE.md and CLAUDE.md. Remaining: the row's transcript review (a run with scripted lines and the real Director). |
+| ARCH-02 | APPROVED | 1 | COMPLETED | none | BATCH_010 | `tests/test_showrunner_clock.py::test_a_held_replan_spawns_at_the_first_plan_past_the_gap`, `test_a_new_card_clears_a_held_replan`; fail on the old engine | `_held_trigger` raised at every plan until a replan run spawns or a new card lands. |
+| ARCH-03 | APPROVED | 1 | COMPLETED | ARCH-02 | BATCH_010 | `test_the_showrunner_snapshot_includes_the_clip_that_triggered_it`, `test_a_spawn_waits_for_the_first_clip_and_survives_a_cut`; fail on the old engine | Trigger decided at the plan, spawned at the beat's first clip after apply + event record; windows `..at_segment` inclusive; a beat cut before clip 1 spawns nothing. |
 | ARCH-04 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; the claim checked against `_run_showrunner_now` and the prompts (BATCH_008 claim table) | `ARCHITECTURE.md` bootstrap step: the only synchronous run and the only route for `short_term_narrative`; why it stays synchronous. |
-| ARCH-05 | APPROVED | 1 | NOT_STARTED | ARCH-03 | — | — |  |
+| ARCH-05 | APPROVED | 1 | COMPLETED | ARCH-03 | BATCH_010 | `test_stagnation_rungs_have_one_owner_each` | `REQUIRED_AT = 1.5` (Director), `SHOWRUNNER_REPLAN_AT = 2.0` (trigger and the compact-mode judgement); docs name both. |
 | ARCH-06 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
 | ARCH-07 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
 | ARCH-08 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-07, ARCH-03 | — | — | Gated by X-07 (LLM-only, headless, scripted lines); ARCH-03 first. |
@@ -33,8 +33,8 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-13 | APPROVED | — | NOT_APPLICABLE | ARCH-02, ARCH-03 | — | — | Approved keep-as-is (no change to the card; scope none). Cards exist in the engine; lifecycle fixes are ARCH-02/03. |
 | ARCH-14 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; checked: nothing reads `current_act` beyond display (BATCH_008 claim table) | `ARCHITECTURE.md`: the arc orients both roles; the code enforces nothing from it. |
 | ARCH-15 | APPROVED | — | NOT_APPLICABLE | none | — | — | Approved keep-as-is (forced scene closure unchanged; scope none). Verified present: `DirectorEngine.plan` forces `scene_done` past `scene_seconds`. |
-| ARCH-16 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
-| ARCH-17 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
+| ARCH-16 | APPROVED | 1 | IN_PROGRESS | none | BATCH_010 | `test_threads_show_their_age`, `test_the_showrunner_reads_the_story_thread_guidance` | Thread age in `format_threads`; continue/resolve/abandon in `rationale`; optional `Story.thread_guidance`. Remaining: the row's transcript review. |
+| ARCH-17 | APPROVED | 1 | COMPLETED | none | BATCH_010 | `test_notes_are_kept_only_when_they_add_something` (session A's restated bootstrap note rejected) | Characters only; restated or summarised notes not kept; `MAX_NOTES = 4`, oldest out. |
 | ARCH-18 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; `format_summaries` pins `scenes[0]` (BATCH_008 claim table) | `ARCHITECTURE.md`: the 2.8K cached system prompt is not cut for latency; the opening pin is the first compaction window; reductions wait for X-07/X-08/X-17. |
 | ARCH-19 | APPROVED | 1 | NOT_STARTED | LTX-05 for voice fields | — | — | Large blueprint/world/validator change; LTX-05 first for voice fields. Full validation includes X-26 (post-implementation). |
 | LTX-01 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-01, LTX-02, RUN-13 (replay harness) | — | — | Gated by X-05 (GPU). Permitted prep: comparison compiler behind an off-by-default flag, after RUN-01 (RUN-13's replay harness is done: BATCH_005). Dependency cycle with LTX-02 in the record (each lists the other); X-06 runs on the prose compiler, so the LTX-01 arm comes first. |
@@ -135,9 +135,11 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_007 | 2026-09-22 | LTX-03, CLEAN-08 | COMPLETED (commit `2367782`) | `implementation_batches/BATCH_007.md` |
 | BATCH_008 | 2026-09-22 | CLEAN-04, ARCH-04, ARCH-14, ARCH-18, CLEAN-10 | COMPLETED (commit `608d7fc`) | `implementation_batches/BATCH_008.md` |
 | BATCH_009 | 2026-09-23 | LTX-09, RUN-11 | COMPLETED (RUN-11; LTX-09 awaits its GPU validation) | `implementation_batches/BATCH_009.md` |
+| BATCH_010 | 2026-09-23 | ARCH-01, ARCH-02, ARCH-03, ARCH-05, ARCH-16, ARCH-17 | COMPLETED (ARCH-01/16 await a transcript review) | `implementation_batches/BATCH_010.md` |
 
 ## Reconciliation notes
 
+- 2026-09-23 (BATCH_010 close): BATCH_009 committed as `571a58a`. ARCH-02/03/05/17 `COMPLETED`; ARCH-01 and ARCH-16 implemented, `IN_PROGRESS` until a transcript with the real Director and scripted lines is reviewed. Suite 77/77. ARCH-08 and ARCH-09 now have ARCH-03 (and ARCH-02) in place; X-07/X-08 still need their harness.
 - 2026-09-23 (session 9, BATCH_009 close): the owner asked for larger batches and for commits without asking; each batch is still reported and committed separately. Record SHA-256 unchanged; HEAD was `608d7fc` (BATCH_008, now in the Batches table); suite 64/64 at start, 69/69 after. RUN-11 `COMPLETED`; LTX-09 implemented and `BLOCKED` on its GPU validation only (X-05). Phase 0 has no open code work.
 - 2026-09-22 (BATCH_008 close): the five documentation rows `COMPLETED`; no behaviour changed (comments and docs only; suite 64/64). Phase 0 has one open row left, LTX-09; phase 1's rows without dependencies (ARCH-02, ARCH-06, ARCH-07, ARCH-16, ARCH-17, AUD-06, LTX-05, RUN-07, RUN-11, ARCH-01, ARCH-11, AUD-04) are unblocked. BATCH_008 is uncommitted.
 - 2026-09-22 (session 7 start): record SHA-256 unchanged; HEAD is `2367782` (BATCH_007, recorded in the Batches table); `python -m tests.run` 64/64 on that tree; the working tree carries only the owner's files. BATCH_008 selected: the five documentation rows (CLEAN-04, ARCH-04, ARCH-14, ARCH-18, CLEAN-10), one boundary, no behaviour.

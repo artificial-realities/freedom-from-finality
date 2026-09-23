@@ -11,7 +11,7 @@ cache hits; everything that moves goes into the user prompt.
 from __future__ import annotations
 
 from src.models.config import Config
-from src.story.world import WorldModel
+from src.story.world import MAX_NOTES, WorldModel
 
 
 def format_rules(constraints: list[str]) -> str:
@@ -69,7 +69,6 @@ def format_plan(world: WorldModel, config: Config) -> str:
 PRESENT_IN_FULL = 12      # most recently seen present entities get a full line
 STATUS_CHARS = 120        # status text is clipped in the prompt, not in the model
 GONE_LISTED = 12
-NOTES_SHOWN = 4
 
 
 def _clip(text: str, n: int) -> str:
@@ -99,7 +98,7 @@ def format_world_now(world: WorldModel) -> str:
                     line += f" · at {ent.location}"
                 out.append(line)
                 if ent.notes:
-                    out.append("  notes: " + " | ".join(ent.notes[-NOTES_SHOWN:]))
+                    out.append("  notes: " + " | ".join(ent.notes[-MAX_NOTES:]))
                 continue
             status = f" · status: {_clip(ent.status, STATUS_CHARS)}" if ent.status else ""
             where = f" · held by {ent.holder}" if ent.holder else (
@@ -132,11 +131,18 @@ def format_world_now(world: WorldModel) -> str:
 
 
 def format_threads(world: WorldModel, limit: int = 8) -> str:
+    """Open threads, newest last, each with its age (segments and story
+    seconds since it opened) so a stale one is visible; nothing expires
+    them in code (ARCH-16)."""
     threads = world.open_threads()
     if not threads:
         return "(none open)"
     shown = threads[-limit:]
-    lines = [f"- `{t.id}` [{t.kind}, opened segment {t.opened_at}] {t.text}" for t in shown]
+    lines = []
+    for t in shown:
+        ago = max(0, world.segment - t.opened_at)
+        age = f"{ago} segment{'s' if ago != 1 else ''}, {world.seconds_since(t.opened_at):.0f} s of film ago"
+        lines.append(f"- `{t.id}` [{t.kind}, opened segment {t.opened_at}, {age}] {t.text}")
     if len(threads) > limit:
         lines.insert(0, f"({len(threads) - limit} older open threads not shown)")
     return "\n".join(lines)

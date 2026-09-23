@@ -9,11 +9,14 @@ Two LLM roles on two clocks, everything else deterministic:
   it goes. The Director is called again when the beat has played out, or
   at once when the viewer speaks: the rest of the beat is dropped and the
   next call is told where the picture actually ends.
-- **Showrunner** — an async task on a slow clock, spawned on triggers
+- **Showrunner** — an async task on a slow clock, triggered at a plan
   (bootstrap, scene exit, stagnation, a replan flag, or every
-  `compaction_interval` segments), at most one in flight and at least
-  `showrunner_min_gap` segments apart. Its update lands at the start of
-  the first plan that finds it finished; nothing ever waits for it.
+  `compaction_interval` segments) and spawned when the beat's first clip
+  has been applied, so its snapshot and its compaction window include
+  the clip that caused it. At most one is in flight and runs are at
+  least `showrunner_min_gap` segments apart; a replan flag that has to
+  wait is remembered until a run takes it. Its update lands at the start
+  of the first plan that finds it finished; nothing ever waits for it.
   Compacts the event log and writes the plan.
 
 Code owns the rest: the typed `WorldModel`, validation and apply, the
@@ -42,7 +45,13 @@ from src.models.config import Config
 from src.models.responses import Beat, Commentary, Shot
 from src.state.story_state import StoryState
 from src.story.compiler import compile_clip
-from src.story.pacing import pacing_note, scene_note, tick_story_clock, voiceover_gate
+from src.story.pacing import (
+    SHOWRUNNER_REPLAN_AT,
+    pacing_note,
+    scene_note,
+    tick_story_clock,
+    voiceover_gate,
+)
 from src.story.schemas import BeatPlan, ClipSpec
 from src.story.validator import Report, apply_clip, apply_showrunner
 from src.story.world import EventRecord, WorldModel
@@ -83,6 +92,14 @@ class DirectorEngine:
         self._showrunner_meta: tuple[int, bool, str] | None = None  # (at_segment, force_replan, reason)
         self._showrunner_notes: list[str] = []
         self._last_spawn: int = 0   # segment the last Showrunner run was spawned at
+        # A replan the Director asked for (scene_done / needs_replan) that no
+        # run has taken yet: (reason, mode, segment first asked). `_trigger`
+        # raises it again at every plan until a replan run spawns or a
+        # replan lands (ARCH-02).
+        self._held_trigger: tuple[str, str, int] | None = None
+        # The trigger this plan decided on, spawned at the beat's first clip
+        # after it is applied (ARCH-03): (reason, mode).
+        self._pending_spawn: tuple[str, str] | None = None
         # The beat being emitted, clip by clip.
         self._beat: BeatPlan | None = None
         self._clip_index: int = 0
@@ -192,16 +209,23 @@ class DirectorEngine:
         self._pending_note = ""
 
         reason, mode = self._trigger(beat, forced_done)
-        spawned: str | None = None
+        if (beat.scene_done or beat.needs_replan) and self._held_trigger is None:
+            # One-shot: remembered until a replan run takes it, so a flag
+            # raised while a run is in flight or inside the gap is not lost.
+            self._held_trigger = (reason or "", mode, seg)
+        self._pending_spawn = None
+        spawning: str | None = None
         if reason:
             held = self._hold_reason(seg)
             if held:
                 notes.append(f"showrunner trigger held ({reason}): {held}")
             else:
-                self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg)
-                spawned = reason
+                # Spawned when this beat's first clip is emitted, after it is
+                # applied, so the snapshot and the window include it.
+                self._pending_spawn = (reason, mode)
+                spawning = reason
         self._plan_notes = notes
-        self._plan_meta = {"vo_open": vo_open, "pacing": pnote, "trigger": spawned, "forced": forced_done}
+        self._plan_meta = {"vo_open": vo_open, "pacing": pnote, "trigger": spawning, "forced": forced_done}
         return {"beat": world.beats, "clips": len(beat.clips), "director_s": round(director_s, 4),
                 "retry": retried, "fallback": fallback, "bootstrap": bootstrap}
 
@@ -234,6 +258,13 @@ class DirectorEngine:
         self._last_beat = (beat.intent, done, total)
         self._beat = None
         self._clip_index = 0
+        if done == 0 and self._pending_spawn is not None:
+            # The clip the run was to follow never played. A replan flag
+            # stays held; the other triggers are re-read at the next plan.
+            self._showrunner_notes.append(
+                f"showrunner ({self._pending_spawn[0]}): not spawned, the beat was cut before its first clip",
+            )
+            self._pending_spawn = None
         # Notes from the plan that never showed (a beat cut before its first clip) carry over.
         if done == 0 and self._plan_notes:
             self._showrunner_notes = self._plan_notes + self._showrunner_notes
@@ -331,6 +362,10 @@ class DirectorEngine:
             duration=duration,
         ))
         self._save()
+        if first and self._pending_spawn is not None:
+            reason, mode = self._pending_spawn
+            self._pending_spawn = None
+            self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg)
 
         notes = self._plan_notes if first else []
         self._plan_notes = [] if first else self._plan_notes
@@ -379,8 +414,15 @@ class DirectorEngine:
             return ("scene_done" + (" (scene length)" if forced_done else ""), "replan")
         if beat.needs_replan:
             return ("needs_replan", "replan")
+        if self._held_trigger is not None:
+            reason, mode, since = self._held_trigger
+            return (f"{reason} (held since segment {since})", mode)
+        # The Director is told a shift is REQUIRED at 1.5x the threshold;
+        # the Showrunner replans only at 2x, a beat later, so the two never
+        # act on the same stall at once (ARCH-05).
         quiet = world.seconds_since_change()
-        if quiet >= 1.5 * cfg.stagnation_seconds and world.segment - world.last_showrunner >= cfg.showrunner_min_gap:
+        if (quiet >= SHOWRUNNER_REPLAN_AT * cfg.stagnation_seconds
+                and world.segment - world.last_showrunner >= cfg.showrunner_min_gap):
             return (f"stagnation: {quiet:.0f} s without change", "replan")
         if world.segment - world.last_compacted >= cfg.compaction_interval:
             return ("compaction interval", "compact")
@@ -400,6 +442,8 @@ class DirectorEngine:
         self._showrunner_meta = (at_segment, mode == "replan", reason)
         self._showrunner_task = asyncio.create_task(_task())
         self._last_spawn = at_segment
+        if mode == "replan":
+            self._held_trigger = None
 
     async def _run_showrunner_now(self, state: StoryState, *, reason: str, mode: str, at_segment: int) -> None:
         """The bootstrap: the only synchronous run. Nothing is on air yet."""
@@ -479,6 +523,8 @@ class DirectorEngine:
                 self.world.scene_started = at_segment + 1
             return
         landed = apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan)
+        if any(n.startswith("scene ") for n in landed):
+            self._held_trigger = None   # a new card answers any replan still held
         card = self.world.plan.scene
         line = f"showrunner ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
         if landed_at is not None and landed_at > at_segment + 1:

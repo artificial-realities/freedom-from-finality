@@ -40,6 +40,7 @@ class Story(BaseModel):
     narrative_premise: str
     long_term_narrative: str = ""
     short_term_narrative: str = ""
+    thread_guidance: str = ""   # optional: how long setups, promises and gags should run in this story (the Showrunner's)
     seed_image: str = ""        # reference image for the video model, resolved relative to the story dir
     cast_locked: bool = False   # True → no new characters may be introduced (props are fine)
 
