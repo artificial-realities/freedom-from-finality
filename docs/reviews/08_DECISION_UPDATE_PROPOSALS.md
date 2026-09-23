@@ -2,6 +2,21 @@
 
 Experiments of the final decision record (`docs/reviews/05_consolidated_decision_record.md`) that have reported. Each entry gives the result and a recommended disposition; the owner decides whether a gated row changes status. The decision record is not edited by the implementation loop, and no gated production behaviour has been implemented or enabled. Newest first.
 
+## X-02 and X-13 → LTX-12, AUD-02, AUD-03, RUN-12 (and AUD-09's reopening) — 2026-09-23
+
+Report: `docs/reviews/experiments/X-02-X-13.md`. Data: `logs/experiments/x02/`, `logs/experiments/x13/`.
+
+- **Result.** The candidate player (a pool of three elements, a cut at the overlap by the outgoing clip's media time, an equal-power audio crossfade) passes every picture gate in headless Chromium (0 duplicate frames, 0.01 % dip, swap p95 9.8 ms, 0 reloads; today: 9, 25 %, 2.7 ms, 6). The played mix fails the seam-step criteria in every arm (candidate 26.5 dB median, today 21.5 dB; ≤ 12 dB required) because 37 of 63 clips end in digital silence and the next opens on sound; holes remain at about 27 per minute. The −18 and −20 LUFS ceilings both meet X-13's offline criteria (narrated-to-next 13.8 and 11.8 LU, no true-peak overs, no quiet clip touched); the listening preference has not run.
+- **Proposed dispositions.**
+  - **LTX-12 / AUD-02 / AUD-03:** stay gated until X-03 (GPU). The owner should decide whether the seam-step criterion is re-stated to measure the join itself (for example, only where both sides carry sound): as written, no player-side design can meet it with LTX's clip-to-clip silence.
+  - **AUD-03's value:** −18 LUFS, pending the listening half of X-13.
+  - **RUN-12:** close (the pooled two-element design meets every swap gate; MSE is not needed).
+  - **AUD-09:** its reopening condition is met (holes remain after the seam work); reopen and run X-14 if room tone is wanted.
+
+## X-01 → AUD-05 — prepared, blocked on listeners
+
+`docs/reviews/experiments/X-01.md`: 25 blind pairs are in `logs/experiments/x01/listen/`; three or more listeners are needed.
+
 ## X-07 and X-08 → ARCH-08, ARCH-09 (and ARCH-01's validation) — 2026-09-23
 
 Report: `docs/reviews/experiments/X-07-X-08.md`. Data: `logs/experiments/story-authority/` (14 real-Director runs of 40 segments, `summary.json`, `judgments.json`).

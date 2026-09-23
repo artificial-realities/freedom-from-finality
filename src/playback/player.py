@@ -34,7 +34,14 @@ class Playable(BaseModel):
 
     turn: int
     path: str | None = None          # mp4 to play; None = text-only segment (no video backend)
-    duration: float = 5.0            # seconds on air
+    duration: float = 5.0            # seconds on air (the hold)
+    # The seam candidate of AUD-02 / LTX-12 (X-02 only; the player's
+    # `seam: "overlap"` mode): the seconds at this clip's head that repeat
+    # the previous clip's tail, over which the page cuts the picture and
+    # crossfades the sound, and whether the clip opens on speech (the
+    # speech-safe crossfade does not duck it).
+    overlap_seconds: float = 0.0
+    speech: bool = False
     user_input: str = ""
     narration: str = ""
     voiceover: str = ""

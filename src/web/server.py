@@ -52,10 +52,19 @@ class WebPlayer(Player):
         host: str = "127.0.0.1",
         port: int = 8765,
         time_scale: float = 1.0,
+        seam: str = "fade",
     ) -> None:
         super().__init__(time_scale=time_scale)
         self.host = host
         self.port = port
+        # How the page joins clips: "fade" (production: a 250 ms crossfade of
+        # two elements) or "overlap" (AUD-02 / LTX-12's candidate, X-02 only:
+        # a pool of three elements, the picture cut at the outgoing clip's
+        # media time where the next clip's overlap begins, an equal-power
+        # audio crossfade over the overlap).
+        if seam not in ("fade", "overlap"):
+            raise ValueError(f"seam must be 'fade' or 'overlap', not {seam!r}")
+        self.seam = seam
         self.title = ""
         self.session_id = ""
         self.status_text = ""
@@ -227,6 +236,7 @@ class WebPlayer(Player):
         return {
             "title": self.title,
             "session": self.session_id,
+            "seam": self.seam,
             "server_time": time.time(),
             "status": self.status_text,
             "ended": self._ended,

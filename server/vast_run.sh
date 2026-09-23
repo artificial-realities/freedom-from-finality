@@ -62,7 +62,7 @@ else:
 ' | { read -r h; read -r p; echo "$h" > "$STATE/host"; echo "$p" > "$STATE/port"; }
   echo "ssh target $(cat "$STATE/host"):$(cat "$STATE/port")"
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
-  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/audio_ceiling.py server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
   ssh_cmd "chmod +x /root/remote_setup.sh; nohup env $(server_env) /root/remote_setup.sh > /root/setup.log 2>&1 &"
   ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"
@@ -82,7 +82,7 @@ wait_ready() {
 restart() {
   # Same box, new server process: switch any LTX2_* setting (variant, size, attention, quant, compile) without re-renting.
   # The weights are cached on the box, so this is load time only (a few minutes).
-  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py "root@$(cat "$STATE/host"):/root/"
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/audio_ceiling.py "root@$(cat "$STATE/host"):/root/"
   # Kill and start in separate ssh calls: with both in one command line the
   # kill pattern matches the shell running it (its argv holds the start command).
   ssh_cmd "pkill -f '[l]tx2_server.py' || true; sleep 2"

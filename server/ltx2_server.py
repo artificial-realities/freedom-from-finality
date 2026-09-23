@@ -722,6 +722,7 @@ def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
     tmp.close()
 
     t1 = time.monotonic()
+    audio_meta: dict = {}
     if _encoder == "av" or not _FFMPEG:
         # diffusers' PyAV path: libx264 at its defaults, one thread, frame
         # by frame; 17-24 s for a 5 s clip on the Vast boxes.
@@ -730,7 +731,7 @@ def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
             audio=audio_arg, audio_sample_rate=_audio_sample_rate if audio_arg is not None else None,
         )
     else:
-        _encode_mp4(frames_u8, int(FRAME_RATE), audio_arg, _audio_sample_rate, tmp.name, codec=_encoder)
+        audio_meta = _encode_mp4(frames_u8, int(FRAME_RATE), audio_arg, _audio_sample_rate, tmp.name, codec=_encoder)
     encode_s = time.monotonic() - t1
 
     duration_s = frames_u8.shape[0] / FRAME_RATE
@@ -744,6 +745,7 @@ def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
             "X-Turn": str(turn),
             "X-Latency-S": f"{dt:.2f}",
             "X-Encode-S": f"{encode_s:.2f}",
+            **{f"X-Audio-{k}": v for k, v in audio_meta.items()},
             "X-Timings": r["timings"],
             "X-Num-Frames": str(frames_u8.shape[0]),
             "X-Duration-S": f"{duration_s:.3f}",
@@ -857,11 +859,17 @@ _FFMPEG = shutil.which("ffmpeg") is not None
 
 
 def _encode_mp4(frames_u8: np.ndarray, fps: int, audio: torch.Tensor | None,
-                sample_rate: int, path: str, codec: str = "x264") -> None:
+                sample_rate: int, path: str, codec: str = "x264") -> dict:
     """Raw RGB frames piped into ffmpeg (h264_nvenc on the GPU, or libx264
     on all cores), the audio waveform [channels, samples] muxed from a
     temporary WAV. About ten times faster than the frame-by-frame PyAV
-    path on these boxes."""
+    path on these boxes.
+
+    With LTX2_AUDIO_CEILING_LUFS set (AUD-03's candidate, experiment-only:
+    off unless an experiment sets it), the audio is padded to the video and
+    given one static, never-boosting gain to the ceiling and under -1 dBTP
+    (`audio_ceiling.py`); the measurements come back for the response
+    headers (X-Audio-LUFS, X-Audio-TP, X-Audio-Gain-dB)."""
     n, h, w, _ = frames_u8.shape
     wav = None
     cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -875,6 +883,15 @@ def _encode_mp4(frames_u8: np.ndarray, fps: int, audio: torch.Tensor | None,
             f.setframerate(int(sample_rate))
             f.writeframes(pcm.tobytes())
         cmd += ["-i", wav]
+    meta: dict = {}
+    ceiling = os.getenv("LTX2_AUDIO_CEILING_LUFS", "").strip()
+    if audio is not None and ceiling:
+        import audio_ceiling
+        lufs, peak = audio_ceiling.measure(wav)
+        gain = audio_ceiling.gain_db(lufs, peak, float(ceiling))
+        cmd += ["-af", audio_ceiling.audio_filter(gain, n / fps)]
+        meta = {"LUFS": f"{lufs:.2f}" if lufs is not None else "nan",
+                "TP": f"{peak:.2f}" if peak is not None else "nan", "Gain-dB": f"{gain:.2f}"}
     if codec == "nvenc":
         cmd += ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll", "-rc", "vbr", "-cq", "23",
                 "-pix_fmt", "yuv420p"]
@@ -891,6 +908,7 @@ def _encode_mp4(frames_u8: np.ndarray, fps: int, audio: torch.Tensor | None,
     finally:
         if wav and os.path.exists(wav):
             os.unlink(wav)
+    return meta
 
 
 def _snap_to_frame_grid(raw: int) -> int:

@@ -56,6 +56,10 @@ RENDER_HEADERS: dict[str, tuple[str, type]] = {
     "X-Has-Audio": ("has_audio", str),
     "X-Variant": ("variant", str),
     "X-Encoder": ("encoder", str),
+    # AUD-03's candidate (the server's LTX2_AUDIO_CEILING_LUFS; experiment only)
+    "X-Audio-LUFS": ("audio_lufs", float),
+    "X-Audio-TP": ("audio_tp", float),
+    "X-Audio-Gain-dB": ("audio_gain_db", float),
 }
 
 

@@ -250,18 +250,26 @@ def case_of(turn: int, cases: str) -> str:
 
 
 async def run_browser(clips: list[tuple[int, Path]], *, out: Path, browser_python: str, cases: str = "ABC",
-                      page_delay: float = 2.0) -> dict:
+                      page_delay: float = 2.0, seam: str = "fade", overlap_frames: int = 0) -> dict:
+    """`seam="overlap"` runs the page's X-02 candidate: each clip but the
+    first opens on `overlap_frames` that repeat the previous clip's tail,
+    and every clip is held for its length minus the next clip's overlap
+    (the page cuts at the overlap and crossfades the sound)."""
     from src.playback.player import Playable
     from src.util.timing_log import TimingLog
     from src.web import WebPlayer
 
     out.mkdir(parents=True, exist_ok=True)
     items = []
-    for turn, path in clips:
+    for n, (turn, path) in enumerate(clips):
         info = probe(path)
-        items.append(Playable(turn=turn, path=str(path), duration=info["video_s"] or 6.0))
+        fps = info.get("fps") or 24.0
+        overlap = overlap_frames / fps if seam == "overlap" else 0.0
+        last = n == len(clips) - 1
+        items.append(Playable(turn=turn, path=str(path), duration=(info["video_s"] or 6.0) - (0 if last else overlap),
+                              overlap_seconds=overlap if n else 0.0))
     timing = TimingLog(out / "timing.jsonl")
-    player = WebPlayer(host="127.0.0.1", port=0)
+    player = WebPlayer(host="127.0.0.1", port=0, seam=seam)
     player.on_beacon = lambda record: timing.write("beacon", **record)
     await player.start(title="seam check", session_id="seam-check")
     timing.write("session_start", session="seam-check", loop="seam_check", config="seam_check", video=True,
@@ -421,6 +429,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-browser", action="store_true", help="only the file part")
     ap.add_argument("--browser-python", default=sys.executable, help="an interpreter with Playwright installed")
     ap.add_argument("--cases", default="ABC", help="queue-timing cases in rotation from the third clip (A, B, C)")
+    ap.add_argument("--seam", choices=("fade", "overlap"), default="fade",
+                    help="the page's seam: today's fade, or X-02's overlap candidate")
+    ap.add_argument("--overlap-frames", type=int, default=9, help="with --seam overlap: the frames each clip repeats")
     ap.add_argument("--label", default=time.strftime("%Y%m%d_%H%M%S"))
     ap.add_argument("--out", type=Path, default=None, help="default logs/seam_check/<label>")
     ap.add_argument("--baseline", type=Path, default=BASELINE)
@@ -453,12 +464,14 @@ def main(argv: list[str] | None = None) -> int:
     gates = json.loads(Path(args.baseline).read_text(encoding="utf-8"))["gates"]
 
     result: dict = {"label": args.label, "clips": [str(p) for _, p in clips], "turns": [t for t, _ in clips],
-                    "hidden_frames": args.hidden_frames, "cases": args.cases}
+                    "hidden_frames": args.hidden_frames, "cases": args.cases, "seam": args.seam,
+                    "overlap_frames": args.overlap_frames if args.seam == "overlap" else 0}
     result["files"] = seams_from_files(clips, hidden_frames=args.hidden_frames)
 
     browser = seams = None
     if not args.no_browser:
-        run = asyncio.run(run_browser(clips, out=out, browser_python=args.browser_python, cases=args.cases))
+        run = asyncio.run(run_browser(clips, out=out, browser_python=args.browser_python, cases=args.cases,
+                                      seam=args.seam, overlap_frames=args.overlap_frames))
         browser = dips_from_samples(run["samples"]["samples"])
         for row in browser["rows"]:
             row["case"] = run["plan"].get(row["to"])
