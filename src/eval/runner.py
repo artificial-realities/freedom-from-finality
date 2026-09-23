@@ -49,6 +49,24 @@ JIT_MARGIN_S = 0.5
 # film instead of looping on a renderer that is down.
 RENDER_WINDOW = 20
 MAX_CONSECUTIVE_FAILURES = 3
+# RUN-06's candidate policy (`jit_policy: "deadline"`, X-09 only): estimates
+# are the rolling p95 of the last P95_WINDOW measurements, floored by the
+# runtime baseline; a line is admitted to the clip about to fire only if
+# the Director's p95 lands it before that fire plus ADMISSION_TAU_S.
+P95_WINDOW = 20
+ADMISSION_TAU_S = 1.0
+BASELINE_PATH = Path(__file__).resolve().parents[2] / "benchmarks" / "runtime" / "baseline.json"
+
+
+def _baseline_floors() -> dict[str, float]:
+    """The deadline policy's floors: the baseline's render and Director p95."""
+    import json
+    try:
+        base = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        return {"render": float(base["renders"]["render_s"]["p95"]),
+                "director": float(base["director"]["seconds"]["p95"])}
+    except (OSError, KeyError, ValueError):
+        return {"render": 0.0, "director": 0.0}
 
 logger = logging.getLogger(__name__)
 
@@ -532,10 +550,34 @@ async def run_live(
     # Running averages of the measured render and Director times, for the
     # just-in-time schedule. None until the first measurement.
     est: dict[str, float | None] = {"render": None, "director": None}
+    samples: dict[str, list[float]] = {"render": [], "director": []}
+    deadline = config.jit_policy == "deadline"
+    if config.jit_policy not in ("current", "deadline"):
+        raise ValueError(f"jit_policy must be 'current' or 'deadline', not {config.jit_policy!r}")
+    floors = _baseline_floors() if deadline else {}
+    if deadline:
+        timing.write("jit_policy", policy="deadline", floors=floors, tau_s=ADMISSION_TAU_S, window=P95_WINDOW)
 
     def _learn(key: str, seconds: float) -> None:
         prev = est[key]
         est[key] = seconds if prev is None else 0.5 * prev + 0.5 * seconds
+        samples[key].append(seconds)
+        del samples[key][:-P95_WINDOW]
+
+    def _render_estimate() -> float:
+        if deadline:
+            ordered = sorted(samples["render"])
+            q = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))] if ordered else 0.0
+            return max(q, floors["render"])
+        return est["render"] or 0.0
+
+    def _director_lead() -> float:
+        """How long before the fire the Director call for a new beat starts."""
+        if deadline:
+            ordered = sorted(samples["director"])
+            q = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))] if ordered else 0.0
+            return max(q, floors["director"]) + JIT_MARGIN_S
+        return (est["director"] or 0.0) * JIT_SAFETY + JIT_MARGIN_S
 
     async def _enqueue(item: Playable) -> None:
         await queue.put(item)
@@ -627,6 +669,7 @@ async def run_live(
         # the next plan; the lines that landed on the last clip; the silence
         # count before it; failed segments in a row.
         carry_text = ""
+        deferred_text = ""     # a line waiting for the clip after the next (deadline admission, X-09)
         last_landed: tuple[int, list[int]] | None = None
         silence_before = state.silence_seconds
         failures = 0
@@ -688,16 +731,34 @@ async def run_live(
 
         async def _take() -> str:
             """Everything the viewer typed since the last call, after any line
-            whose answer never reached the screen (a rolled-back clip). The
-            lines join the next plan."""
-            nonlocal carry_text
+            whose answer never reached the screen (a rolled-back clip) or
+            that waits for the next clip (deadline admission). The lines
+            join the next plan."""
+            nonlocal carry_text, deferred_text
             text = await player.next_input()
             if player.taken:
                 plan_lines.extend(player.taken)
                 timing.write("line_taken", turn=state.turn_number, lines=list(player.taken))
-            if carry_text:
-                text, carry_text = " ".join(x for x in (carry_text, text) if x), ""
+            if carry_text or deferred_text:
+                text = " ".join(x for x in (carry_text, deferred_text, text) if x)
+                carry_text = deferred_text = ""
             return text
+
+        def _admit(text: str, turn: int, fire_at: float) -> bool:
+            """Deadline admission (X-09 only): can the Director answer this
+            line before clip `turn` fires, spending at most ADMISSION_TAU_S
+            of the buffer? If not, the line waits for the clip after it."""
+            nonlocal deferred_text
+            if not deadline or not graph.has_next_clip():
+                return True
+            needs, left = _director_lead() - JIT_MARGIN_S, fire_at - time.monotonic()
+            if needs <= left + ADMISSION_TAU_S:
+                return True
+            deferred_text = text
+            timing.write("line_deferred", turn=turn, lines=list(plan_lines), to=turn + 1,
+                         needs_s=round(needs, 4), left_s=round(left, 4))
+            player.status(f"your line is answered from segment {turn + 1}; segment {turn} is already due")
+            return False
 
         def _abort(reason: str) -> int:
             """Cut the current beat short; lines its plan carried and no clip
@@ -763,16 +824,19 @@ async def run_live(
             """Wait for the just-in-time moment of segment `turn`, taking the
             viewer's lines as they come: a line cuts the beat short and
             has the Director write the next one at once."""
+            if deferred_text and graph.has_next_clip():
+                await _answer(await _take(), turn)     # a line admitted from this clip (X-09)
+            fire_at = None
             while True:
                 need = _needed_at()
                 if need is None:
                     break  # building the lead: as fast as possible
-                fire_at = need - (est["render"] or 0.0) - config.buffer_seconds
+                fire_at = need - _render_estimate() - config.buffer_seconds
                 if graph.has_next_clip():
                     wait_until = fire_at
                     player.status(f"listening for your input before segment {turn}")
                 else:
-                    wait_until = fire_at - (est["director"] or 0.0) * JIT_SAFETY - JIT_MARGIN_S
+                    wait_until = fire_at - _director_lead()
                     player.status(f"listening for your input before the Director writes from segment {turn}")
                 timeout = wait_until - time.monotonic()
                 if timeout <= 0:
@@ -782,14 +846,15 @@ async def run_live(
                 text = await _take()
                 if not text:
                     continue
-                await _answer(text, turn)
+                if _admit(text, turn, fire_at):
+                    await _answer(text, turn)
             # The moment has come. Anything typed since is taken now.
             if not graph.has_next_clip():
                 player.status(f"the Director is writing segment {turn}")
                 await _plan(await _take())
             elif player.has_input():
                 text = await _take()
-                if text:
+                if text and (fire_at is None or _admit(text, turn, fire_at)):
                     await _answer(text, turn)
 
         try:

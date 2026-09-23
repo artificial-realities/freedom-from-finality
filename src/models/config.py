@@ -97,6 +97,11 @@ class Config(BaseModel):
     elevenlabs_voice_id: str = ""
 
     # ── Director engine (graph: "director") ────────────────────────
+    # The prompt compiler: "labels" (production, `src/story/compiler.py`) or
+    # "prose" (`src/story/compiler_prose.py`, LTX-01's caption-prose arm, for
+    # the X-05 comparison only; LTX-01 is EXPERIMENT_REQUIRED and the flag
+    # stays "labels" until X-05 reports and the owner approves).
+    compiler: str = "labels"
     # How the narrator's lines are rendered: "ltx" (in the video prompt,
     # native audio) | "tts" (ElevenLabs, mixed over the clip) | "off" (not
     # rendered). A rendering choice only: whether the film has a narrator,
@@ -136,6 +141,14 @@ class Config(BaseModel):
     # 3.0 s of slack, at the baseline's 4.8 s render). Lowering it waits for
     # X-09 (RUN-06).
     buffer_seconds: float = 4.7
+    # The just-in-time policy. "current" is production. "deadline" is RUN-06's
+    # candidate, for the X-09 experiment only (RUN-06 is EXPERIMENT_REQUIRED;
+    # do not enable it in a production config): render and Director
+    # estimates as the rolling p95 of the last 20, floored by the runtime
+    # baseline, and deadline-aware line admission (a line that the Director
+    # cannot answer before the next fire plus 1 s is answered from the clip
+    # after it instead of spending the buffer).
+    jit_policy: str = "current"
     # Fail-soft (RUN-09): a failed render is retried once when the buffer
     # allows; otherwise, or when the retry fails, the world and the beat are
     # restored to before the failed clip and the Director replans from the

@@ -45,6 +45,7 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.models.responses import Beat, Commentary, Shot
 from src.state.story_state import StoryState
+from src.story import compiler_prose
 from src.story.compiler import compile_clip
 from src.story.pacing import (
     SHOWRUNNER_REPLAN_AT,
@@ -85,6 +86,8 @@ class DirectorEngine:
         # The run's clip shapes (RUN-01): each beat's clips get the selected
         # shape; nothing here derives a length from seconds.
         self.shapes = shapes or ShapeRegistry.from_config(config)
+        if config.compiler not in ("labels", "prose"):
+            raise ValueError(f"compiler must be 'labels' or 'prose', not {config.compiler!r}")
         self._beat_shape: ClipShape = self.shapes.default
         self.tts = tts
         self.session_dir = Path(session_dir) if session_dir else None
@@ -425,7 +428,8 @@ class DirectorEngine:
         if first and beat.intervention == "absorbed" and self._beat_input:
             world.viewer_momentum = self._beat_input
             world.viewer_momentum_segment = seg
-        prompt = compile_clip(
+        compiler = compiler_prose.compile_clip if self.config.compiler == "prose" else compile_clip
+        prompt = compiler(
             beat, i, world,
             visual_style=state.visual_style,
             visual_anchor=state.visual_anchor,

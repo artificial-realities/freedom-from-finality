@@ -52,7 +52,8 @@ _spec.loader.exec_module(bench)
 
 # Timing-log fields in the loop's seconds; everything else (`wall`, media
 # `duration`, story `seconds`) is left alone when the log is scaled back.
-SCALED_FIELDS = ("t", "into", "margin", "due_in", "render_s", "hold", "waited", "plan_s", "director_s")
+SCALED_FIELDS = ("t", "into", "margin", "due_in", "render_s", "hold", "waited", "plan_s", "director_s",
+                 "needs_s", "left_s")
 
 
 def baseline() -> dict:
@@ -265,12 +266,18 @@ async def simulate(
     render: Spread | None = None,
     director: Spread | None = None,
     showrunner_s: float = 4.5,
+    policy: str | None = None,
+    buffer_seconds: float | None = None,
+    director_retry_rate: float = 0.0,
 ) -> Sim:
     """Run `clips` clips of `config` with the mock LLM and replayed clips,
     `scale` times faster than real time. Render walls and Director calls
     are drawn from `render` and `director` (the baseline's by default),
     seeded per segment and attempt, so a cancelled call does not shift the
-    draws after it; the Showrunner takes `showrunner_s`."""
+    draws after it; the Showrunner takes `showrunner_s`. `policy` and
+    `buffer_seconds` override the config's `jit_policy` and buffer (X-09);
+    `director_retry_rate` doubles that share of Director calls (a
+    validator re-ask), seeded the same way."""
     render = render or baseline_render()
     director = director or baseline_director()
     shape = baseline()["shape"]
@@ -286,7 +293,10 @@ async def simulate(
         if schema.__name__ == "BeatPlan":
             segment = _segment_number(messages)
             attempts[segment] = attempts.get(segment, 0) + 1
-            seconds = director.draw(random.Random(f"{seed}:director:{segment}:{attempts[segment]}")) / scale
+            rng = random.Random(f"{seed}:director:{segment}:{attempts[segment]}")
+            seconds = director.draw(rng) / scale
+            if director_retry_rate and rng.random() < director_retry_rate:
+                seconds *= 2
             player.director_call(seconds, answering=bool(_viewer_line(messages)))
             await asyncio.sleep(seconds)
         return await generate_structured(backend, messages, schema, *args, **kwargs)
@@ -304,16 +314,23 @@ async def simulate(
         replay = Path(d) / "replay"
         replay.mkdir()
         _clip(replay / "clip.mp4", shape["render_frames"], shape["fps"])
+        real = real.model_copy(update={
+            "jit_policy": policy or real.jit_policy,
+            "buffer_seconds": real.buffer_seconds if buffer_seconds is None else buffer_seconds,
+        })
         run = real.model_copy(update={
             "llm_backend": "mock", "model": "mock",
             "i2v_backend": "replay", "i2v_replay_dir": str(replay), "i2v_replay_delay": 0.0,
             "i2v_seed_image": story.seed_image,
             "buffer_seconds": real.buffer_seconds / scale,
         })
+        floors = {k: v / scale for k, v in runner._baseline_floors().items()}
         with mock.patch.object(MockBackend, "generate_structured", timed_director), \
              mock.patch.object(MockBackend, "showrunner_delay", showrunner_s / scale), \
              mock.patch.object(ReplayI2V, "synthesize", timed_render), \
              mock.patch.object(runner, "JIT_MARGIN_S", runner.JIT_MARGIN_S / scale), \
+             mock.patch.object(runner, "ADMISSION_TAU_S", runner.ADMISSION_TAU_S / scale), \
+             mock.patch.object(runner, "_baseline_floors", lambda: floors), \
              mock.patch.object(runner, "probe_duration", known_length):
             await runner.run_live(config=run, story=story, log_dir=d, player=player, max_segments=clips)
         session = next((Path(d) / "sessions").iterdir())
