@@ -27,20 +27,21 @@ class Config(BaseModel):
     live: bool = False
 
     video_enabled: bool = False
-    # Producer lead, in clips. The live producer renders ahead of the
-    # player by this many clips and the consumer waits for `lead_clips + 1`
-    # clips to be queued before starting playback. 0 = no startup wait,
-    # no enforced race-ahead (queue size 1, render and play overlap by one
-    # clip naturally). Bump above 0 to re-enable sustained
-    # "delay-as-feature" narrative smoothing once i2v latency drops.
+    # Startup lead, in clips: the consumer waits for `lead_clips + 1` clips
+    # to be queued before playback starts, and the queue holds that many.
+    # Nothing else reads it: once the player has a clock the just-in-time
+    # schedule fires each render as late as it safely can and keeps its
+    # own steady-state buffer, so this does not change where a viewer's
+    # line lands (two or three clips after it is typed, by arrival time).
     lead_clips: int = 0
     i2v_backend: str = "ltxv"
     i2v_duration: int = 5
-    # Fixed clip length in seconds. 0 = each segment renders for the sum of
-    # the Director's shot durations (3-15 s). N = every clip is exactly N
-    # seconds and the Director is told to plan for N: one clip shape, so a
-    # compiled server compiles once, pacing is constant, and a viewer's
-    # line lands a known number of seconds later.
+    # Fixed clip length in seconds. 0 = `i2v_duration` seconds per clip (the
+    # engine's `clip_seconds` property and the runner's hold both read
+    # `clip_seconds or i2v_duration`; the compiler carries no duration).
+    # N = every clip is exactly N seconds and the Director is told to plan
+    # for N: one clip shape, so a compiled server compiles once, pacing is
+    # constant, and a viewer's line lands a known number of seconds later.
     clip_seconds: int = 0
     # The reference image the first clip is rendered from. "" → the story's
     # `seed_image` (`stories/<story>/story.json`); set here only for a story

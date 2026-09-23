@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_007 (LTX-03, CLEAN-08), 2026-09-22
+- **Latest completed batch:** BATCH_008 (CLEAN-04, ARCH-04, ARCH-14, ARCH-18, CLEAN-10), 2026-09-22
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -21,7 +21,7 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-01 | APPROVED | 1* | NOT_STARTED | none | — | — | Unplaced in §2; placed with phase 1 (prompts/docs, no code beyond ARCH-02..09). Validation needs a live-run transcript review. |
 | ARCH-02 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
 | ARCH-03 | APPROVED | 1 | NOT_STARTED | ARCH-02 | — | — |  |
-| ARCH-04 | APPROVED | 0* | NOT_STARTED | none | — | — | Unplaced in §2; docs only — group with CLEAN-04 docs batch. |
+| ARCH-04 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; the claim checked against `_run_showrunner_now` and the prompts (BATCH_008 claim table) | `ARCHITECTURE.md` bootstrap step: the only synchronous run and the only route for `short_term_narrative`; why it stays synchronous. |
 | ARCH-05 | APPROVED | 1 | NOT_STARTED | ARCH-03 | — | — |  |
 | ARCH-06 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
 | ARCH-07 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
@@ -31,11 +31,11 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-11 | APPROVED | 1* | NOT_STARTED | none | — | — | Unplaced in §2; no deps; prompt/context gate change. Validation reads Director latency on answer calls (timing log, RUN-05). |
 | ARCH-12 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-19 | — | — | Gated by X-19 (optional experiment, required before this row). |
 | ARCH-13 | APPROVED | — | NOT_APPLICABLE | ARCH-02, ARCH-03 | — | — | Approved keep-as-is (no change to the card; scope none). Cards exist in the engine; lifecycle fixes are ARCH-02/03. |
-| ARCH-14 | APPROVED | 0* | NOT_STARTED | none | — | — | Unplaced in §2; docs only — group with CLEAN-04. |
+| ARCH-14 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; checked: nothing reads `current_act` beyond display (BATCH_008 claim table) | `ARCHITECTURE.md`: the arc orients both roles; the code enforces nothing from it. |
 | ARCH-15 | APPROVED | — | NOT_APPLICABLE | none | — | — | Approved keep-as-is (forced scene closure unchanged; scope none). Verified present: `DirectorEngine.plan` forces `scene_done` past `scene_seconds`. |
 | ARCH-16 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
 | ARCH-17 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
-| ARCH-18 | APPROVED | 0* | NOT_STARTED | none | — | — | Unplaced in §2; docs only — group with CLEAN-04. |
+| ARCH-18 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; `format_summaries` pins `scenes[0]` (BATCH_008 claim table) | `ARCHITECTURE.md`: the 2.8K cached system prompt is not cut for latency; the opening pin is the first compaction window; reductions wait for X-07/X-08/X-17. |
 | ARCH-19 | APPROVED | 1 | NOT_STARTED | LTX-05 for voice fields | — | — | Large blueprint/world/validator change; LTX-05 first for voice fields. Full validation includes X-26 (post-implementation). |
 | LTX-01 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-01, LTX-02, RUN-13 (replay harness) | — | — | Gated by X-05 (GPU). Permitted prep: comparison compiler behind an off-by-default flag, after RUN-01 (RUN-13's replay harness is done: BATCH_005). Dependency cycle with LTX-02 in the record (each lists the other); X-06 runs on the prose compiler, so the LTX-01 arm comes first. |
 | LTX-02 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-01 | — | — | Gated by X-06 (GPU). Candidate blueprint forms prepared only after the LTX-01 arm exists (see LTX-01 note). |
@@ -78,13 +78,13 @@ The execution state of every decision in the final decision record. The record i
 | CLEAN-01 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_engine.py::test_engine_starts_a_fresh_world_even_if_the_session_dir_has_one`; suite 62/62 | The resume branch in `_init_world` is removed; docstrings in the engine and `world.py`, and a note in `ARCHITECTURE.md`, say resume is not built. |
 | CLEAN-02 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `python -m tests.run` 62/62 on `stories/lego-void`; `test_seed_image_comes_from_the_story`, `test_live_loop_renders_from_the_story_image`; `main.py` with the replay config on the mock backend, 3 segments (`logs/batch-006/main-replay/`) | `data/` deleted (`git rm`); `Config.i2v_seed_image` defaults to `""` = the story's `seed_image`, resolved once in the runner (`seed_image_for`); `main.py`'s copy removed; both configs' `i2v_seed_image` lines removed; docs name `stories/<story>/story.json`. |
 | CLEAN-03 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_blueprint_has_no_reference_image_field`; an old `world.json` with the key loads (`test_persistence_round_trip`); suite 62/62 | `Character.reference_image` and `Entity.reference_image` gone; the dead key removed from `stories/lego-void/story.json`; `ARCHITECTURE.md` field lists updated. |
-| CLEAN-04 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
+| CLEAN-04 | APPROVED | 0 | COMPLETED | none | BATCH_008 | Every item checked against the code (BATCH_008 claim table); `python -m tests.run` 64/64; server `py_compile`; live config loads | CLAUDE.md (session A ran live; first plan; `lead_clips` startup only; no compiler duration; enhancer), ARCHITECTURE.md (1.5×; "responds to" dropped), server docstring + README (enhancer), `config.py` and live-yaml comments (`clip_seconds: 0`, `lead_clips`). README's "~1.3" and ARCHITECTURE's `stories/` were already done (BATCH_002, BATCH_006). |
 | CLEAN-05 | APPROVED | 2 | NOT_STARTED | RUN-08 | — | — | Listed in phase 0 but depends on RUN-08 (phase 2). |
 | CLEAN-06 | APPROVED | 2 | NOT_STARTED | RUN-01, AUD-06 | — | — | Listed in phase 0 but depends on RUN-01 and AUD-06. |
 | CLEAN-07 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_context_shows_character_state_and_keeps_notes_out_of_the_cast` asserts no `looks:`; suite 62/62 | `format_world_now` prints status, holder and location for props, not the look. |
 | CLEAN-08 | APPROVED | 0 | COMPLETED | none | BATCH_007 | `tests/test_story.py::test_compiler_camera_clause`; suite 64/64; session A's 11 distinct camera lines all grammatical (`logs/batch-007/session-a-summary.txt`) | `camera_clause`: "the camera remains static" or the motion after "the camera" as a verb phrase, a participle or (today's Director) a noun phrase ("the camera makes a slow push-in toward the pair"). The LTX-01 arm inherits the rule. |
 | CLEAN-09 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_location_resolver_forms_and_prefix_collision`; note under "Not built yet, by design" in `ARCHITECTURE.md` | The test pins ids, names and prefixed forms, and the substring fallback's prefix collision (`the_void` wins for "The Void Annex, far end"; `void` for "void 2, by the edge") as the known gap. The resolver is unchanged (the row's scope is tests and docs); the two-line fix (longest id wins) is proposed to the owner in the BATCH_006 report. |
-| CLEAN-10 | APPROVED | 0 | NOT_STARTED | none | — | — | Docs-only note about the 01 review header; the reviews are untracked user files. |
+| CLEAN-10 | APPROVED | 0 | COMPLETED | none | BATCH_008 | The correction is recorded in the BATCH_008 report (no file edited) | The row's edit is conditional on the reviews being edited; they are the owner's untracked files and the loop does not touch them. The 01 header's "usage details are not stored" should read that usage is stored (03 §12.2) whenever the reviews are edited or committed. |
 
 ## Experiments
 
@@ -132,10 +132,13 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_004 | 2026-09-22 | RUN-13 (part c) | COMPLETED (row stays IN_PROGRESS; commit `5cbfe21`) | `implementation_batches/BATCH_004.md` |
 | BATCH_005 | 2026-09-22 | RUN-13 (part d) | COMPLETED (RUN-13 COMPLETED; commit `59f5243`) | `implementation_batches/BATCH_005.md` |
 | BATCH_006 | 2026-09-22 | CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-07, CLEAN-09, LTX-08 | COMPLETED (commit `6d0c6bf`) | `implementation_batches/BATCH_006.md` |
-| BATCH_007 | 2026-09-22 | LTX-03, CLEAN-08 | COMPLETED (uncommitted) | `implementation_batches/BATCH_007.md` |
+| BATCH_007 | 2026-09-22 | LTX-03, CLEAN-08 | COMPLETED (commit `2367782`) | `implementation_batches/BATCH_007.md` |
+| BATCH_008 | 2026-09-22 | CLEAN-04, ARCH-04, ARCH-14, ARCH-18, CLEAN-10 | COMPLETED (uncommitted) | `implementation_batches/BATCH_008.md` |
 
 ## Reconciliation notes
 
+- 2026-09-22 (BATCH_008 close): the five documentation rows `COMPLETED`; no behaviour changed (comments and docs only; suite 64/64). Phase 0 has one open row left, LTX-09; phase 1's rows without dependencies (ARCH-02, ARCH-06, ARCH-07, ARCH-16, ARCH-17, AUD-06, LTX-05, RUN-07, RUN-11, ARCH-01, ARCH-11, AUD-04) are unblocked. BATCH_008 is uncommitted.
+- 2026-09-22 (session 7 start): record SHA-256 unchanged; HEAD is `2367782` (BATCH_007, recorded in the Batches table); `python -m tests.run` 64/64 on that tree; the working tree carries only the owner's files. BATCH_008 selected: the five documentation rows (CLEAN-04, ARCH-04, ARCH-14, ARCH-18, CLEAN-10), one boundary, no behaviour.
 - 2026-09-22 (BATCH_007 close): LTX-03 and CLEAN-08 `COMPLETED`; `python -m tests.run` 64/64 (2 new tests). Every compiled prompt changes (the camera clause); a stored replay file no longer verifies against its old transcript, by design (`logs/batch-007/session-a-verify.txt`: 0 of 64 equal). The change is unmeasured on hardware. Phase 0 now has open: CLEAN-04 with ARCH-04/14/18 and CLEAN-10 (docs), LTX-09. BATCH_007 is uncommitted.
 - 2026-09-22 (session 6 start): record SHA-256 unchanged; HEAD is `6d0c6bf` (BATCH_006, recorded in the Batches table) on top of `59f5243` (BATCH_005); `python -m tests.run` 62/62; the working tree carries only the owner's files. BATCH_007 selected: LTX-03 + CLEAN-08, the two approved fixes in the active compiler.
 - 2026-09-22 (BATCH_006 close): the six rows `COMPLETED`; `python -m tests.run` 62/62 (5 new tests). Phase 0 now has open: LTX-03 + CLEAN-08 (compiler), CLEAN-04 with ARCH-04/14/18 and CLEAN-10 (docs), LTX-09 (derived seeds; GPU validation). Pre-existing pyflakes findings left as is (not covered by any row): `runner.py` `_plan`'s unused `nonlocal state`, `tests/test_i2v.py` line 50's unused `import json`. Proposal for the owner, outside CLEAN-09's scope: fix the location resolver's substring fallback to prefer the longest id. The owner then asked for both batches to be committed separately: BATCH_005 as `59f5243` (the shared doc and ledger hunks split by batch), BATCH_006 as the commit after it.

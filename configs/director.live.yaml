@@ -12,9 +12,10 @@ max_tokens_per_agent: 1024
 
 live: true
 video_enabled: true
-# One clip rendered ahead of the one on air: a slow clip or a Director
-# retry never reaches the screen while generation runs under real time.
-# A viewer's line lands about three clips after it is typed (two with 0).
+# Startup lead: two clips are queued before playback starts, and the queue
+# holds two. The just-in-time schedule keeps its own buffer afterwards, so
+# this does not change where a viewer's line lands (two or three clips
+# after it is typed, by arrival time).
 lead_clips: 1
 
 # ── LTX-2.5 video backend ──────────────────────────────────────────

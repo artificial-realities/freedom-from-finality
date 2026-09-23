@@ -16,7 +16,7 @@ export HF_TOKEN=hf_...
 python ltx2_server.py          # downloads weights on first run, serves on :8000
 
 # Placement:
-LTX2_OFFLOAD=gpu python ltx2_server.py     # default: everything resident, prompt enhancer dropped (~70 GB; 80 GB card)
+LTX2_OFFLOAD=gpu python ltx2_server.py     # default: everything resident (~70 GB; 80 GB card; the pack ships no prompt enhancer and none is used)
 LTX2_OFFLOAD=text python ltx2_server.py    # DiT + decoders resident (~40 GB), text encoder offloaded (~2x slower per clip)
 LTX2_OFFLOAD=cpu python ltx2_server.py     # every component offloaded between uses (~4x slower per clip)
 LTX2_VAE_TILING=1 python ltx2_server.py    # lower peak VRAM on decode

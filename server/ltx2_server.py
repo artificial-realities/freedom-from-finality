@@ -51,6 +51,10 @@ Setup on a GPU box: see server/remote_setup.sh (diffusers from main; the
 LTX-2.5 pipelines are not in a release yet). The weights are gated:
 accept the licence on the model page and export HF_TOKEN.
 
+The prompt enhancer is not part of the Diffusers pack (it loads as None)
+and is intentionally unused: prompt structure is owned by the application
+(src/story/compiler.py), not by a rewriter in the server.
+
 Environment variables:
     HF_TOKEN          HuggingFace token (required — the weights are gated)
     LTX2_MODEL        model id (default: Lightricks/LTX-2.5-Diffusers)
@@ -62,8 +66,8 @@ Environment variables:
     LTX2_HEIGHT       output height, multiple of 32 (default: 544)
     LTX2_OFFLOAD      "cpu" (every component offloaded between uses), "text"
                       (only the text encoder offloaded; DiT resident, ~76 GB
-                      peak), "sequential", or "gpu"/unset (everything resident,
-                      prompt enhancer dropped; ~72 GB + activations)
+                      peak), "sequential", or "gpu"/unset (everything resident;
+                      ~72 GB + activations)
     LTX2_VAE_TILING   "1" to enable VAE tiling (lower peak VRAM on decode)
     LTX2_HOST/PORT    bind address (default: 0.0.0.0:8000)
 
@@ -266,9 +270,10 @@ async def load_pipeline() -> None:
         pipe.enable_model_cpu_offload(device="cuda:0")
         pipe.maybe_free_model_hooks = lambda: None
     else:
-        # Everything resident ("gpu" or unset). The prompt enhancer (10 GB)
-        # and the duration head are never used by this server, so they are
-        # dropped to make room: DiT 40 GB + Gemma 24 GB + connectors 6 GB +
+        # Everything resident ("gpu" or unset). The Diffusers pack ships no
+        # prompt enhancer and no duration head (both load as None) and this
+        # server uses neither by decision, so make sure nothing is registered
+        # under those names: DiT 40 GB + Gemma 24 GB + connectors 6 GB +
         # decoders 2 GB is about 72 GB on an 80 GB card.
         if getattr(pipe, "prompt_enhancer", None) is not None or getattr(pipe, "duration_head", None) is not None:
             pipe.register_modules(prompt_enhancer=None, duration_head=None)
