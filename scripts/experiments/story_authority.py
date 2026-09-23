@@ -64,6 +64,16 @@ SCHEDULES = {
         5: "A small paper boat drifts in; he decides to become its captain.",
         13: "Everything he touches starts to bounce like rubber.",
     },
+    # X-26 (ARCH-19's post-implementation check) on tests/fixtures/lighthouse:
+    # a new character, the supporting character's condition, a permitted
+    # and a forbidden perspective switch, a line for the new character.
+    "cast": {
+        4: "A fisherman staggers in out of the storm, soaked to the bone.",
+        9: "The lamp sputters and goes dark.",
+        15: "Mara looks through the telescope at a ship's light out at sea.",
+        21: "Show the tower from high above, a bird's-eye view.",
+        26: "The fisherman asks Mara for a blanket.",
+    },
 }
 
 

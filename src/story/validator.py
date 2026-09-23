@@ -165,7 +165,7 @@ def _short_look(look: str) -> str:
         if cut > 0:
             text = text[:cut]
     words = text.split()
-    return " ".join(words[:SHORT_LOOK_WORDS])
+    return " ".join(words[:SHORT_LOOK_WORDS]).rstrip(" ,;:")
 
 
 def _owed_item(world: WorldModel, segment: int):
