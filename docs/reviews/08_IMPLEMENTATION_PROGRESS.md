@@ -6,7 +6,7 @@ The execution state of every decision in the final decision record. The record i
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
 - **Latest completed batch:** BATCH_020 (X-26 LLM half; GPU session 1 prepared, rental unreachable), 2026-09-23
-- **Batch in progress:** none
+- **Batch in progress:** BATCH_021 (GPU session 1: X-03, X-04, X-05, X-06, LTX-09's rerun)
 - **GPU spend:** ≈ $0.68 of the $30.00 authorised (record §2, Q8): one rental that could not be reached (BATCH_020)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
 
@@ -94,10 +94,10 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 |---|---|---|---|---|---|---|---|
 | X-01 | blocking | AUD-05 | Session A clips (local); blind pairs prepared | ≥ 3 human listeners (owner) | BLOCKED | 0 | Material ready (`logs/experiments/x01/listen/`, `docs/reviews/experiments/X-01.md`); needs listeners |
 | X-02 | blocking | AUD-02, LTX-12, RUN-12 | RUN-01; AUD-02/AUD-03/LTX-12 candidate as an off-by-default variant; `scripts/seam_check.py` and `scripts/audio_check.py --policy overlap` (done, BATCH_004) | local, headless Chromium | RESULT_READY | 0 | `docs/reviews/experiments/X-02-X-13.md`: picture gates pass (0 dup, 0.01 % dip, 9.8 ms, 0 reloads); seam step fails in every arm (clips end in silence) |
-| X-03 | blocking | LTX-12 shape; RUN-04 | RUN-01, LTX-09 (RUN-05 and RUN-13 done: `latency_probe --warm`, `bench_report`) | GPU (~30 min), session 1 | BLOCKED | 0 | Prepared (`scripts/experiments/gpu_session1.py`, `logs/experiments/gpu1/`); the 2026-09-23 rental was unreachable from this network (BATCH_020) |
-| X-04 | blocking | LTX-11 | as X-03; replayable Director outputs (done: `replay_compiler.py`, session A's replay file in `logs/batch-005/`) | GPU (~45 min), session 1 | BLOCKED | 0 | Prepared (`scripts/experiments/gpu_session1.py`, `logs/experiments/gpu1/`); the 2026-09-23 rental was unreachable from this network (BATCH_020) |
-| X-05 | blocking | LTX-01 flag default | LTX-01 arm (flag off, after RUN-01), LTX-09 (the replay harness and session A's 12-clip chain are done: BATCH_005) | GPU (~45 min), session 1 | BLOCKED | 0 | Prepared (`scripts/experiments/gpu_session1.py`, `logs/experiments/gpu1/`); the 2026-09-23 rental was unreachable from this network (BATCH_020) |
-| X-06 | blocking | LTX-02 text; LTX-14 | X-05 arm; LTX-02 candidate forms | GPU (~45 min), session 1 | BLOCKED | 0 | Prepared (`scripts/experiments/gpu_session1.py`, `logs/experiments/gpu1/`); the 2026-09-23 rental was unreachable from this network (BATCH_020) |
+| X-03 | blocking | LTX-12 shape; RUN-04 | RUN-01, LTX-09 (RUN-05 and RUN-13 done: `latency_probe --warm`, `bench_report`) | GPU (~30 min), session 1 | IN_PROGRESS | 0 | BATCH_021: the network reaches Vast again (port test 2026-09-23 18:40 local) |
+| X-04 | blocking | LTX-11 | as X-03; replayable Director outputs (done: `replay_compiler.py`, session A's replay file in `logs/batch-005/`) | GPU (~45 min), session 1 | IN_PROGRESS | 0 | BATCH_021: the network reaches Vast again (port test 2026-09-23 18:40 local) |
+| X-05 | blocking | LTX-01 flag default | LTX-01 arm (flag off, after RUN-01), LTX-09 (the replay harness and session A's 12-clip chain are done: BATCH_005) | GPU (~45 min), session 1 | IN_PROGRESS | 0 | BATCH_021: the network reaches Vast again (port test 2026-09-23 18:40 local) |
+| X-06 | blocking | LTX-02 text; LTX-14 | X-05 arm; LTX-02 candidate forms | GPU (~45 min), session 1 | IN_PROGRESS | 0 | BATCH_021: the network reaches Vast again (port test 2026-09-23 18:40 local) |
 | X-07 | blocking | ARCH-08 | ARCH-03; RUN-05; `scripts/steer.py` | OpenAI calls only | RESULT_READY | 0 | `docs/reviews/experiments/X-07-X-08.md`: momentum holds ~10 s longer (noisy); card landings clear it 18-48 s after the line; keep it, scope the reset, 90-s expiry |
 | X-08 | blocking | ARCH-09 | ARCH-02, ARCH-03; RUN-05 | OpenAI calls only | RESULT_READY | 0 | same report: memory-only stalls the silent film; E5 holds directions, needs the expiry |
 | X-09 | blocking | RUN-06 | RUN-05 (done), RUN-13 JIT simulation (done: `tests/jit_sim.py`), ARCH-06 | local | RESULT_READY | 0 | `docs/reviews/experiments/X-09.md`: no arm meets the criteria; reject RUN-06 as specified |
@@ -145,10 +145,11 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_017 | 2026-09-23 | X-07, X-08, X-09; readings ARCH-01, ARCH-10, ARCH-11, ARCH-16 | OWNER_REVIEW_REQUIRED (results in `08_DECISION_UPDATE_PROPOSALS.md`) | `implementation_batches/BATCH_017.md` |
 | BATCH_018 | 2026-09-23 | LTX-01, LTX-06, LTX-02 (preparation only) | COMPLETED as preparation | `implementation_batches/BATCH_018.md` |
 | BATCH_019 | 2026-09-23 | X-02, X-13 (offline), X-01 (material) | OWNER_REVIEW_REQUIRED (commit `63a074e`) | `implementation_batches/BATCH_019.md` |
-| BATCH_020 | 2026-09-23 | X-26 (LLM half); GPU session 1 prepared | BLOCKED (the rented box was unreachable; ≈ $0.68) | `implementation_batches/BATCH_020.md` |
+| BATCH_020 | 2026-09-23 | X-26 (LLM half); GPU session 1 prepared | BLOCKED (the rented box was unreachable; ≈ $0.68; commits `edeb6f4`, `f133d64`) | `implementation_batches/BATCH_020.md` |
 
 ## Reconciliation notes
 
+- 2026-09-23 (session start, BATCH_021): record SHA-256 unchanged; HEAD `f133d64` (BATCH_020's two commits recorded in the Batches table); the owner has not yet changed any status from `08_DECISION_UPDATE_PROPOSALS.md`. Outbound high ports now open from this machine, so GPU session 1 is executable: X-03..X-06 `IN_PROGRESS`.
 - 2026-09-23 (BATCH_020 close): X-26's LLM half run (`docs/reviews/experiments/X-26.md`); GPU session 1 fully prepared and smoke-tested; one rental (instance 52268035) destroyed after its ssh ports proved unreachable from this network (outbound high ports blocked), ≈ $0.68 spent. X-03..X-06 `BLOCKED` on a network that can reach Vast. What remains needs a GPU from another network, listeners (X-01, X-13 H2, X-15/X-29), or the owner's decisions in `08_DECISION_UPDATE_PROPOSALS.md`.
 - 2026-09-23 (BATCH_019 close): BATCH_017/018 committed as `96b58de`. X-02 and X-13 (offline) `RESULT_READY`; X-01 `BLOCKED` on listeners with its material ready. Suite 114/114. Local experiments are done; the rest needs a GPU (X-03..X-06, X-18, X-15, X-29, X-31, X-10..X-12, live verification) or listeners (X-01, X-13 H2, X-15/X-29 listening).
 - 2026-09-23 (BATCH_017/018 close): BATCH_016 committed as `2d06358`. X-07, X-08, X-09 `RESULT_READY` with proposals for the owner (`08_DECISION_UPDATE_PROPOSALS.md`); ARCH-08, ARCH-09, RUN-06 `RESULT_READY`. ARCH-10/11/16 `COMPLETED` on the production runs' readings; ARCH-01 `BLOCKED` (its validation fails on the rule alone; see the proposals). LTX-01/06/02 preparation done (off by default). Suite 111/111. LLM spend only; GPU $0.

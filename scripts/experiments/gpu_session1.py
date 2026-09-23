@@ -38,6 +38,7 @@ import base64
 import hashlib
 import importlib.util
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -188,9 +189,11 @@ def render_arm(server: str, folder: Path, reference: str) -> None:
 def run(server: str, out: Path, only: list[str] | None) -> None:
     health = requests.get(f"{server}/health", timeout=10).json()
     (out / "health.json").write_text(json.dumps(health, indent=1))
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
-    dirty = bool(subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=REPO,
-                                capture_output=True, text=True).stdout.strip())
+    # On the GPU box the tree arrives by git archive, without .git: the shipper passes the revision.
+    head = os.environ.get("AR_REVISION") or subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO,
+                                                           capture_output=True, text=True).stdout.strip()
+    dirty = os.environ.get("AR_DIRTY", "") == "1" or bool(subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"], cwd=REPO, capture_output=True, text=True).stdout.strip())
     with (out / "runs.jsonl").open("a") as f:
         f.write(json.dumps({"started": time.time(), "revision": head, "dirty": dirty, "only": only,
                             "health": health}) + "\n")
@@ -199,7 +202,7 @@ def run(server: str, out: Path, only: list[str] | None) -> None:
     reference = _reference(server)
     order = ["x05", "ltx09", "x06", "x04", "x03", "x03av"]
     for exp in order:
-        if (only and exp not in only) or (not only and exp == "x03av"):
+        if (only and exp not in only) or (not only and exp == "x03av") or not (out / exp).is_dir():
             continue      # x03av only on request, after the restart with the ceiling
         for folder in sorted((out / exp).iterdir()):
             if (folder / "arm.json").exists():
@@ -277,6 +280,10 @@ def analyse(out: Path) -> dict:
             delivered = (spec["frames"] - (spec["window"] if spec["frames"] > 145 else 0)) / FPS
             ratios = [r["wall_s"] / delivered for r in rows]
             warm = ratios[3:] or ratios
+            # The server's own generate + encode, without the HTTP transfer.
+            server = [(float(r["headers"].get("X-Latency-S", 0)) + float(r["headers"].get("X-Encode-S", 0))) / delivered
+                      for r in rows]
+            server_warm = server[3:] or server
             figure = []
             for p in paths:
                 fr = _frames(p, [0, 72, 144])
@@ -300,6 +307,9 @@ def analyse(out: Path) -> dict:
                 "ratio_p50": round(statistics.median(warm), 3),
                 "ratio_p95": round(sorted(warm)[min(len(warm) - 1, int(0.95 * len(warm)))], 3),
                 "ratio_max": round(max(warm), 3),
+                "server_ratio_p50": round(statistics.median(server_warm), 3),
+                "server_ratio_p95": round(sorted(server_warm)[min(len(server_warm) - 1, int(0.95 * len(server_warm)))], 3),
+                "server_ratio_max": round(max(server_warm), 3),
                 "box_drift_max": [round(d, 3) for d in drift], "colour_drift_max": [round(c, 3) for c in colour],
                 "lufs": [round(v, 1) if v is not None else None for v, _ in loud],
                 "true_peak": [round(v, 1) if v is not None else None for _, v in loud],
