@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_005 (RUN-13 part d), 2026-09-22
+- **Latest completed batch:** BATCH_006 (CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-07, CLEAN-09, LTX-08), 2026-09-22
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -44,7 +44,7 @@ The execution state of every decision in the final decision record. The record i
 | LTX-05 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
 | LTX-06 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-01 | — | — | Part of the LTX-01 arm; gated by X-05. |
 | LTX-07 | REJECTED | — | NOT_APPLICABLE | none | — | — | Rejected by owner; keep current behaviour (enhancer off); do not run X-20. |
-| LTX-08 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
+| LTX-08 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `python -m tests.run` 62/62; the three configs load with `ltxv_negative_prompt == ""` and the client omits the field from the request (`tests/test_i2v.py`); `py_compile` on the server | `configs/director.live.yaml` no longer sets it; `Config`/`ltxv.py` comments say only the `full` variant encodes it; the server logs at startup (distilled) and per turn that a request's field has no effect. The server's log lines are **not run on hardware** (logging only). |
 | LTX-09 | APPROVED | 0 | NOT_STARTED | none | — | — | Validation column is "X-05 reruns reproduce" (GPU); locally only the seed derivation can be tested. |
 | LTX-10 | APPROVED | — | NOT_APPLICABLE | none | — | — | Approved keep-as-is (scope none). Verified: `configs/director.live.yaml` has `ltxv_continuity_strength: 1.0`. |
 | LTX-11 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-12, RUN-01 | — | — | Gated by X-04 (GPU); window stays 9 until then. |
@@ -75,15 +75,15 @@ The execution state of every decision in the final decision record. The record i
 | AUD-08 | APPROVED | — | NOT_APPLICABLE | none | — | — | Approved keep-as-is (no music system in the MVP; scope none). No music code exists. |
 | AUD-09 | DEFERRED | backlog | NOT_APPLICABLE | AUD-02 | — | — | Deferred by owner (future backlog); no work. |
 | AUD-10 | DEFERRED | backlog | NOT_APPLICABLE | none | — | — | Deferred by owner (future backlog); no work. |
-| CLEAN-01 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
-| CLEAN-02 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
-| CLEAN-03 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
+| CLEAN-01 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_engine.py::test_engine_starts_a_fresh_world_even_if_the_session_dir_has_one`; suite 62/62 | The resume branch in `_init_world` is removed; docstrings in the engine and `world.py`, and a note in `ARCHITECTURE.md`, say resume is not built. |
+| CLEAN-02 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `python -m tests.run` 62/62 on `stories/lego-void`; `test_seed_image_comes_from_the_story`, `test_live_loop_renders_from_the_story_image`; `main.py` with the replay config on the mock backend, 3 segments (`logs/batch-006/main-replay/`) | `data/` deleted (`git rm`); `Config.i2v_seed_image` defaults to `""` = the story's `seed_image`, resolved once in the runner (`seed_image_for`); `main.py`'s copy removed; both configs' `i2v_seed_image` lines removed; docs name `stories/<story>/story.json`. |
+| CLEAN-03 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_blueprint_has_no_reference_image_field`; an old `world.json` with the key loads (`test_persistence_round_trip`); suite 62/62 | `Character.reference_image` and `Entity.reference_image` gone; the dead key removed from `stories/lego-void/story.json`; `ARCHITECTURE.md` field lists updated. |
 | CLEAN-04 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
 | CLEAN-05 | APPROVED | 2 | NOT_STARTED | RUN-08 | — | — | Listed in phase 0 but depends on RUN-08 (phase 2). |
 | CLEAN-06 | APPROVED | 2 | NOT_STARTED | RUN-01, AUD-06 | — | — | Listed in phase 0 but depends on RUN-01 and AUD-06. |
-| CLEAN-07 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
+| CLEAN-07 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_context_shows_character_state_and_keeps_notes_out_of_the_cast` asserts no `looks:`; suite 62/62 | `format_world_now` prints status, holder and location for props, not the look. |
 | CLEAN-08 | APPROVED | 0 | NOT_STARTED | none | — | — | Fix in the active compiler now; pairs with LTX-03. |
-| CLEAN-09 | APPROVED | 0 | NOT_STARTED | none | — | — |  |
+| CLEAN-09 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_location_resolver_forms_and_prefix_collision`; note under "Not built yet, by design" in `ARCHITECTURE.md` | The test pins ids, names and prefixed forms, and the substring fallback's prefix collision (`the_void` wins for "The Void Annex, far end"; `void` for "void 2, by the edge") as the known gap. The resolver is unchanged (the row's scope is tests and docs); the two-line fix (longest id wins) is proposed to the owner in the BATCH_006 report. |
 | CLEAN-10 | APPROVED | 0 | NOT_STARTED | none | — | — | Docs-only note about the 01 review header; the reviews are untracked user files. |
 
 ## Experiments
@@ -130,10 +130,13 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_002 | 2026-09-22 | RUN-13 (part a) | COMPLETED (row stays IN_PROGRESS; commit `e77c787`) | `implementation_batches/BATCH_002.md` |
 | BATCH_003 | 2026-09-22 | RUN-13 (part b) | COMPLETED (row stays IN_PROGRESS; commit `a14c44a`) | `implementation_batches/BATCH_003.md` |
 | BATCH_004 | 2026-09-22 | RUN-13 (part c) | COMPLETED (row stays IN_PROGRESS; commit `5cbfe21`) | `implementation_batches/BATCH_004.md` |
-| BATCH_005 | 2026-09-22 | RUN-13 (part d) | COMPLETED (RUN-13 COMPLETED) | `implementation_batches/BATCH_005.md` |
+| BATCH_005 | 2026-09-22 | RUN-13 (part d) | COMPLETED (RUN-13 COMPLETED; commit `59f5243`) | `implementation_batches/BATCH_005.md` |
+| BATCH_006 | 2026-09-22 | CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-07, CLEAN-09, LTX-08 | COMPLETED (the commit after `59f5243`; hash recorded next session) | `implementation_batches/BATCH_006.md` |
 
 ## Reconciliation notes
 
+- 2026-09-22 (BATCH_006 close): the six rows `COMPLETED`; `python -m tests.run` 62/62 (5 new tests). Phase 0 now has open: LTX-03 + CLEAN-08 (compiler), CLEAN-04 with ARCH-04/14/18 and CLEAN-10 (docs), LTX-09 (derived seeds; GPU validation). Pre-existing pyflakes findings left as is (not covered by any row): `runner.py` `_plan`'s unused `nonlocal state`, `tests/test_i2v.py` line 50's unused `import json`. Proposal for the owner, outside CLEAN-09's scope: fix the location resolver's substring fallback to prefer the longest id. The owner then asked for both batches to be committed separately: BATCH_005 as `59f5243` (the shared doc and ledger hunks split by batch), BATCH_006 as the commit after it.
+- 2026-09-22 (session 5 start): record SHA-256 unchanged; `python -m tests.run` 57/57. BATCH_005 is complete but uncommitted (the owner did not ask for a commit); its files stay in the working tree next to this batch's, listed per batch in the BATCH_006 report so they can be committed separately. BATCH_006 selected: the six mechanical phase-0 cleanup rows that share one validation boundary; LTX-03 + CLEAN-08 (compiler), CLEAN-04 with the doc-only ARCH rows, CLEAN-10 and LTX-09 are left for their own batches.
 - 2026-09-22 (BATCH_005 close): RUN-13 `COMPLETED`: parts a-d done and every offline piece runs in the suite (57/57). The only piece that needs hardware, `latency_probe --warm 30`, is implemented and tested against a fake server and is not claimed as run. Phase 0 now has CLEAN-01/02/03/04/07/09, CLEAN-08 + LTX-03, LTX-08 and LTX-09 open; phase 1 is unblocked for the rows with no dependencies.
 - 2026-09-22 (session 4, continued on the owner's "Go ahead"): BATCH_004 committed as `5cbfe21`; BATCH_005 selected: RUN-13 part d. Session A's Director outputs are complete in the Langfuse export (33 beats, all matched), and the compiler is unchanged since `265e9fd`, so the replay can be verified against the transcript.
 - 2026-09-22 (BATCH_004 close): RUN-13 part c validated; the row stays `IN_PROGRESS` for part d. X-02's and X-13's measurement tools now exist. Recorded as evidence for the experiment-gated seam rows, not as a status change: today's player shows a 24.9 % crossfade dip at every seam, reloads on `playing` for both clips whenever two are queued (review 03 §3 2c), and replaces the fading element with the next prefetch when a clip is queued inside the fade (2d), an 85 % one-frame blink; the mix has a 21.5 dB median seam step under the fade-in and 36 dB at the raw join.

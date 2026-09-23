@@ -156,4 +156,4 @@ both, the probe against a fake server with the real response headers
 (RUN-13, part d).
 ```
 
-Commit: not created (not asked for).
+Commit: `59f5243` on main, created on the owner's instruction after BATCH_006 closed (the shared CLAUDE.md, ARCHITECTURE.md and ledger hunks were split by batch).

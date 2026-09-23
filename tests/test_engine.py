@@ -42,8 +42,80 @@ def _config(**over) -> Config:
     return Config(**base)
 
 
+def test_engine_starts_a_fresh_world_even_if_the_session_dir_has_one():
+    """CLEAN-01: resume is not built. A `world.json` already in the session
+    directory (which cannot happen: every run makes its own directory) is
+    not loaded; the world comes from the blueprint."""
+    from src.graph.director_engine import DirectorEngine
+    from src.llm import build_backend
+    from src.state.story_state import StoryState
+    from src.story.schemas import EntityOp
+    from src.story.validator import apply_clip
+    story = Story.from_json("stories/lego-void")
+    with tempfile.TemporaryDirectory() as d:
+        old = WorldModel.from_blueprint(title=story.title, characters=story.characters,
+                                        locations=story.locations, cast_locked=story.cast_locked)
+        from src.story.schemas import BeatPlan, ClipSpec
+        beat = BeatPlan(intent="a hat", framing="wide", clips=[ClipSpec(
+            action="A hat.", end_state="hat", on_screen=["lego_man"],
+            entity_ops=[EntityOp(op="introduce", entity="hat", description="a red cap")])])
+        apply_clip(beat, 0, old, segment_no=9)
+        old.segment = 9
+        old.save(d)
+        assert (Path(d) / "world.json").exists()
+        engine = DirectorEngine(llm=build_backend("mock", "mock"), config=_config(), session_dir=d)
+        state = StoryState.initialize(story, config_name="t")
+        world = engine._init_world(state)
+        assert world.segment == 0 and "hat" not in world.entities and "lego_man" in world.entities
+
+
+def test_seed_image_comes_from_the_story():
+    """CLEAN-02: the story owns its reference image; the config's
+    `i2v_seed_image` is only the fallback for a story without one."""
+    from src.eval.runner import seed_image_for
+    story = Story.from_json("stories/lego-void")
+    assert story.seed_image.endswith("stories/lego-void/legoman.png") and Path(story.seed_image).exists()
+    assert Config(name="t", graph="director", llm_backend="mock", model="mock").i2v_seed_image == ""
+    assert seed_image_for(_config(), story) == story.seed_image
+    assert seed_image_for(_config(i2v_seed_image="elsewhere.png"), story) == story.seed_image, "the story wins"
+    bare = story.model_copy(update={"seed_image": ""})
+    assert seed_image_for(_config(i2v_seed_image="elsewhere.png"), bare) == "elsewhere.png"
+    assert seed_image_for(_config(), bare) == ""
+    for cfg in ("configs/director.yaml", "configs/director.live.yaml", "configs/director.replay.yaml"):
+        loaded = Config.from_yaml(cfg)
+        assert loaded.i2v_seed_image == "", f"{cfg}: the story's image, not a config path"
+        assert loaded.ltxv_negative_prompt == "", f"{cfg}: no negative prompt (LTX-08)"
+
+
+async def test_live_loop_renders_from_the_story_image():
+    """CLEAN-02 through the loop: with no `i2v_seed_image` in the config the
+    render backend is handed the story's seed image (main.py no longer
+    copies it into the config)."""
+    import subprocess
+    from unittest import mock
+    from src.i2v.replay import ReplayI2V
+    story = Story.from_json("stories/lego-void")
+    seen: list[str] = []
+    synthesize = ReplayI2V.synthesize
+
+    async def spy(backend, *, image_path, **kwargs):
+        seen.append(str(image_path))
+        return await synthesize(backend, image_path=image_path, **kwargs)
+
+    with tempfile.TemporaryDirectory() as d:
+        clips = Path(d) / "clips"
+        clips.mkdir()
+        subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=128x80:d=1:r=24",
+                        "-pix_fmt", "yuv420p", str(clips / "a.mp4")], check=True)
+        config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips))
+        assert config.i2v_seed_image == ""
+        with mock.patch.object(ReplayI2V, "synthesize", spy):
+            await run_live(config=config, story=story, log_dir=d, player=Scripted(), max_segments=2)
+    assert seen and all(path == story.seed_image for path in seen), seen
+
+
 async def test_director_engine_end_to_end():
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     player = Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."})
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(), story=story, log_dir=d, player=player, max_segments=7)
@@ -91,7 +163,7 @@ async def test_viewer_line_cuts_a_beat_short():
     """A line that arrives while a beat still has unrendered clips drops
     them; the Director writes the next beat from the line and is told
     where the picture actually ends."""
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     player = Scripted(on_prepare={1: "A soccer ball appears at your feet."})
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(), story=story, log_dir=d, player=player, max_segments=3)
@@ -108,7 +180,7 @@ async def test_fixed_clip_length_sets_every_clip():
     is the clip length. The Director is told the length in its prompt."""
     from src.agents.director import SYSTEM_PATH
     assert "{clip_seconds}" in SYSTEM_PATH.read_text() and "{max_clips}" in SYSTEM_PATH.read_text()
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(clip_seconds=6), story=story, log_dir=d,
                                player=Scripted(), max_segments=4)
@@ -124,7 +196,7 @@ async def test_showrunner_never_blocks_a_segment():
     still lands the update."""
     import time
     from src.llm.mock_backend import MockBackend
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     MockBackend.showrunner_delay = 0.25
     try:
         t0 = time.monotonic()
@@ -149,7 +221,7 @@ async def test_showrunner_never_blocks_a_segment():
 
 async def test_showrunner_min_gap_holds_triggers():
     """Triggers inside the gap are noted, not run."""
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d:
         await run_live(config=_config(compaction_interval=2, showrunner_min_gap=4), story=story, log_dir=d,
                        player=Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."}),

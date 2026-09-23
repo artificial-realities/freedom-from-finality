@@ -47,7 +47,7 @@ class Steer(Player):
 
 
 async def test_line_typed_while_a_clip_plays_cuts_the_beat_and_lands_two_clips_later():
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d:
         clips = Path(d) / "clips"
         clips.mkdir()

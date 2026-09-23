@@ -64,8 +64,6 @@ def build_parser() -> argparse.ArgumentParser:
 async def cmd_play(args: argparse.Namespace) -> None:
     story = Story.from_json(args.story)
     config = Config.from_yaml(args.config)
-    if story.seed_image:
-        config.i2v_seed_image = story.seed_image
 
     if args.player is not None or config.live:
         if args.player == "web":

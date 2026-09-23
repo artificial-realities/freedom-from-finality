@@ -238,6 +238,8 @@ async def load_pipeline() -> None:
             for var in ("LTX2_STEPS", "LTX2_GUIDANCE", "LTX2_STG"):
                 if os.getenv(var):
                     logger.warning("%s is ignored for the distilled variant (fixed recipe)", var)
+            logger.info("Negative prompts are not encoded on the distilled recipe (guidance_scale 1.0): "
+                        "a request's negative_prompt has no effect")
     except Exception as exc:
         logger.error(
             "Failed to load %s: %s\nIf this is a 401/403 the weights are "
@@ -633,6 +635,8 @@ def _run_pipeline(req: GenerateRequest) -> dict:
     )
     t0 = time.monotonic()
 
+    if VARIANT == "distilled" and req.negative_prompt:
+        logger.info("Turn %d: negative_prompt ignored (distilled recipe, guidance_scale 1.0)", turn)
     call_kwargs: dict = dict(
         conditions=conditions,
         prompt=req.prompt,

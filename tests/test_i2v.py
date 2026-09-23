@@ -11,9 +11,9 @@ from src.i2v.ltxv import letterbox_reference
 
 def test_letterbox_reference_auto_fill_matches_border():
     from src.i2v.ltxv import border_color
-    src = Image.open("data/legoman.png")
+    src = Image.open("stories/lego-void/legoman.png")
     bc = border_color(src)
-    png = letterbox_reference("data/legoman.png", 768, 512, fill="auto")
+    png = letterbox_reference("stories/lego-void/legoman.png", 768, 512, fill="auto")
     img = Image.open(io.BytesIO(png)).convert("RGB")
     px = img.load()
     assert px[5, 5] == bc, "padding continues the image's own background"
@@ -21,7 +21,7 @@ def test_letterbox_reference_auto_fill_matches_border():
 
 
 def test_letterbox_reference_keeps_whole_subject():
-    png = letterbox_reference("data/legoman.png", 768, 512, fill="white")
+    png = letterbox_reference("stories/lego-void/legoman.png", 768, 512, fill="white")
     img = Image.open(io.BytesIO(png)).convert("RGB")
     assert img.size == (768, 512)
     px = img.load()
@@ -76,11 +76,11 @@ def test_ltxv_payload_carries_anchor_and_reference(monkeypatch=None):
             i2v = ltxv.LtxvI2V(server_url="http://x", output_dir=d, anchor_strength=0.95, anchor_index=-1)
             assert i2v.size == (960, 544), "render size probed from /health"
             assert i2v.seconds_to_frames(5) == 121
-            p1 = i2v._synthesize_sync("data/legoman.png", "p1", 1, 5)
-            p2 = i2v._synthesize_sync("data/legoman.png", "p2", 2, 7)
+            p1 = i2v._synthesize_sync("stories/lego-void/legoman.png", "p1", 1, 5)
+            p2 = i2v._synthesize_sync("stories/lego-void/legoman.png", "p2", 2, 7)
             assert p1 and p2 and Path(p1).exists()
             plain = ltxv.LtxvI2V(server_url="http://x", output_dir=d)
-            plain._synthesize_sync("data/legoman.png", "p3", 1, 5)
+            plain._synthesize_sync("stories/lego-void/legoman.png", "p3", 1, 5)
     finally:
         ltxv.requests.get, ltxv.requests.post = orig_get, orig_post
 
@@ -91,3 +91,5 @@ def test_ltxv_payload_carries_anchor_and_reference(monkeypatch=None):
     assert second["anchor_strength"] == 0.95, "the anchor rides on continue shots too"
     assert second["num_frames"] == 169, "7 s at 24 fps on the 8k+1 grid"
     assert "anchor_strength" not in plain_first, "off by default: the field is not sent"
+    assert "negative_prompt" not in plain_first and "negative_prompt" not in first, \
+        "no negative prompt by default: the live config no longer sets one (LTX-08)"

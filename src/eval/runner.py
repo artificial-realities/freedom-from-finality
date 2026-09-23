@@ -107,6 +107,12 @@ def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
     )
 
 
+def seed_image_for(config: Config, story: Story) -> str:
+    """The reference image the first clip is rendered from: the story's
+    `seed_image`, or the config's `i2v_seed_image` for a story without one."""
+    return story.seed_image or config.i2v_seed_image
+
+
 def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
     if not config.video_enabled:
         return None
@@ -317,7 +323,7 @@ async def run_play(
 
     ui = ui or TerminalUI()
 
-    seed_image: str = config.i2v_seed_image
+    seed_image: str = seed_image_for(config, story)
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
@@ -542,7 +548,7 @@ async def run_live(
 
     async def producer() -> None:
         nonlocal state
-        seed_image = config.i2v_seed_image
+        seed_image = seed_image_for(config, story)
         turn = 0
         clip_hold = float(config.clip_seconds or config.i2v_duration) / player.time_scale
         # Span-pending: collects silent clips behind a voiceover whose audio

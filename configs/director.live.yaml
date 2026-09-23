@@ -21,7 +21,6 @@ lead_clips: 1
 i2v_backend: "ltxv"
 i2v_duration: 5                          # fallback seconds when no clip length is known
 clip_seconds: 6                          # every clip is 6 s (145 frames): one shape to compile, 12-18 s steering latency
-i2v_seed_image: "data/legoman.png"
 ltxv_server_url: "http://localhost:8000"
 ltxv_continuity_strength: 1.0
 ltxv_continuity_frames: 9
@@ -30,8 +29,6 @@ ltxv_continuity_frames: 9
 # the distilled recipe, and an end anchor suppresses the closing action.
 ltxv_anchor_strength: 0.0
 ltxv_anchor_index: -1
-# Negative prompt from the 2026-09-08 sweep: removes the green-face artifact.
-ltxv_negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, green skin, green face, glowing, neon, coloured light, spotlight, lens flare, grey background, dark background, textured floor, hair, eyebrows, extra characters, text, watermark"
 
 # ── Narration ──────────────────────────────────────────────────────
 # LTX-2.5 renders the voice-over natively from the compiled prompt. Set

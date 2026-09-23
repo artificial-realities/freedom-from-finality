@@ -91,7 +91,7 @@ class LtxvI2V(I2VBackend):
         # model invents a new head). "none": send the file as-is.
         self.reference_fit = reference_fit
         self.reference_fill = reference_fill
-        self.negative_prompt = negative_prompt  # "" → the server's default
+        self.negative_prompt = negative_prompt  # "" → the server's default; only the full variant encodes it
         self.seed = seed                        # None → random per clip
         self.model = "ltx-2.5"
         self.resolution = "512x768"

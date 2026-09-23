@@ -73,7 +73,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
 
 | Tier | Where | Lifetime | In the Director prompt |
 |---|---|---|---|
-| Story bible | `data/story.json` → system prompt | immutable | always (rules, premise, style, cast sheets, locations, voice-over register) |
+| Story bible | `stories/<story>/story.json` → system prompt | immutable | always (rules, premise, style, cast sheets, locations, voice-over register) |
 | World state | `WorldModel.entities` | current truth, mutated only by validated deltas | active entities in full, each character with `now: posture; activity; position` and what it holds; dormant props by id with `last_seen`; gone props by id |
 | Cast notes | `Entity.notes` | durable facts from the Showrunner | in the world section (the system prompt stays byte-identical, so the API's prompt cache hits) |
 | Scene context | `plan.scene`, last K clips | one scene | always |
@@ -82,7 +82,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
 | Event log | `WorldModel.events` / `events.jsonl` | append-only, one record per clip | only the last `recent_clips` verbatim |
 | Summaries | `WorldModel.summaries`, `act_summary` | derived, rebuildable | act summary + recent scene summaries |
 
-Entities carry `kind` (character, prop, location), `description` (for the writer), `look` and `look_short` (verbatim for the renderer), `status` (props), `posture`, `activity`, `position` (characters), `location`, `holder`, `present`, `gone`, `first_seen`/`last_seen`, `notes`, `speaks`, `reference_image` and `reference_pose`. `cast_locked` on the story makes introducing characters a hard violation; creatures and objects are props.
+Entities carry `kind` (character, prop, location), `description` (for the writer), `look` and `look_short` (verbatim for the renderer), `status` (props), `posture`, `activity`, `position` (characters), `location`, `holder`, `present`, `gone`, `first_seen`/`last_seen`, `notes`, `speaks` and `reference_pose`. `cast_locked` on the story makes introducing characters a hard violation; creatures and objects are props.
 
 ## The player: watch and steer
 
@@ -126,11 +126,11 @@ showrunner_min_gap: 4          # fewest segments between two Showrunner runs
 director_model: ""             # optional per-role model overrides
 showrunner_model: ""
 director_service_tier: ""      # OpenAI processing tier for the Director call ("priority": ~2.5x the tokens/s)
-ltxv_negative_prompt: ""       # "" → the server's default
+ltxv_negative_prompt: ""       # "" → the server's default; the distilled recipe never encodes it (guidance 1.0)
 ltxv_seed: null                # fixed seed for reproducible renders
 ```
 
-`configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5. The blueprint (`data/story.json`) carries the story: `visual_style` and a one-sentence `visual_anchor`, each character's `look`, `look_short`, `reference_image` and `reference_pose`, the rules of the world. Everything in `src/prompts/`, the schemas, the compiler and the engine is story-agnostic.
+`configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5. The blueprint (`stories/<story>/story.json`, with the story's `seed_image` beside it) carries the story: `visual_style` and a one-sentence `visual_anchor`, each character's `look`, `look_short` and `reference_pose`, the rules of the world. Everything in `src/prompts/`, the schemas, the compiler and the engine is story-agnostic.
 
 ## Testing
 
@@ -139,3 +139,5 @@ ltxv_seed: null                # fixed seed for reproducible renders
 ## Not built yet, by design
 
 Per-character reference images and keyframe conditioning from the current look; semantic retrieval over the event log; character knowledge and relationship graphs; a cinematic-language rewriter; multi-viewer input aggregation. See the reviews for the reasoning and the order.
+
+Resuming a run is not built: every run starts a fresh world in its own session directory, and the `world.json` written there is for inspection (`events.jsonl` is what the replay harness reads). No multi-location story has run: the validator's location resolver (ids, names, prefixed forms such as "at the_white_void", then the first location id contained in the text) is exercised only by `tests/test_story.py`, which pins its prefix collision (a location whose id is a prefix of another's wins the fallback) as a known gap; test it on a two-location blueprint before the first one runs.

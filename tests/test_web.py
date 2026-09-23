@@ -63,7 +63,7 @@ async def _read_events(session: aiohttp.ClientSession, url: str, on_event=None) 
 
 
 async def test_web_player_text_mode_streams_and_takes_input():
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     player = WebPlayer(port=0, time_scale=50)
     line = "A soccer ball appears at your feet."
     with tempfile.TemporaryDirectory() as d:
@@ -108,7 +108,7 @@ async def test_web_player_text_mode_streams_and_takes_input():
 
 
 async def test_web_player_serves_replayed_clips():
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d:
         clips = Path(d) / "clips"
         clips.mkdir()
@@ -164,7 +164,7 @@ async def test_player_input_joins_lines_and_pipelined_items_keep_views():
     assert await p.next_input() == "make it rain and a dog appears"
     assert await p.next_input() == ""
 
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(), story=story, log_dir=d, player=p, max_segments=3)
     assert [i.turn for i in p.items] == [1, 2, 3]

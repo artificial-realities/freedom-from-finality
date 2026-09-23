@@ -9,7 +9,7 @@ and the summaries the Showrunner compacts the log into.
 
 Only validated deltas mutate it (see `validator.py`). It is persisted
 after every clip to `logs/sessions/<session>/` so a run can be
-inspected or resumed.
+inspected (resume is not built: every run starts a fresh world).
 """
 
 from __future__ import annotations
@@ -44,7 +44,6 @@ class Entity(BaseModel):
     last_seen: int = 0
     notes: list[str] = Field(default_factory=list)   # durable facts (Showrunner)
     speaks: bool = True
-    reference_image: str = ""
     reference_pose: str = ""
     # Characters: the state the next clip continues from.
     posture: str = ""            # how the body is arranged: "standing", "lying on his back"
@@ -175,7 +174,6 @@ class WorldModel(BaseModel):
                 look=getattr(ch, "look", "") or "",
                 look_short=getattr(ch, "look_short", "") or "",
                 speaks=getattr(ch, "speaks", True),
-                reference_image=getattr(ch, "reference_image", "") or "",
                 reference_pose=getattr(ch, "reference_pose", "") or "",
                 present=(i == 0), location=home if i == 0 else "",
             )

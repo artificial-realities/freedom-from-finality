@@ -23,7 +23,7 @@ def _config(**over) -> Config:
 
 
 def _world() -> WorldModel:
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     return WorldModel.from_blueprint(
         title=story.title, characters=story.characters, locations=story.locations,
         cast_locked=story.cast_locked,
@@ -213,7 +213,7 @@ def test_compiler_continuing_clip_is_compact():
 
 def test_pacing_in_story_seconds():
     cfg = _config(min_pause_seconds=10)
-    story = Story.from_json("data/story.json")
+    story = Story.from_json("stories/lego-void")
     st = StoryState.initialize(story, config_name="t")
     assert voiceover_gate(st, cfg) is True, "no line yet: opening line welcome"
     assert voiceover_gate(st, _config(narration="off")) is False
@@ -253,7 +253,10 @@ def test_context_shows_character_state_and_keeps_notes_out_of_the_cast():
     text = format_world_now(w)
     assert text.count("\n- ") == PRESENT_IN_FULL, "the character plus the most recent props get full lines"
     assert "Also present (seen less recently)" in text
-    assert "…" in text, "long status and look strings are clipped"
+    assert "…" in text, "long status strings are clipped"
+    assert "looks:" not in text and "xxxx" not in text, \
+        "a prop's look is the compiler's business, not the Director's (CLEAN-07)"
+    assert "status: sss" in text, "the status still shows"
     w.events.append(EventRecord(segment=1, scene_id=1, beat=1, beat_intent="he sleeps", clip_index=2, clip_count=3,
                                 narration="He lies still.", end_state="asleep", duration=6))
     recent = format_recent(w, 4)
@@ -287,3 +290,71 @@ def test_persistence_round_trip():
         loaded = WorldModel.load(d)
         assert "hat" in loaded.entities and len(loaded.events) == 1 and loaded.events[0].beat_intent == "a hat"
         assert (Path(d) / "events.jsonl").read_text().count("\n") == 1
+        # A world.json written before CLEAN-03 carries `reference_image` on
+        # every entity; it still loads (unknown keys are ignored).
+        import json
+        raw = json.loads((Path(d) / "world.json").read_text())
+        raw["entities"]["lego_man"]["reference_image"] = "data/legoman.png"
+        (Path(d) / "world.json").write_text(json.dumps(raw))
+        old = WorldModel.load(d)
+        assert "lego_man" in old.entities and not hasattr(old.entities["lego_man"], "reference_image")
+
+
+def test_blueprint_has_no_reference_image_field():
+    """CLEAN-03: the story's `seed_image` is the reference; the per-character
+    field was read by nothing. An old blueprint that still carries it loads."""
+    from src.models.story import Character
+    from src.story.world import Entity
+    assert "reference_image" not in Character.model_fields and "reference_image" not in Entity.model_fields
+    assert "reference_pose" in Character.model_fields and "reference_pose" in Entity.model_fields
+    import json
+    raw = json.loads(Path("stories/lego-void/story.json").read_text())
+    assert "reference_image" not in raw["characters"][0]
+    raw["characters"][0]["reference_image"] = "legoman.png"
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "story.json").write_text(json.dumps(raw))
+        story = Story.from_json(d)
+    assert story.characters[0].reference_pose.startswith("standing upright")
+    assert story.seed_image == str(Path(d) / "legoman.png"), "the seed image resolves against the story folder"
+    w = WorldModel.from_blueprint(title=story.title, characters=story.characters, locations=story.locations,
+                                  cast_locked=story.cast_locked)
+    assert w.entities["lego_man"].reference_pose == story.characters[0].reference_pose
+
+
+def test_location_resolver_forms_and_prefix_collision():
+    """CLEAN-09: no multi-location story has run. The resolver takes ids,
+    names and prefixed forms; a decorated reference falls through to the
+    substring fallback, which takes the first location id contained in the
+    text, so a location whose id is a prefix of another's wins there (the
+    known gap from review 01 §4.4, pinned here until a two-location story
+    needs it fixed)."""
+    from src.models.story import Location
+    from src.story.validator import resolve_location
+    story = Story.from_json("stories/lego-void")
+    locations = [Location(name="The Void", description="white"), Location(name="The Void Annex", description="whiter")]
+    w = WorldModel.from_blueprint(title=story.title, characters=story.characters, locations=locations,
+                                  cast_locked=story.cast_locked)
+    assert [e.id for e in w.by_kind("location")] == ["the_void", "the_void_annex"]
+    assert w.current_location().id == "the_void", "the first location is home"
+    # Exact ids, names, slugs and prefixed forms all resolve to the right one.
+    for ref in ("the_void_annex", "The Void Annex", "the void annex", "at the_void_annex", "in The Void Annex", "inside the void annex"):
+        assert resolve_location(w, ref).id == "the_void_annex", ref
+    for ref in ("the_void", "The Void", "at the void", "on the_void"):
+        assert resolve_location(w, ref).id == "the_void", ref
+    assert resolve_location(w, "the skateboard") is None, "no location id in the text: unresolved"
+    # The known gap: a decorated reference to the annex reaches the fallback
+    # and `the_void` is found inside it first.
+    assert resolve_location(w, "The Void Annex, far end").id == "the_void", "the prefix collision (01 §4.4)"
+    assert resolve_location(w, "far end of the annex") is None, "no location id in the text: unresolved"
+    # Two locations with the same name get `_2`, and the same collision applies.
+    w2 = WorldModel.from_blueprint(title=story.title, characters=story.characters,
+                                   locations=[Location(name="Void", description="a"), Location(name="Void", description="b")],
+                                   cast_locked=story.cast_locked)
+    assert [e.id for e in w2.by_kind("location")] == ["void", "void_2"]
+    assert resolve_location(w2, "void_2").id == "void_2" and resolve_location(w2, "the void_2").id == "void_2"
+    assert resolve_location(w2, "void 2, by the edge").id == "void", "the prefix collision (`void` inside `void_2`)"
+    # A protagonist move to the annex lands through the validator and flips presence.
+    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="lego_man", kind="character", location="in The Void Annex")])])
+    r = _apply(beat, w, 2)
+    assert not r.violations and w.entities["lego_man"].location == "the_void_annex"
+    assert w.current_location().id == "the_void_annex"

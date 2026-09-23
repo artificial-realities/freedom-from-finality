@@ -35,7 +35,6 @@ scripts/replay_compiler.py   # a run's Director outputs through the compiler, of
 benchmarks/runtime/          # baseline.json: the canonical render baseline and its gates
 configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5) · director.replay.yaml (replayed clips)
 stories/                     # per-story folders (story.json blueprint, reference image, assets)
-data/                        # legacy path for the default story (still works; stories/ is preferred)
 docs/                        # ARCHITECTURE.md · reviews/ · legacy/
 server/                      # LTX-2.5 inference server (runs on a GPU box; see server/README.md)
 ```

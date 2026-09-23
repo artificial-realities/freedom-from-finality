@@ -1,4 +1,5 @@
-"""Story blueprint models — loaded once per session from data/story.json.
+"""Story blueprint models — loaded once per session from a story folder
+(`stories/<story>/story.json`, with the story's reference image beside it).
 
 All fields are static and read-only during a run. See docs/ARCHITECTURE.md
 for the per-field audience table.
@@ -23,8 +24,7 @@ class Character(BaseModel):
     look: str = ""              # visual descriptor for the renderer (falls back to description)
     look_short: str = ""        # a few words of look for clips that continue the picture ("" → name only)
     speaks: bool = True         # False → dialogue from this character is rejected
-    reference_image: str = ""   # optional identity anchor for the video model
-    reference_pose: str = ""    # what the reference image shows (pose, framing); the first clip starts from it
+    reference_pose: str = ""    # what the story's seed image shows (pose, framing); the first clip starts from it
 
 
 class Story(BaseModel):
@@ -54,7 +54,4 @@ class Story(BaseModel):
         story = cls(**json.loads(path.read_text(encoding="utf-8")))
         if story.seed_image and not Path(story.seed_image).is_absolute():
             story.seed_image = str(story_dir / story.seed_image)
-        for ch in story.characters:
-            if ch.reference_image and not Path(ch.reference_image).is_absolute():
-                ch.reference_image = str(story_dir / ch.reference_image)
         return story

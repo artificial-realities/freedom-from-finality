@@ -352,10 +352,9 @@ class DirectorEngine:
     # ── Setup ───────────────────────────────────────────────────────
 
     def _init_world(self, state: StoryState) -> WorldModel:
-        if self.session_dir and (self.session_dir / "world.json").exists():
-            world = WorldModel.load(self.session_dir)
-            logger.info("Resumed world model from %s at segment %d", self.session_dir, world.segment)
-            return world
+        """A fresh world from the blueprint. Resume is not built: every run
+        creates its own session directory, and the `world.json` written
+        there is for inspection (and `events.jsonl` for replay)."""
         return WorldModel.from_blueprint(
             title=state.title,
             characters=state.characters,

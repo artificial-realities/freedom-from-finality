@@ -104,8 +104,10 @@ def format_world_now(world: WorldModel) -> str:
             status = f" · status: {_clip(ent.status, STATUS_CHARS)}" if ent.status else ""
             where = f" · held by {ent.holder}" if ent.holder else (
                 f" · at {ent.location}" if ent.location and ent.kind != "location" else "")
-            look = f" · looks: {_clip(ent.render_look(), STATUS_CHARS)}" if ent.kind == "prop" and ent.render_look() != ent.name else ""
-            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{status}{where}{look}")
+            # No `looks:` here: the renderer's description is the compiler's
+            # business (it reads `look` from the model); the Director writes
+            # what happens, not what things look like.
+            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{status}{where}")
         if rest:
             out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))
     else:

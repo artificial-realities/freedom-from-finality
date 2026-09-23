@@ -17,7 +17,6 @@ lead_clips: 0
 i2v_backend: "replay"
 i2v_replay_dir: "logs/video"
 i2v_replay_delay: 3.0
-i2v_seed_image: "data/legoman.png"
 
 narration: "ltx"
 audio_enabled: false

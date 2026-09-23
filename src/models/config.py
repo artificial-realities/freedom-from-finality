@@ -42,7 +42,10 @@ class Config(BaseModel):
     # compiled server compiles once, pacing is constant, and a viewer's
     # line lands a known number of seconds later.
     clip_seconds: int = 0
-    i2v_seed_image: str = "data/legoman.png"
+    # The reference image the first clip is rendered from. "" → the story's
+    # `seed_image` (`stories/<story>/story.json`); set here only for a story
+    # without one.
+    i2v_seed_image: str = ""
 
     # LTX-2.5 backend (when i2v_backend == "ltxv"):
     ltxv_server_url: str = ""
@@ -58,9 +61,11 @@ class Config(BaseModel):
     # continue the image's own border colour so no seam is introduced.
     i2v_reference_fit: str = "pad"
     i2v_reference_fill: str = "auto"
-    # Negative prompt sent with every clip ("" → the server's default) and an
-    # optional fixed seed for reproducible renders.
+    # Negative prompt sent with every clip ("" → the server's default). Only
+    # the `full` variant encodes it: the distilled recipe runs unguided
+    # (guidance_scale 1.0) and the server ignores the field (LTX-08).
     ltxv_negative_prompt: str = ""
+    # Optional fixed seed for reproducible renders.
     ltxv_seed: int | None = None
     # Identity anchor: the server also conditions on the reference image as
     # a guiding keyframe at `ltxv_anchor_index` (latent frames, -1 = the
