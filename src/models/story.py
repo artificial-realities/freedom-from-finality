@@ -11,7 +11,45 @@ import json
 from pathlib import Path
 
 from PIL import Image
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class Voice(BaseModel):
+    """How a voice sounds, for the renderer: its character, the language
+    it speaks, an accent, and a default delivery. Empty fields are not
+    said. A blueprint may give a plain string, read as `description`."""
+
+    description: str = ""       # vocal characteristics: "deep, gravelly, slow", "bright child's voice"
+    language: str = ""          # the language it speaks; "" = not stated in the prompt
+    accent: str = ""            # "a soft Scottish accent"
+    delivery: str = ""          # a default delivery for lines that give none: "quiet, deliberate"
+
+    @classmethod
+    def coerce(cls, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, str):
+            return cls(description=value)
+        return value
+
+
+class Narrator(BaseModel):
+    """The film's narrator (AUD-06): whether there is one, the register of
+    its lines (the Director writes them), how it sounds (the renderer says
+    it), and the story's own guidance on when it speaks. There is no
+    universal frequency; `min_pause_seconds` is an optional floor of
+    silence between two lines for a story that wants one (0 = none)."""
+
+    enabled: bool = True
+    tone: str = ""              # the register of the lines, for the Director
+    voice: Voice = Field(default_factory=Voice)
+    guidance: str = ""          # when narration serves this film (and when dialogue or silence does)
+    min_pause_seconds: float = 0.0
+
+    @field_validator("voice", mode="before")
+    @classmethod
+    def _voice(cls, value):
+        return Voice.coerce(value) or Voice()
 
 
 class Location(BaseModel):
@@ -25,7 +63,13 @@ class Character(BaseModel):
     look: str = ""              # visual descriptor for the renderer (falls back to description)
     look_short: str = ""        # a few words of look for clips that continue the picture ("" → name only)
     speaks: bool = True         # False → dialogue from this character is rejected
+    voice: Voice | None = None  # how the character sounds when it speaks (LTX-05)
     reference_pose: str = ""    # what the story's seed image shows (pose, framing); the first clip starts from it
+
+    @field_validator("voice", mode="before")
+    @classmethod
+    def _voice(cls, value):
+        return Voice.coerce(value)
 
 
 class Story(BaseModel):
@@ -33,7 +77,8 @@ class Story(BaseModel):
     synopsis: str
     visual_style: str
     visual_anchor: str = ""     # one sentence of look and framing for clips that continue the picture ("" → the first sentence of visual_style)
-    tone_guidelines: str
+    tone_guidelines: str = ""   # the film's tone; a story without `narrator` reads it as the narrator's register
+    narrator: Narrator | None = None   # absent → built from `tone_guidelines` (a blueprint from before AUD-06)
     locations: list[Location] = Field(default_factory=list)
     characters: list[Character] = Field(default_factory=list)
     world_constraints: list[str] = Field(default_factory=list)
@@ -43,6 +88,14 @@ class Story(BaseModel):
     thread_guidance: str = ""   # optional: how long setups, promises and gags should run in this story (the Showrunner's)
     seed_image: str = ""        # reference image for the video model, resolved relative to the story dir
     cast_locked: bool = False   # True → no new characters may be introduced (props are fine)
+
+    @model_validator(mode="after")
+    def _narrator(self) -> "Story":
+        if self.narrator is None:
+            # A blueprint from before AUD-06: its tone guidelines were the
+            # voice-over register, and a story without them had no narrator.
+            self.narrator = Narrator(enabled=bool(self.tone_guidelines.strip()), tone=self.tone_guidelines)
+        return self
 
     @classmethod
     def from_json(cls, path: Path | str) -> "Story":

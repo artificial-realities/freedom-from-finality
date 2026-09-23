@@ -23,13 +23,7 @@ from src.i2v.base import I2VBackend
 from src.llm import build_backend
 from src.models.config import Config
 from src.models.story import Story
-from src.playback import (
-    Playable,
-    Player,
-    TerminalPlayer,
-    concat_videos_and_mux_audio,
-    mux_audio_into_video,
-)
+from src.playback import Playable, Player, TerminalPlayer, mux_audio_into_video
 from src.state.story_state import HistoryEntry, StoryState
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.terminal import TerminalUI
@@ -158,19 +152,15 @@ async def _render_turn(
     seed_image: str,
     frames_dir: Path,
     video_dir: Path,
-    mux_inline: bool = True,
 ) -> tuple[str, str | None, str | None]:
-    """Render one clip, threading the seed image forward.
+    """Render one clip for the turn-by-turn loop (`run_play`), threading
+    the seed image forward.
 
     Returns `(next_seed_image, silent_video_path, playable_path)` where:
     - `next_seed_image` always set (falls back to current seed on failure)
     - `silent_video_path` is the raw i2v mp4 (or None if render failed)
-    - `playable_path` is the muxed mp4 when `mux_inline=True` AND audio
-      was produced this turn; otherwise the silent path; or None on
-      complete render failure.
-
-    `mux_inline=False` is for the live loop, which handles muxing
-    itself so it can defer single-audio-over-multiple-clips spans.
+    - `playable_path` is the muxed mp4 when a TTS line was produced this
+      turn; otherwise the silent path; or None on complete render failure.
     """
     if not Path(seed_image).exists():
         logger.warning("Seed image missing for turn %s: %s — skipping render",
@@ -206,7 +196,7 @@ async def _render_turn(
 
     playable_path: str | None = video_path
     muxed_path: str | None = None
-    if mux_inline and state.current_audio_path:
+    if state.current_audio_path:
         out = video_dir / f"turn_{state.turn_number:04d}_muxed.mp4"
         muxed_path = await mux_audio_into_video(
             video_path=video_path,
@@ -474,7 +464,6 @@ async def run_live(
               "Ctrl+C to quit.", flush=True)
 
     video_dir = Path(log_dir) / "video"
-    frames_dir = video_dir / "frames"
 
     queue: asyncio.Queue[Playable | None] = asyncio.Queue(maxsize=queue_size)
     stop_event = asyncio.Event()
@@ -506,17 +495,11 @@ async def run_live(
         return float(item.duration) / player.time_scale
 
     # The producer mutates these state fields directly so the next turn's
-    # voice-over gate sees up-to-date pacing. Mark the loop as managing
-    # pacing and open the gate for turn 1 by setting silence at the floor.
+    # voice-over gate sees up-to-date pacing (silence starts at the story
+    # narrator's floor, so the film may open on a line).
     state.pacing_managed = True
-    state.silence_seconds = config.min_pause_seconds
-    state.audio_seconds_owed = 0.0
 
     trace_tags = [config.name, "live"]
-
-    # A backend that owns continuity (the LTX-2.5 server's sliding window)
-    # depends only on the prompt, so render(N) can overlap the Director.
-    _pipeline_ok = i2v is not None and i2v.manages_continuity
 
     # Running averages of the measured render and Director times, for the
     # just-in-time schedule. None until the first measurement.
@@ -540,9 +523,10 @@ async def run_live(
         player.prepare(item)
 
     async def _bg_render_and_enqueue(
-        item: Playable, *, prompt: str, seed_image: str, duration: int | None,
+        item: Playable, *, prompt: str, seed_image: str, duration: int | None, audio: str = "",
     ) -> None:
-        """Render one clip in the background and enqueue it."""
+        """Render one clip in the background and enqueue it, with the
+        segment's TTS line (already no longer than the clip) mixed in."""
         assert i2v is not None
         t0 = time.monotonic()
         video_path = await i2v.synthesize(
@@ -554,8 +538,14 @@ async def run_live(
                      server=dict(i2v.last_render))
         if video_path:
             item.path = video_path
+            if audio:
+                muxed = await mux_audio_into_video(
+                    video_path=video_path, audio_path=audio,
+                    output_path=video_dir / f"turn_{item.turn:04d}_muxed.mp4",
+                )
+                item.path = muxed or video_path
             item.duration = await _get_clip_duration(
-                video_path, fallback=float(duration or config.i2v_duration),
+                item.path, fallback=float(duration or config.i2v_duration),
             )
             await _enqueue(item)
         else:
@@ -570,12 +560,6 @@ async def run_live(
         seed_image = seed_image_for(config, story)
         turn = 0
         clip_hold = float(config.clip_seconds or config.i2v_duration) / player.time_scale
-        # Span-pending: collects silent clips behind a voiceover whose audio
-        # spills past one clip. Closed (concat+mux+enqueue) once the
-        # accumulated clip duration covers the audio.
-        # Shape: {"item": Playable, "clips": [paths], "audio": str,
-        #         "owed": float, "audio_dur": float, "start_turn": int}
-        pending_span: dict | None = None
         # Background render task for pipelining.
         _prev_render: asyncio.Task | None = None
         # The viewer text the last plan answered ("" when it answered none),
@@ -725,28 +709,19 @@ async def run_live(
                         timing.write("line_landed", turn=turn, lines=list(beat_lines))
                         beat_lines.clear()
 
-                    silent: str | None = None
-                    handled = False
-                    item: Playable | None = None
                     if state.current_shot is not None:
                         item = _playable(state)
                         if i2v is None:
                             # ── Text-only film ──────────────────────────
                             # No renderer: the clip plays as text for its
                             # own duration. Pacing follows that clock.
-                            handled = True
                             _pace_expected(state, item.duration)
                             await _enqueue(item)
-                        elif (
-                            _pipeline_ok
-                            and not state.current_audio_path
-                            and pending_span is None
-                        ):
-                            # ── Pipelined path ──────────────────────────
+                        else:
+                            # ── The one render path (AUD-04) ────────────
                             # Wait for the previous render (the sliding
                             # window is sequential), then fire this one in
-                            # the background.
-                            handled = True
+                            # the background; a TTS line is mixed in there.
                             await _drain_prev()
                             player.status(f"rendering segment {turn}")
                             shot_dur = state.current_shot.duration_seconds
@@ -761,150 +736,17 @@ async def run_live(
                                     prompt=state.current_shot.i2v_prompt,
                                     seed_image=seed_image,
                                     duration=shot_dur,
+                                    audio=state.current_audio_path,
                                 )
                             )
-                            # Set pacing state now with the expected clip
-                            # duration so the next voice-over decision is right.
+                            # Pacing from the planned clip length, so the
+                            # next voice-over decision is right.
                             _pace_expected(state, float(shot_dur))
-                        else:
-                            # ── Serial path (audio / span) ──
-                            await _drain_prev()
-                            player.status(f"rendering segment {turn}")
-                            need = _needed_at()
-                            timing.write("fire", turn=turn, seconds=state.current_shot.duration_seconds,
-                                         due_in=round(need - time.monotonic(), 4) if need is not None else None)
-                            t0 = time.monotonic()
-                            seed_image, silent, _ = await _render_turn(
-                                state=state,
-                                i2v=i2v,
-                                seed_image=seed_image,
-                                frames_dir=frames_dir,
-                                video_dir=video_dir,
-                                mux_inline=False,  # live loop owns muxing
-                            )
-                            timing.write("render_done", turn=turn, ok=silent is not None,
-                                         render_s=round(time.monotonic() - t0, 4), server=dict(i2v.last_render))
 
                     set_trace_output(_trace_output(state))
 
                 _commit_history(state)
                 _log_story_turn(story_logger, state)
-
-                # Text and pipelined turns already set pacing and enqueued.
-                if handled:
-                    continue
-
-                if silent is None or item is None:
-                    # Render failed or skipped — nothing to enqueue. Abort any
-                    # pending span (the audio would no longer line up with the
-                    # visual continuity anyway) and reset owed so the next
-                    # turn's voice-over gate is not artificially held.
-                    if pending_span is not None:
-                        langfuse_event(
-                            "playback_span_abort",
-                            metadata={"turn": turn,
-                                      "start_turn": pending_span["start_turn"],
-                                      "reason": "render_failed_mid_span"},
-                            level="WARNING",
-                        )
-                        pending_span = None
-                    state.audio_seconds_owed = 0.0
-                    langfuse_event(
-                        "live_no_playable",
-                        metadata={"turn": turn,
-                                  "reason": "render_failed_or_skipped"},
-                        level="WARNING",
-                    )
-                    continue
-
-                clip_dur = await _get_clip_duration(silent, fallback=float(config.i2v_duration))
-                state.last_clip_duration = clip_dur
-
-                # Mid-span: this turn's voice-over was held silent because
-                # the previous voiceover still owes audio. Add the silent
-                # clip to the span and pay it down.
-                if pending_span is not None:
-                    pending_span["clips"].append(silent)
-                    pending_span["owed"] -= clip_dur
-                    state.audio_seconds_owed = max(0.0, pending_span["owed"])
-                    if pending_span["owed"] <= 0.001:
-                        out = video_dir / f"turn_{pending_span['start_turn']:04d}_span.mp4"
-                        combined = await concat_videos_and_mux_audio(
-                            video_paths=pending_span["clips"],
-                            audio_path=pending_span["audio"],
-                            output_path=out,
-                        )
-                        chosen = combined or pending_span["clips"][0]
-                        langfuse_event(
-                            "playback_span_complete",
-                            metadata={
-                                "turn": turn,
-                                "start_turn": pending_span["start_turn"],
-                                "clip_count": len(pending_span["clips"]),
-                                "audio_dur": pending_span["audio_dur"],
-                                "video_paths": pending_span["clips"],
-                                "audio_path": pending_span["audio"],
-                                "playable": chosen,
-                                "concat_succeeded": combined is not None,
-                            },
-                        )
-                        span_item: Playable = pending_span["item"]
-                        span_item.path = chosen
-                        span_item.duration = await _get_clip_duration(chosen, fallback=clip_dur)
-                        pending_span = None
-                        # Span finished: reset silence to start counting again.
-                        state.silence_seconds = 0.0
-                        await _enqueue(span_item)
-                    continue
-
-                audio = state.current_audio_path
-
-                if audio:
-                    audio_dur = await probe_duration(audio)
-                    if audio_dur is None:
-                        # Probe failed — assume audio fits in one clip and
-                        # let the single-clip mux clamp via -shortest.
-                        audio_dur = clip_dur
-                    if audio_dur > clip_dur + 0.05:
-                        # Voiceover spills past this clip — open a span.
-                        owed = audio_dur - clip_dur
-                        pending_span = {
-                            "item": item,
-                            "clips": [silent],
-                            "audio": audio,
-                            "owed": owed,
-                            "audio_dur": audio_dur,
-                            "start_turn": turn,
-                        }
-                        state.audio_seconds_owed = owed
-                        state.silence_seconds = 0.0
-                        langfuse_event(
-                            "playback_span_open",
-                            metadata={"turn": turn, "audio_dur": audio_dur,
-                                      "clip_dur": clip_dur, "owed": owed,
-                                      "audio_path": audio},
-                        )
-                        continue
-
-                    # Audio fits in one clip — mux and enqueue.
-                    out = video_dir / f"turn_{turn:04d}_muxed.mp4"
-                    muxed = await mux_audio_into_video(
-                        video_path=silent,
-                        audio_path=audio,
-                        output_path=out,
-                    )
-                    state.audio_seconds_owed = 0.0
-                    state.silence_seconds = 0.0
-                    item.path = muxed or silent
-                    item.duration = clip_dur
-                    await _enqueue(item)
-                else:
-                    # Pure silence — accumulate the floor.
-                    state.audio_seconds_owed = 0.0
-                    state.silence_seconds += clip_dur
-                    item.path = silent
-                    item.duration = clip_dur
-                    await _enqueue(item)
             # A bounded run: let the last render land before signalling the end.
             await _drain_prev()
         except asyncio.CancelledError:
@@ -1037,7 +879,6 @@ def _pace_expected(state: StoryState, expected_dur: float) -> None:
     """Pacing for a segment whose clip is not measured yet (pipelined render
     or text-only): assume it plays for its planned duration."""
     state.last_clip_duration = expected_dur
-    state.audio_seconds_owed = 0.0
     if state.current_commentary and state.current_commentary.voiceover:
         # A line was produced this turn (rendered natively or logged): the
         # silence floor re-arms from here.

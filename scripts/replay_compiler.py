@@ -23,7 +23,7 @@ changed.
         --out prose.json --diff prompts.json --first 1 --count 12
 
 `--compiler` is `module:function` with `compile_clip`'s signature. The
-config gives `narration`, `voiceover_style` and `max_clips_per_beat`.
+config gives `narration` and `max_clips_per_beat`; the story gives the narrator.
 Beats without a plan (a Director failure's fallback beat, a missing
 generation) are listed in the replay file and skipped with a note.
 """
@@ -239,7 +239,7 @@ def replay(data: dict, *, compiler, config: Config, story: Story) -> list[dict]:
             visual_style=story.visual_style,
             visual_anchor=story.visual_anchor,
             narration_mode=config.narration,
-            voiceover_style=config.voiceover_style,
+            narrator=story.narrator,
             opening=(seg == 1),
             segment_no=seg,
         )

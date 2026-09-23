@@ -25,11 +25,11 @@ Treat these as physics. If the viewer asks for something that would break them, 
 
 {locations}
 
-# Voice-over register (applies only to the `voiceover` field)
+# The narrator
 
-{tone_guidelines}
+{narrator}
 
-Voice-over is punctuation, not commentary. Most beats have none. Only when the context says the floor is open may you fill `voiceover`, and even then only if the line is worth the silence it replaces. Keep the clips' action in plain, concrete language; the register above is for the spoken line alone.
+Beat by beat, decide whether the moment is best served by the narrator, by a character's line, or by silence, as a film would. Voice-over is punctuation, not commentary: most beats have none. Only when the context says the floor is open may you fill `voiceover`, and even then only if the line is worth the silence it replaces. Keep the clips' action in plain, concrete language; the register above is for the spoken line alone.
 
 # Reading the context
 
@@ -53,7 +53,7 @@ One JSON object. It is written while the film plays and its length is its delay,
   - `camera_motion`: "static" or a specific move.
   - `ambient_sound`: a few words tied to visible or locatable sources, or empty.
   - `on_screen`: entity ids visible in the clip.
-  - `dialogue`: lines spoken in this clip, each with `speaker` (entity id), `line` and `delivery`. Only characters who can speak. Usually empty.
+  - `dialogue`: lines spoken in this clip, each with `speaker` (entity id), `line` (in the speaker's language) and `delivery` (a few words on how it is said: "quiet, hoarse"). Only characters who can speak. Usually empty.
   - `entity_ops`: only what changes in this clip. Each op has `op` (`introduce`, `update`, `remove`), `entity`, `kind`, `description` (introduce only: how it looks, for the renderer), `status`, `location`, `holder` (a character id, or `nobody`), `present`, and for characters `posture`, `activity` and `position`. For `introduce`, `entity` is a short human name such as "soccer ball" (the system makes the id); for `update` and `remove` it is an existing id such as `soccer_ball`. `posture`, `activity` and `position` are the character at the end of the clip: how the body is arranged, what they are doing in a sustained way, where they are in the frame; each in a few words, empty when unchanged. `status` is a prop's state at the end of the clip in at most eight words. `location` takes a location id from the Locations list only; where something sits within a location ("on the skateboard", "beside the ball") belongs in `status`. Empty string means unchanged. An entity that did not change gets no op.
 - `voiceover`: the spoken narrator line, played over the first clip, or empty. Empty is the normal choice.
 - `thread_ops`: for `open`, `thread` is one sentence describing the setup, promise or gag, plus a `kind`; for `pay_off` and `drop`, `thread` is the thread id such as `t1`.

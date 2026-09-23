@@ -32,11 +32,11 @@ ltxv_anchor_strength: 0.0
 ltxv_anchor_index: -1
 
 # ── Narration ──────────────────────────────────────────────────────
-# LTX-2.5 renders the voice-over natively from the compiled prompt. Set
-# narration: "tts" plus audio_enabled/elevenlabs_voice_id for a fixed voice.
+# LTX-2.5 renders the voice-over natively from the compiled prompt, in the
+# voice the story's narrator describes. narration: "tts" plus
+# audio_enabled/elevenlabs_voice_id renders it through ElevenLabs instead.
 narration: "ltx"
 audio_enabled: false
-min_pause_seconds: 15.0
 
 recent_clips: 6
 max_clips_per_beat: 4

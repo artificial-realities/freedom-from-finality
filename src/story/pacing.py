@@ -21,15 +21,13 @@ REQUIRED_AT = 1.5
 SHOWRUNNER_REPLAN_AT = 2.0
 
 
-def voiceover_gate(state: StoryState, config: Config) -> bool:
-    """True when the Director may fill `voiceover` this beat."""
-    if config.narration == "off":
-        return False
-    if state.audio_seconds_owed > 0.001:
-        return False
-    if not any(h.commentary.voiceover for h in state.history):
-        return True  # no line yet: an opening line is welcome
-    return state.silence_seconds >= config.min_pause_seconds
+def voiceover_gate(state: StoryState) -> bool:
+    """True when the Director may fill `voiceover` this beat: the story has
+    a narrator and its optional floor of silence has passed (silence starts
+    at the floor, so the film may open on a line). Content only: whether
+    the line is rendered (`narration`: ltx, tts, off) is not asked here."""
+    narrator = state.narrator
+    return narrator.enabled and state.silence_seconds >= narrator.min_pause_seconds
 
 
 def tick_story_clock(state: StoryState, config: Config) -> None:
@@ -44,7 +42,7 @@ def tick_story_clock(state: StoryState, config: Config) -> None:
         clip = state.last_clip_duration
         if not clip and state.current_shot is not None:
             clip = float(state.current_shot.duration_seconds)
-        state.silence_seconds += clip or float(config.i2v_duration)
+        state.silence_seconds += clip or float(config.clip_seconds or config.i2v_duration)
 
 
 def pacing_note(world: WorldModel, config: Config) -> str:

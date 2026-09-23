@@ -11,7 +11,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from src.models.responses import Beat, Commentary, Shot
-from src.models.story import Character, Location, Story
+from src.models.story import Character, Location, Narrator, Story
 
 
 class HistoryEntry(BaseModel):
@@ -44,16 +44,13 @@ class StoryState(BaseModel):
     context_brief: str = ""
 
     # Narrator-clock pacing (gating decisions live in the turn engine).
-    # `audio_seconds_owed`: unplayed seconds of the most recent voiceover that
-    # still need to play across upcoming clips. While > 0, the voice-over
-    # gate stays closed (the producer concatenates silent clips behind the audio).
-    # `silence_seconds`: continuous silence since the last voiceover finished.
-    # Used to enforce a minimum cinematic pause between lines.
+    # `silence_seconds`: story seconds since the last voice-over line, held
+    # against the story narrator's optional floor. It starts at the floor,
+    # so the film may open on a line.
     # `last_clip_duration`: measured length of the most recently rendered clip.
     # `pacing_managed`: True when the live producer measures these fields
     # from real playback; otherwise the engine counts story-time itself
-    # (one turn ≈ one clip of the configured i2v duration).
-    audio_seconds_owed: float = 0.0
+    # (one turn ≈ one clip of the configured duration).
     silence_seconds: float = 0.0
     last_clip_duration: float = 0.0
     pacing_managed: bool = False
@@ -74,6 +71,7 @@ class StoryState(BaseModel):
     visual_style: str = ""
     visual_anchor: str = ""
     tone_guidelines: str = ""
+    narrator: Narrator = Field(default_factory=Narrator)
     locations: list[Location] = Field(default_factory=list)
     characters: list[Character] = Field(default_factory=list)
     world_constraints: list[str] = Field(default_factory=list)
@@ -94,6 +92,8 @@ class StoryState(BaseModel):
             visual_style=story.visual_style,
             visual_anchor=story.visual_anchor,
             tone_guidelines=story.tone_guidelines,
+            narrator=story.narrator,
+            silence_seconds=story.narrator.min_pause_seconds,
             locations=list(story.locations),
             characters=list(story.characters),
             world_constraints=list(story.world_constraints),

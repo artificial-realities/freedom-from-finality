@@ -1,8 +1,7 @@
 """Media duration probing via ffprobe.
 
-Used to bookkeep audio-vs-video lengths so the live producer knows when
-a voiceover spills past the current clip and how many subsequent silent
-clips it should concatenate behind it.
+Used for a rendered clip's real length (the player holds it that long)
+and to reject a TTS line longer than its clip (there is no spanning).
 """
 
 from __future__ import annotations

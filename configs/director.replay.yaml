@@ -20,7 +20,6 @@ i2v_replay_delay: 3.0
 
 narration: "ltx"
 audio_enabled: false
-min_pause_seconds: 15.0
 
 recent_clips: 6
 max_clips_per_beat: 4

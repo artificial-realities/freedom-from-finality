@@ -11,6 +11,7 @@ cache hits; everything that moves goes into the user prompt.
 from __future__ import annotations
 
 from src.models.config import Config
+from src.models.story import Narrator
 from src.story.world import MAX_NOTES, WorldModel
 
 
@@ -18,6 +19,29 @@ def format_rules(constraints: list[str]) -> str:
     if not constraints:
         return "(none)"
     return "\n".join(f"- {c}" for c in constraints)
+
+
+def format_narrator(narrator: Narrator, tone_guidelines: str = "") -> str:
+    """The narrator section of the Director's system prompt, from the
+    story (AUD-06): whether the film has one, the register of its lines,
+    the language to write them in and the story's guidance on when it
+    speaks. The film's own tone, when the story gives one apart from the
+    narrator's, comes first."""
+    out: list[str] = []
+    film_tone = " ".join(tone_guidelines.split())
+    if film_tone and film_tone != " ".join(narrator.tone.split()):
+        out.append(f"Tone of the film: {film_tone}")
+    if not narrator.enabled:
+        out.append("This film has no narrator. Leave `voiceover` empty.")
+        return "\n\n".join(out)
+    out.append("Register of the narrator's lines (applies only to the `voiceover` field): "
+               + (" ".join(narrator.tone.split()) or "(not specified: plain, observational)"))
+    language = narrator.voice.language.strip()
+    if language:
+        out.append(f"The narrator speaks {language}: write the line in {language}.")
+    if narrator.guidance.strip():
+        out.append("When the narrator speaks in this story: " + " ".join(narrator.guidance.split()))
+    return "\n\n".join(out)
 
 
 def format_cast(world: WorldModel) -> str:
@@ -30,6 +54,12 @@ def format_cast(world: WorldModel) -> str:
             bits.append(f"  Reference image shows: {ent.reference_pose}. The first clip of the film starts from exactly this; begin the action there.")
         if not ent.speaks:
             bits.append("  Never speaks: no dialogue lines for this character.")
+        elif ent.voice is not None:
+            voice = ent.voice
+            said = "; ".join(x for x in (voice.description, voice.language and f"speaks {voice.language}",
+                                          voice.accent, voice.delivery and f"usually {voice.delivery}") if x)
+            if said:
+                bits.append(f"  Voice: {said}.")
         lines.append("\n".join(bits))
     return "\n".join(lines) if lines else "(none)"
 
@@ -247,12 +277,14 @@ def format_events(world: WorldModel, since: int) -> str:
 
 
 def format_gates(
-    *, voiceover_open: bool, pacing: str, scene: str, narration_mode: str, answer_clips: int = 0,
+    *, voiceover_open: bool, pacing: str, scene: str, narrator: bool = True, answer_clips: int = 0,
 ) -> str:
-    """The deterministic signals for this beat. `answer_clips` > 0 when the
-    beat answers a viewer line: its clip cap (ARCH-11)."""
-    if narration_mode == "off":
-        vo = "Voice-over: not part of this film. Leave `voiceover` empty."
+    """The deterministic signals for this beat. `narrator` is whether the
+    story has one (AUD-06; the rendering choice `narration` never closes
+    the gate). `answer_clips` > 0 when the beat answers a viewer line: its
+    clip cap (ARCH-11)."""
+    if not narrator:
+        vo = "Voice-over: this film has no narrator. Leave `voiceover` empty."
     elif voiceover_open:
         vo = (
             "Voice-over floor: OPEN. You may fill `voiceover` with one short line "

@@ -20,6 +20,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
+from src.models.story import Voice
+
 EntityKind = Literal["character", "prop", "location"]
 
 # Durable notes kept per character (the Showrunner's `entity_notes`); the
@@ -48,6 +50,7 @@ class Entity(BaseModel):
     last_seen: int = 0
     notes: list[str] = Field(default_factory=list)   # durable facts (Showrunner; characters only, at most MAX_NOTES)
     speaks: bool = True
+    voice: Voice | None = None   # characters: how they sound when they speak (from the blueprint)
     reference_pose: str = ""
     # Characters: the state the next clip continues from.
     posture: str = ""            # how the body is arranged: "standing", "lying on his back"
@@ -178,6 +181,7 @@ class WorldModel(BaseModel):
                 look=getattr(ch, "look", "") or "",
                 look_short=getattr(ch, "look_short", "") or "",
                 speaks=getattr(ch, "speaks", True),
+                voice=getattr(ch, "voice", None),
                 reference_pose=getattr(ch, "reference_pose", "") or "",
                 present=(i == 0), location=home if i == 0 else "",
             )

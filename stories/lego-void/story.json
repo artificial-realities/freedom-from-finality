@@ -3,7 +3,18 @@
   "synopsis": "A single LEGO minifigure alone in an infinite white space, doing whatever comes to mind — dancing, playing with props, trying tricks, failing, trying again. No story, no destination. Just a minifigure finding things to do in a featureless void, with the user tossing ideas his way.",
   "visual_style": "Clean product photograph of a single LEGO minifigure on a seamless pure white cyclorama: no background, no horizon, no floor seam, no walls, no objects behind him. Even, shadowless studio light from all directions; the only shadow is a faint soft contact shadow directly under the minifigure. Flat neutral colours, no coloured light, no glow, no texture. The background stays pure white for the entire shot. The minifigure is the only fixed element on screen; props come and go as the story requires. Motion has a slight stop-motion feel: every click, snap and pop-off reads clearly. No on-screen text, no camera flourish. Cuts and zooms only when they genuinely serve a gag.",
   "visual_anchor": "Clean product photograph of a single LEGO minifigure on a seamless pure white cyclorama, even shadowless studio light, pure white background, flat neutral colours, a slight stop-motion feel, no on-screen text.",
-  "tone_guidelines": "David-Attenborough-style nature-documentary voice-over, applied earnestly to a single LEGO minifigure. Warm, observational, treats small physical comedy with the same quiet gravitas you'd give a pride of lions on the savannah. Dry humor works because delivery stays straight — never winking, never nudging the audience. Short bursts only, leaving silence for the action to breathe. Whispered asides when something delicate happens; full-voice when the minifigure lands a bit. Never breaks the fourth wall, never acknowledges it's plastic or a simulation.",
+  "narrator": {
+    "enabled": true,
+    "tone": "David-Attenborough-style nature-documentary voice-over, applied earnestly to a single LEGO minifigure. Warm, observational, treats small physical comedy with the same quiet gravitas you'd give a pride of lions on the savannah. Dry humor works because delivery stays straight — never winking, never nudging the audience. Short bursts only, leaving silence for the action to breathe. Whispered asides when something delicate happens; full-voice when the minifigure lands a bit. Never breaks the fourth wall, never acknowledges it's plastic or a simulation.",
+    "voice": {
+      "description": "warm, unhurried documentary narrator",
+      "language": "English",
+      "accent": "",
+      "delivery": ""
+    },
+    "guidance": "",
+    "min_pause_seconds": 15
+  },
   "locations": [
     {
       "name": "The White Void",
@@ -24,7 +35,7 @@
     "This is a LEGO world. The minifigure is made of plastic.",
     "LEGO anatomy is absolute: claw hands that grip but can't point or do fine motor tasks, legs that do not bend at the knee, the head rotates 360° but has one permanently printed expression, and parts (hair, hats, limbs, head) can pop off and click back on.",
     "The face is one fixed print, two dots and a curved smile, and it never changes. Never write a facial expression in the action or the shot text (no eyebrows, frown, scowl, grin, smirk, glare, wide eyes, gritted teeth): the video model paints whatever is written onto the face and the figure stops matching the sheet. Emotion is head tilt, posture, timing and gesture only.",
-    "The minifigure never speaks. No dialogue, no voiceover, no on-screen text. All humor and emotion comes from body language and physical comedy.",
+    "The minifigure never speaks. No dialogue and no on-screen text; the only voice in the film is the narrator's. All humor and emotion comes from body language and physical comedy.",
     "There is only one character. No other minifigures ever appear, by any mechanism. Non-human props and creatures are fine (a plastic dog, a plastic butterfly, a cardboard box).",
     "The background is always pure white — featureless, infinite, shadowless. The story never relocates to another place; all variety comes from props and actions, not from environment changes.",
     "Props enter the scene in one of two ways: (1) they simply appear in frame, or (2) the minifigure walks a few steps out of frame and returns carrying the new prop. Both are valid; mix them for variety.",

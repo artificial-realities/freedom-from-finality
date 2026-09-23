@@ -17,6 +17,7 @@ changes; the schemas do not.
 
 from __future__ import annotations
 
+from src.models.story import Narrator, Voice
 from src.story.schemas import BeatPlan
 from src.story.world import Entity, WorldModel
 
@@ -89,6 +90,61 @@ def camera_clause(motion: str) -> str:
     return f"the camera makes {article} {text}"
 
 
+def _voice_words(text: str) -> str:
+    """A voice description as the words between "in a" and "voice":
+    "a deep, gravelly voice" → "deep, gravelly"."""
+    text = " ".join(text.split()).strip().rstrip(".")
+    low = text.lower()
+    for article in ("a ", "an "):
+        if low.startswith(article):
+            text, low = text[len(article):], low[len(article):]
+    if low.endswith(" voice"):
+        text = text[: -len(" voice")]
+    return text.strip(" ,")
+
+
+def _language(voice: Voice | None) -> str:
+    """ "in Norwegian with a soft Bergen accent", or ""."""
+    if voice is None:
+        return ""
+    language, accent = voice.language.strip(), voice.accent.strip().rstrip(".")
+    if language and accent:
+        return f"in {language} with {accent}"
+    if language:
+        return f"in {language}"
+    if accent:
+        return f"with {accent}"
+    return ""
+
+
+def speech(name: str, line: str, *, delivery: str = "", voice: Voice | None = None) -> str:
+    """One spoken line in LTX-2's form: `Name says in a {delivery} voice,
+    "line"`, the delivery being the line's own, then the speaker's
+    default, then the speaker's vocal characteristics; language and
+    accent follow when the voice gives them (LTX-05)."""
+    words = [_voice_words(delivery or (voice.delivery if voice else ""))]
+    if voice is not None and voice.description.strip():
+        words.append(_voice_words(voice.description))
+    how = ", ".join(w for w in words if w)
+    lead = f"{name} says" + (f" in a {how} voice" if how else "")
+    tongue = _language(voice)
+    if tongue:
+        lead += f", {tongue}"
+    text = " ".join(line.split()).replace('"', "'")
+    return f'{lead}, "{text}"'
+
+
+def narration(line: str, narrator: Narrator) -> str:
+    """The narrator's line, spoken over the beat's first clip, described
+    from the story's narrator: its language, voice and accent, as the
+    blueprint gives them; nothing is assumed."""
+    voice = narrator.voice
+    bits = [voice.language.strip(), _voice_words(voice.description), voice.accent.strip().rstrip(".")]
+    hint = ", ".join(b for b in bits if b)
+    text = " ".join(line.split()).replace('"', "'")
+    return f'A narrator\'s voice-over{f" ({hint})" if hint else ""} says: "{text}"'
+
+
 DESCRIBED_IN_FULL = 6   # entities described with a look; the rest by name only
 
 
@@ -116,7 +172,7 @@ def compile_clip(
     visual_style: str,
     visual_anchor: str = "",
     narration_mode: str,
-    voiceover_style: str = "",
+    narrator: Narrator | None = None,
     opening: bool = False,
     segment_no: int = 0,
 ) -> str:
@@ -190,17 +246,14 @@ def compile_clip(
     for line in clip.dialogue:
         speaker = world.resolve(line.speaker)
         name = speaker.name if speaker is not None else line.speaker
-        delivery = f" ({line.delivery.strip()})" if line.delivery.strip() else ""
-        text = line.line.strip().replace('"', "'")
-        parts.append(f'{name} says{delivery}: "{text}"')
+        parts.append(speech(name, line.line, delivery=line.delivery.strip(),
+                            voice=speaker.voice if speaker is not None else None))
     if clip.end_state.strip():
         parts.append("Final frame: " + _tail(clip.end_state))
     paragraphs = [" ".join(p for p in parts if p)]
 
     if index == 0 and beat.voiceover.strip() and narration_mode == "ltx":
-        line = " ".join(beat.voiceover.split()).replace('"', "'")
-        hint = f", {voiceover_style.strip()}" if voiceover_style.strip() else ""
-        paragraphs.append(f'A narrator\'s voice-over (English{hint}) says: "{line}"')
+        paragraphs.append(narration(beat.voiceover, narrator or Narrator()))
 
     if opening:
         style = " ".join(visual_style.split())

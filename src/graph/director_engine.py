@@ -57,6 +57,7 @@ from src.story.validator import Report, apply_clip, apply_showrunner
 from src.story.world import EventRecord, WorldModel
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.util.langfuse_setup import event as langfuse_event
+from src.util.media import probe_duration
 from src.util.timing_log import TimingLog
 
 logger = logging.getLogger(__name__)
@@ -182,7 +183,7 @@ class DirectorEngine:
             notes.extend(self._showrunner_notes)
             self._showrunner_notes = []
 
-        vo_open = voiceover_gate(state, self.config)
+        vo_open = voiceover_gate(state)
         pnote = pacing_note(world, self.config)
         snote = scene_note(world, self.config)
 
@@ -323,7 +324,7 @@ class DirectorEngine:
             visual_style=state.visual_style,
             visual_anchor=state.visual_anchor,
             narration_mode=self.config.narration,
-            voiceover_style=self.config.voiceover_style,
+            narrator=state.narrator,
             opening=(seg == 1),
             segment_no=seg,
         )
@@ -345,6 +346,14 @@ class DirectorEngine:
                 level="DEFAULT" if result else "WARNING",
             )
             audio_path = result or ""
+            # One render path, no spanning (AUD-04): a line longer than its
+            # clip is rejected, not carried over the next clips.
+            length = await probe_duration(audio_path) if audio_path else None
+            if length is not None and length > duration + 0.05:
+                self._plan_notes.append(
+                    f"tts: the line runs {length:.1f} s, longer than the {duration} s clip; not rendered",
+                )
+                audio_path = ""
         state.current_audio_path = audio_path
 
         card = world.plan.scene

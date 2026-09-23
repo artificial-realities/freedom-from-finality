@@ -25,6 +25,7 @@ from src.story.context import (
     format_gates,
     format_interventions,
     format_locations,
+    format_narrator,
     format_plan,
     format_recent,
     format_rules,
@@ -92,7 +93,7 @@ async def run(
         visual_style=state.visual_style or "(none)",
         cast=format_cast(world),
         locations=format_locations(world),
-        tone_guidelines=state.tone_guidelines or "(no register defined; leave voiceover empty)",
+        narrator=format_narrator(state.narrator, state.tone_guidelines),
         clip_seconds=clip_seconds,
         max_clips=config.max_clips_per_beat,
     )
@@ -110,7 +111,7 @@ async def run(
             voiceover_open=voiceover_open,
             pacing=pacing_note,
             scene=scene_note,
-            narration_mode=config.narration,
+            narrator=state.narrator.enabled,
             answer_clips=config.answer_max_clips if (state.user_input or "").strip() else 0,
         ),
     )

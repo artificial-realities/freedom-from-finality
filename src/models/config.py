@@ -88,14 +88,14 @@ class Config(BaseModel):
 
     audio_enabled: bool = False
     elevenlabs_voice_id: str = ""
-    # Minimum continuous silence required between voice-over lines. The
-    # Director may only fill `voiceover` once `silence_seconds` reaches
-    # this floor.
-    min_pause_seconds: float = 5.0
 
     # ── Director engine (graph: "director") ────────────────────────
-    narration: str = "ltx"              # "ltx" (native audio prompt) | "tts" (ElevenLabs) | "off"
-    voiceover_style: str = "warm, unhurried documentary narrator"
+    # How the narrator's lines are rendered: "ltx" (in the video prompt,
+    # native audio) | "tts" (ElevenLabs, mixed over the clip) | "off" (not
+    # rendered). A rendering choice only: whether the film has a narrator,
+    # how it sounds and any floor of silence between its lines are the
+    # story's (`Story.narrator`), and the Director writes the lines either way.
+    narration: str = "ltx"
     director_model: str = ""            # override `model` for the Director call
     # OpenAI processing tier for the Director call, the per-clip critical
     # path: "priority" ran gpt-4.1 at ~150 tokens/s instead of ~60 on

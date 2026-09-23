@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_011 (ARCH-06, ARCH-07, ARCH-11), 2026-09-23
+- **Latest completed batch:** BATCH_012 (AUD-06, LTX-05, AUD-04), 2026-09-23
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -41,7 +41,7 @@ The execution state of every decision in the final decision record. The record i
 | LTX-02 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-01 | — | — | Gated by X-06 (GPU). Candidate blueprint forms prepared only after the LTX-01 arm exists (see LTX-01 note). |
 | LTX-03 | APPROVED | 0* | COMPLETED | CLEAN-08 if the old compiler remains active | BATCH_007 | `tests/test_story.py::test_compiler_describes_entering_and_returning_entities` (a prop introduced off screen gets its look on first appearance; a returning dormant prop gets its identifiers; a returning character the full look); suite 64/64; session A replayed: the entering sentence appears on segments 35, 49 and 53 only (`logs/batch-007/session-a-summary.txt`) | Entering entities (introduced this segment, listed or not; or on screen and not in the previous clip's picture, read from the event log) are described before the action and never listed as present; the replay harness records events like the engine. Unmeasured on a GPU; the LTX-01 arm inherits the rule. |
 | LTX-04 | APPROVED | 2+* | NOT_STARTED | RUN-01 | — | — | Unplaced in §2; depends on RUN-01. X-22 is post-implementation validation. |
-| LTX-05 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
+| LTX-05 | APPROVED | 1 | COMPLETED | none | BATCH_012 | `test_voices_are_the_storys` | `Character.voice`/`Entity.voice`; `Name says in a … voice, "line"` + language/accent. Multi-speaker rules stay with AUD-07 (X-15/X-29). |
 | LTX-06 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-01 | — | — | Part of the LTX-01 arm; gated by X-05. |
 | LTX-07 | REJECTED | — | NOT_APPLICABLE | none | — | — | Rejected by owner; keep current behaviour (enhancer off); do not run X-20. |
 | LTX-08 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `python -m tests.run` 62/62; the three configs load with `ltxv_negative_prompt == ""` and the client omits the field from the request (`tests/test_i2v.py`); `py_compile` on the server | `configs/director.live.yaml` no longer sets it; `Config`/`ltxv.py` comments say only the `full` variant encodes it; the server logs at startup (distilled) and per turn that a request's field has no effect. The server's log lines are **not run on hardware** (logging only). |
@@ -68,9 +68,9 @@ The execution state of every decision in the final decision record. The record i
 | AUD-01 | APPROVED | — | NOT_STARTED | none | — | — | Approved direction with no direct code scope; realised through AUD-04/05/06/07. Validation needs X-01 (listeners) and X-15/X-29 (GPU). |
 | AUD-02 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-12, RUN-01, AUD-03 | — | — | One design with LTX-12/AUD-03; gated by X-02. |
 | AUD-03 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-12, AUD-02 | — | — | One design with LTX-12/AUD-02; value from X-13 (local), rollout with X-02. |
-| AUD-04 | APPROVED | 1* | NOT_STARTED | none | — | — | Unplaced in §2; no deps, but its validation needs the JIT simulation test (RUN-13). Not on the §5 safe-cleanup list (semantic change). |
+| AUD-04 | APPROVED | 1* | COMPLETED | none | BATCH_012 | `tests/test_narration.py::test_the_gate_truth_table`, `test_spanning_and_the_serial_path_are_gone`, `test_a_tts_line_takes_the_one_render_path`; `tests/test_jit.py` on the one path; suite 86/86 | One render path (`_bg_render_and_enqueue`, TTS mixed there); spanning, serial branch, `audio_seconds_owed`, `concat_videos_and_mux_audio` gone; overlong TTS lines rejected; gate = narrator enabled ∧ silence ≥ story floor. |
 | AUD-05 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-01, AUD-04 | — | — | Gated by X-01 (blind listening, >=3 listeners; owner must supply listeners); AUD-04 first. |
-| AUD-06 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
+| AUD-06 | APPROVED | 1 | COMPLETED | none | BATCH_012 | `test_the_narrator_is_the_storys`, `test_the_director_reads_the_narrator_from_the_story`; session A's 64 prompts unchanged (`logs/batch-012/`) | `Story.narrator` (enabled, tone, voice{description, language, accent}, guidance, optional floor); `voiceover_style`/`min_pause_seconds` out of config; Lego constraint 4 no longer forbids the voice-over. |
 | AUD-07 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | AUD-06, LTX-05, RUN-01 | — | — | Gated by X-15 and X-29 (GPU + listeners); AUD-06, LTX-05, RUN-01 first. |
 | AUD-08 | APPROVED | — | NOT_APPLICABLE | none | — | — | Approved keep-as-is (no music system in the MVP; scope none). No music code exists. |
 | AUD-09 | DEFERRED | backlog | NOT_APPLICABLE | AUD-02 | — | — | Deferred by owner (future backlog); no work. |
@@ -80,7 +80,7 @@ The execution state of every decision in the final decision record. The record i
 | CLEAN-03 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_blueprint_has_no_reference_image_field`; an old `world.json` with the key loads (`test_persistence_round_trip`); suite 62/62 | `Character.reference_image` and `Entity.reference_image` gone; the dead key removed from `stories/lego-void/story.json`; `ARCHITECTURE.md` field lists updated. |
 | CLEAN-04 | APPROVED | 0 | COMPLETED | none | BATCH_008 | Every item checked against the code (BATCH_008 claim table); `python -m tests.run` 64/64; server `py_compile`; live config loads | CLAUDE.md (session A ran live; first plan; `lead_clips` startup only; no compiler duration; enhancer), ARCHITECTURE.md (1.5×; "responds to" dropped), server docstring + README (enhancer), `config.py` and live-yaml comments (`clip_seconds: 0`, `lead_clips`). README's "~1.3" and ARCHITECTURE's `stories/` were already done (BATCH_002, BATCH_006). |
 | CLEAN-05 | APPROVED | 2 | NOT_STARTED | RUN-08 | — | — | Listed in phase 0 but depends on RUN-08 (phase 2). |
-| CLEAN-06 | APPROVED | 2 | NOT_STARTED | RUN-01, AUD-06 | — | — | Listed in phase 0 but depends on RUN-01 and AUD-06. |
+| CLEAN-06 | APPROVED | 2 | IN_PROGRESS | RUN-01, AUD-06 | BATCH_012 | narrator half: `test_the_narrator_is_the_storys` (no `min_pause_seconds` in config or YAML) | The global narrator pause went with AUD-06/AUD-04 (the gate needed one source of truth). Remaining: `Shot.duration_seconds` with RUN-01. |
 | CLEAN-07 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_context_shows_character_state_and_keeps_notes_out_of_the_cast` asserts no `looks:`; suite 62/62 | `format_world_now` prints status, holder and location for props, not the look. |
 | CLEAN-08 | APPROVED | 0 | COMPLETED | none | BATCH_007 | `tests/test_story.py::test_compiler_camera_clause`; suite 64/64; session A's 11 distinct camera lines all grammatical (`logs/batch-007/session-a-summary.txt`) | `camera_clause`: "the camera remains static" or the motion after "the camera" as a verb phrase, a participle or (today's Director) a noun phrase ("the camera makes a slow push-in toward the pair"). The LTX-01 arm inherits the rule. |
 | CLEAN-09 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_location_resolver_forms_and_prefix_collision`; note under "Not built yet, by design" in `ARCHITECTURE.md` | The test pins ids, names and prefixed forms, and the substring fallback's prefix collision (`the_void` wins for "The Void Annex, far end"; `void` for "void 2, by the edge") as the known gap. The resolver is unchanged (the row's scope is tests and docs); the two-line fix (longest id wins) is proposed to the owner in the BATCH_006 report. |
@@ -137,9 +137,11 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_009 | 2026-09-23 | LTX-09, RUN-11 | COMPLETED (RUN-11; LTX-09 awaits its GPU validation) | `implementation_batches/BATCH_009.md` |
 | BATCH_010 | 2026-09-23 | ARCH-01, ARCH-02, ARCH-03, ARCH-05, ARCH-16, ARCH-17 | COMPLETED (ARCH-01/16 await a transcript review) | `implementation_batches/BATCH_010.md` |
 | BATCH_011 | 2026-09-23 | ARCH-06, ARCH-07, ARCH-11 | COMPLETED (ARCH-11 awaits its latency reading) | `implementation_batches/BATCH_011.md` |
+| BATCH_012 | 2026-09-23 | AUD-06, LTX-05, AUD-04 (+ CLEAN-06's narrator half) | COMPLETED | `implementation_batches/BATCH_012.md` |
 
 ## Reconciliation notes
 
+- 2026-09-23 (BATCH_012 close): BATCH_011 committed as `f82edcf`. AUD-04, AUD-06 and LTX-05 `COMPLETED`; CLEAN-06 `IN_PROGRESS` (narrator half done, duration half waits for RUN-01). Suite 86/86. ARCH-19's dependency (LTX-05) is done; AUD-07's AUD-06/LTX-05 prerequisites are done (RUN-01 remains).
 - 2026-09-23 (BATCH_011 close): BATCH_010 committed as `5b0f0b2`. ARCH-06 and ARCH-07 `COMPLETED`; ARCH-11 implemented. Suite 80/80. X-09's prerequisite ARCH-06 is done.
 - 2026-09-23 (BATCH_010 close): BATCH_009 committed as `571a58a`. ARCH-02/03/05/17 `COMPLETED`; ARCH-01 and ARCH-16 implemented, `IN_PROGRESS` until a transcript with the real Director and scripted lines is reviewed. Suite 77/77. ARCH-08 and ARCH-09 now have ARCH-03 (and ARCH-02) in place; X-07/X-08 still need their harness.
 - 2026-09-23 (session 9, BATCH_009 close): the owner asked for larger batches and for commits without asking; each batch is still reported and committed separately. Record SHA-256 unchanged; HEAD was `608d7fc` (BATCH_008, now in the Batches table); suite 64/64 at start, 69/69 after. RUN-11 `COMPLETED`; LTX-09 implemented and `BLOCKED` on its GPU validation only (X-05). Phase 0 has no open code work.

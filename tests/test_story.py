@@ -174,14 +174,16 @@ def test_compiler_opening_clip_carries_style_look_and_pose():
     beat = _beat(clips=[_clip(action="He waves.", ambient_sound="a faint plastic rattle", end_state="Lego Man mid-wave")],
                  voiceover="A kick, at last.")
     prompt = compile_clip(beat, 0, w, visual_style="Studio product shot. Pure white.", visual_anchor="Studio shot, white.",
-                          narration_mode="ltx", voiceover_style="warm", opening=True, segment_no=1)
+                          narration_mode="ltx", narrator=Story.from_json("stories/lego-void").narrator,
+                          opening=True, segment_no=1)
     assert prompt.startswith("Studio product shot. Pure white.")
     assert "Lego Man (the most default LEGO minifigure" in prompt, "the full look on the opening clip"
     assert "The shot opens with Lego Man standing upright in a wide product shot" in prompt
     assert "A faint plastic rattle." in prompt and "Medium shot; the camera remains static." in prompt
     assert "Entering the picture" not in prompt, "the reference image already shows the character"
     assert "Final frame: Lego Man mid-wave." in prompt
-    assert 'voice-over (English, warm) says: "A kick, at last."' in prompt
+    assert 'voice-over (English, warm, unhurried documentary narrator) says: "A kick, at last."' in prompt, \
+        "the narrator as the story describes it"
 
 
 def test_compiler_continuing_clip_is_compact():
@@ -216,11 +218,6 @@ def test_compiler_continuing_clip_is_compact():
 
 
 def test_pacing_in_story_seconds():
-    cfg = _config(min_pause_seconds=10)
-    story = Story.from_json("stories/lego-void")
-    st = StoryState.initialize(story, config_name="t")
-    assert voiceover_gate(st, cfg) is True, "no line yet: opening line welcome"
-    assert voiceover_gate(st, _config(narration="off")) is False
     w = _world()
     for seg in range(1, 41):
         w.events.append(EventRecord(segment=seg, scene_id=1, narration="n", duration=6))
@@ -496,8 +493,8 @@ def test_an_answer_beat_is_capped_and_told_so():
     assert cfg.answer_max_clips == 2
     assert clip_cap(cfg, "a ball appears") == 2 and clip_cap(cfg, "  ") == cfg.max_clips_per_beat == 4
     assert clip_cap(_config(answer_max_clips=6), "x") == 4, "never above the beat cap"
-    gates = format_gates(voiceover_open=False, pacing="p", scene="s", narration_mode="ltx", answer_clips=2)
+    gates = format_gates(voiceover_open=False, pacing="p", scene="s", answer_clips=2)
     assert gates.endswith("This beat answers the viewer: at most 2 clips. Start the answer now; the next beat continues it.")
-    assert "answers the viewer" not in format_gates(voiceover_open=False, pacing="p", scene="s", narration_mode="ltx")
+    assert "answers the viewer" not in format_gates(voiceover_open=False, pacing="p", scene="s")
     beat = _beat(clips=[_clip(), _clip(), _clip()])
     assert any("only the first 2" in x for x in check(beat, _world(), max_clips=clip_cap(cfg, "x")).warnings)
