@@ -25,12 +25,13 @@ src/
   eval/runner.py             # run_live (the film: just-in-time render, viewer interrupts) · run_play (terminal, turn by turn)
   ui/terminal.py             # free-text input between clips (run_play)
   util/                      # json sanitizer, langfuse, media, prompt loader, story log, timing log
-tests/                       # python -m tests.run (no pytest needed); jit_sim.py: the live config under compressed time (test_jit); test_checks: the seam tools
+tests/                       # python -m tests.run (no pytest needed); jit_sim.py: the live config under compressed time (test_jit); test_checks: the seam tools; test_replay: the compiler replay and the warm probe
 scripts/steer.py             # scripted viewer: posts lines to a running web player at given segments
-scripts/latency_probe.py     # seconds per clip second for one server setting (the real-time work)
+scripts/latency_probe.py     # seconds per clip second for one server setting; --warm 30 checks a warmed server against the baseline (+3 %)
 scripts/bench_report.py      # a run's timing.jsonl against the gates; --update-readme regenerates the README's baseline table
 scripts/seam_check.py        # after player changes: duplicate frames per seam from the clips; dip, swap latency, reloads in headless Chromium
 scripts/audio_check.py       # after audio changes: per-clip loudness and true peak; the played mix's seam steps, clicks, holes
+scripts/replay_compiler.py   # a run's Director outputs through the compiler, offline: --verify against the transcript, --diff between compilers
 benchmarks/runtime/          # baseline.json: the canonical render baseline and its gates
 configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5) · director.replay.yaml (replayed clips)
 stories/                     # per-story folders (story.json blueprint, reference image, assets)
