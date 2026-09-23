@@ -36,7 +36,11 @@ field() { instance_json | python3 -c "import json,sys; print(json.load(sys.stdin
 ssh_cmd() { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" "$@"; }
 # The server's environment: the token plus every LTX2_* variable set here.
 # expandable_segments: without it the allocator fragments around the VAE decode (12 GB reserved but unusable, OOM on a 94 GB card).
-server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True $(env | grep '^LTX2_' | tr '\n' ' ')"; }
+# The frame counts the server warms come from the client's shape registry for the config the film will run
+# (RUN-08): the client refuses to start without them, so they are never typed twice. LTX2_WARMUP_FRAMES in the
+# environment wins; AR_CONFIG picks the config (default the live one).
+warm_frames() { python3 -W ignore::RuntimeWarning -m src.i2v.shape "${AR_CONFIG:-configs/director.live.yaml}"; }
+server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-$(warm_frames)} $(env | grep '^LTX2_' | grep -v '^LTX2_WARMUP_FRAMES=' | tr '\n' ' ')"; }
 
 up() {
   local offer=${1:-$(pick_offer)}

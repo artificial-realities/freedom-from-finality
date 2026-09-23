@@ -175,18 +175,23 @@ async def test_viewer_line_cuts_a_beat_short():
 
 
 async def test_fixed_clip_length_sets_every_clip():
-    """clip_seconds: every clip is that long; without it the i2v duration
-    is the clip length. The Director is told the length in its prompt."""
+    """RUN-01: every clip has the run's shape (clip_seconds on the 8k+1
+    frame grid) and every consumer reads it: the shot, the event record,
+    the story clock. An old config's i2v_duration maps once onto
+    clip_seconds. The Director is told the length in its prompt."""
     from src.agents.director import SYSTEM_PATH
     assert "{clip_seconds}" in SYSTEM_PATH.read_text() and "{max_clips}" in SYSTEM_PATH.read_text()
     story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(clip_seconds=6), story=story, log_dir=d,
                                player=Scripted(), max_segments=4)
-    assert [h.shot.duration_seconds for h in state.history] == [6, 6, 6, 6]
+        world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
+    assert [h.shot.duration_seconds for h in state.history] == [145 / 24] * 4
+    assert [e.duration for e in world.events] == [145 / 24] * 4 and world.scene_seconds() == 4 * 145 / 24
+    assert state.current_shape.render_frames == 145
     with tempfile.TemporaryDirectory() as d:
-        state = await run_live(config=_config(), story=story, log_dir=d, player=Scripted(), max_segments=2)
-    assert [h.shot.duration_seconds for h in state.history] == [5, 5]
+        state = await run_live(config=_config(i2v_duration=5), story=story, log_dir=d, player=Scripted(), max_segments=2)
+    assert [h.shot.duration_seconds for h in state.history] == [121 / 24] * 2
 
 
 async def test_showrunner_never_blocks_a_segment():

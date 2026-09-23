@@ -144,7 +144,7 @@ class EventRecord(BaseModel):
     on_screen: list[str] = Field(default_factory=list)
     end_state: str = ""
     voiceover: str = ""
-    duration: int = 0
+    duration: float = 0.0        # delivered seconds of the clip's shape (older logs: whole seconds)
 
 
 class WorldModel(BaseModel):

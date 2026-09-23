@@ -11,6 +11,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from src.i2v.shape import DEFAULT_FPS, ClipShape, ShapeRegistry
+
 
 class I2VBackend(ABC):
     #: True when the backend owns frame-to-frame continuity itself — a
@@ -25,6 +27,17 @@ class I2VBackend(ABC):
     #: mutated in place, on every `synthesize`; empty when nothing is known.
     last_render: dict = {}
 
+    @property
+    def frame_rate(self) -> float:
+        """The frame rate clip shapes are built at."""
+        return DEFAULT_FPS
+
+    def check_shapes(self, registry: ShapeRegistry) -> dict:
+        """Refuse (raise `UnregisteredShape`) when the renderer cannot render
+        every registered shape without compiling mid-film; return what was
+        checked for the timing log. A backend with nothing to warm accepts."""
+        return {}
+
     def check_reference(self, path: Path | str) -> dict:
         """Validate the reference image before the run renders anything;
         return what was found for the timing log ({} when the backend has
@@ -38,12 +51,12 @@ class I2VBackend(ABC):
         image_path: Path | str,
         prompt: str,
         turn: int,
-        duration: int | None = None,
+        shape: ClipShape,
     ) -> str | None:
         """Render a clip from `image_path` + `prompt`. Return MP4 path or None.
 
-        `duration` overrides the backend's default for this call. None = use
-        the backend's configured default. A backend that owns continuity
+        `shape` is the clip's selected shape: the backend renders its
+        `render_frames` and derives nothing itself. A backend that owns continuity
         seeds its first clip from `image_path` and every later clip from
         the previous one; the story layer never asks for a re-seed.
         """

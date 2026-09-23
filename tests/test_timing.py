@@ -113,7 +113,9 @@ async def test_live_text_run_writes_the_timing_log():
     assert [r["t"] for r in records] == sorted(r["t"] for r in records), "records are in time order"
     start, end = records[0], records[-1]
     assert start["event"] == "session_start" and start["loop"] == "live"
-    assert start["config"] == "timingtest" and start["video"] is False and start["clip_seconds"] == 5
+    assert start["config"] == "timingtest" and start["video"] is False
+    assert start["clip_seconds"] == round(145 / 24, 4) and start["shape"]["render_frames"] == 145 and start["shapes"] == [145], \
+        "the run's clip shape: 6 s on the 8k+1 grid at 24 fps"
     assert start["session"] == session.name and "revision" in start and "dirty" in start
     assert end["event"] == "session_end" and end["played"] == 7
 
@@ -127,7 +129,7 @@ async def test_live_text_run_writes_the_timing_log():
     assert enqueued[0]["margin"] is None, "no margin while the lead builds"
     assert all(e["margin"] is not None for e in enqueued[1:])
     emits = _of(records, "emit")
-    assert emits[0]["beat"] == 1 and emits[0]["clip"] == 1 and emits[0]["of"] == 2 and emits[0]["seconds"] == 5
+    assert emits[0]["beat"] == 1 and emits[0]["clip"] == 1 and emits[0]["of"] == 2 and emits[0]["seconds"] == 145 / 24
     assert not _of(records, "fire"), "a text film renders nothing"
 
     starts, ends = _of(records, "director_start"), _of(records, "director_end")
@@ -162,11 +164,11 @@ async def test_live_video_run_records_fires_renders_and_the_queue():
         records = _records(d)
 
     assert records[0]["video"] is True and records[0]["i2v_backend"] == "replay"
-    assert records[0]["clip_seconds"] == 1
+    assert records[0]["clip_seconds"] == round(25 / 24, 4) and records[0]["shapes"] == [25]
     fires, done = _of(records, "fire"), _of(records, "render_done")
     assert [f["turn"] for f in fires] == [d_["turn"] for d_ in done] == [1, 2, 3, 4]
     assert fires[0]["due_in"] is None, "the first render fires while the lead builds"
-    assert all(f["seconds"] == 1 for f in fires)
+    assert all(f["seconds"] == round(25 / 24, 4) and f["frames"] == 25 for f in fires), "the shape, not a derivation"
     assert all(r["ok"] and r["render_s"] >= 0.05 and r["server"]["source"] == "a.mp4" for r in done)
     assert all(r["wall"] > 1e9 for r in records), "every record keeps its Unix time"
     for turn in range(1, 5):

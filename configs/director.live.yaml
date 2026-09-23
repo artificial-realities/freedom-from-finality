@@ -20,8 +20,7 @@ lead_clips: 1
 
 # ── LTX-2.5 video backend ──────────────────────────────────────────
 i2v_backend: "ltxv"
-i2v_duration: 5                          # fallback seconds when no clip length is known
-clip_seconds: 6                          # every clip is 6 s (145 frames): one shape to compile, 12-18 s steering latency
+clip_seconds: 6                          # the one clip shape: 145 frames at 24 fps (6.04 s on air); the server warms it
 ltxv_server_url: "http://localhost:8000"
 ltxv_continuity_strength: 1.0
 ltxv_continuity_frames: 9

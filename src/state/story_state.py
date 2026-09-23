@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from src.i2v.shape import ClipShape
+
 from src.models.responses import Beat, Commentary, Shot
 from src.models.story import CastPolicy, Character, Location, Narrator, Perspective, Story
 
@@ -36,6 +38,7 @@ class StoryState(BaseModel):
     current_intervention_reason: str = ""
     current_beat_intent: str = ""   # the beat this clip belongs to, in a few words
     current_clip: str = ""          # "2/3": the clip's place in its beat
+    current_shape: ClipShape | None = None   # the clip's selected shape (RUN-01): what is rendered and held
     turn_notes: str = ""  # engine-specific markdown appended to the transcript
 
     # Compact views of the world model for the transcript (the engine

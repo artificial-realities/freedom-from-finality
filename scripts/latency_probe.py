@@ -46,7 +46,8 @@ sys.path.insert(0, str(REPO))  # repo root, so `src` imports
 import requests  # noqa: E402
 import yaml  # noqa: E402
 
-from src.i2v.ltxv import letterbox_reference, snap_to_frame_grid  # noqa: E402
+from src.i2v.ltxv import letterbox_reference  # noqa: E402
+from src.i2v.shape import snap_to_frame_grid  # noqa: E402
 from src.models.story import Story  # noqa: E402
 from src.util.timing_log import git_revision  # noqa: E402
 

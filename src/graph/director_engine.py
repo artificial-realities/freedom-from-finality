@@ -38,6 +38,7 @@ import time
 from pathlib import Path
 
 from src.agents import director as director_agent
+from src.i2v.shape import ClipShape, ShapeRegistry, seconds_label
 from src.agents import showrunner as showrunner_agent
 from src.llm import build_backend
 from src.llm.base import LLMBackend
@@ -72,9 +73,14 @@ class DirectorEngine:
         tts: ElevenLabsTTS | None = None,
         session_dir: Path | str | None = None,
         timing: TimingLog | None = None,
+        shapes: ShapeRegistry | None = None,
     ) -> None:
         self.llm = llm
         self.config = config
+        # The run's clip shapes (RUN-01): each beat's clips get the selected
+        # shape; nothing here derives a length from seconds.
+        self.shapes = shapes or ShapeRegistry.from_config(config)
+        self._beat_shape: ClipShape = self.shapes.default
         self.tts = tts
         self.session_dir = Path(session_dir) if session_dir else None
         # The run's timing log: each plan writes director_start/director_end.
@@ -111,10 +117,6 @@ class DirectorEngine:
         self._last_end_state: str = ""      # the image the last emitted clip ends on
         self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
         self._pending_note: str = ""        # how the previous beat ended, for the next call
-
-    @property
-    def clip_seconds(self) -> int:
-        return int(self.config.clip_seconds or self.config.i2v_duration)
 
     # ── The one-call form ───────────────────────────────────────────
 
@@ -187,11 +189,15 @@ class DirectorEngine:
         pnote = pacing_note(world, self.config)
         snote = scene_note(world, self.config)
 
+        # The shape is selected before the Director plans (RUN-01); every
+        # clip of this beat is that long. The system prompt states the
+        # default shape's length, so it stays byte-identical.
+        shape = self.shapes.select()
         called = time.monotonic()
         beat, dnotes, retried = await director_agent.run(
             world=world, state=state, llm=self.llm_director, config=self.config,
             voiceover_open=vo_open, pacing_note=pnote, scene_note=snote,
-            beat_status=self._beat_status(),
+            beat_status=self._beat_status(), clip_seconds=self.shapes.default.delivered_seconds,
         )
         director_s = time.monotonic() - called
         notes.extend(dnotes)
@@ -210,6 +216,7 @@ class DirectorEngine:
 
         world.beats += 1
         self._beat, self._clip_index, self._beat_no = beat, 0, world.beats
+        self._beat_shape = shape
         self._beat_input = text
         self._pending_note = ""
 
@@ -328,7 +335,9 @@ class DirectorEngine:
             opening=(seg == 1),
             segment_no=seg,
         )
-        duration = self.clip_seconds
+        shape = self._beat_shape
+        state.current_shape = shape
+        duration = shape.delivered_seconds
         voiceover = beat.voiceover if first else ""
         self._write_views(state, beat, clip, prompt, duration, voiceover, first)
 
@@ -351,7 +360,7 @@ class DirectorEngine:
             length = await probe_duration(audio_path) if audio_path else None
             if length is not None and length > duration + 0.05:
                 self._plan_notes.append(
-                    f"tts: the line runs {length:.1f} s, longer than the {duration} s clip; not rendered",
+                    f"tts: the line runs {length:.1f} s, longer than the {seconds_label(duration)} s clip; not rendered",
                 )
                 audio_path = ""
         state.current_audio_path = audio_path
@@ -557,7 +566,7 @@ class DirectorEngine:
     # ── Views for the runner ───────────────────────────────────────
 
     def _write_views(self, state: StoryState, beat: BeatPlan, clip: ClipSpec, prompt: str,
-                     duration: int, voiceover: str, first: bool) -> None:
+                     duration: float, voiceover: str, first: bool) -> None:
         world = self.world
         assert world is not None
         action = clip.action_text()
@@ -649,5 +658,6 @@ class DirectorEngine:
 def build_director_engine(
     *, llm: LLMBackend, config: Config, tts: ElevenLabsTTS | None = None,
     session_dir: Path | str | None = None, timing: TimingLog | None = None,
+    shapes: ShapeRegistry | None = None,
 ) -> DirectorEngine:
-    return DirectorEngine(llm=llm, config=config, tts=tts, session_dir=session_dir, timing=timing)
+    return DirectorEngine(llm=llm, config=config, tts=tts, session_dir=session_dir, timing=timing, shapes=shapes)

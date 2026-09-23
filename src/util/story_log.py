@@ -120,7 +120,7 @@ class StoryLogger:
             out.append(f"- Camera: {shot.camera}\n")
             out.append(f"- Motion: {shot.motion}\n")
             out.append(f"- End frame: {shot.end_frame_description}\n")
-            out.append(f"- Duration: {shot.duration_seconds}s\n\n")
+            out.append(f"- Duration: {shot.duration_seconds:.2f}s\n\n")
 
         if commentary is None:
             out.append("**Voice-over** — _no commentary (parse failure)_\n\n")

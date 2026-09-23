@@ -89,7 +89,11 @@ Speed (docs/reviews/2026-09-16-real-time-plan.md):
     LTX2_WARMUP       "1" (default): render throwaway clips at startup at the frame
                       counts in LTX2_WARMUP_FRAMES ("121,145"), so compilation, kernel
                       autotuning and the CPU warm-up never land on a viewer's clip.
-                      /health reports "warming" until it is done and /generate says 503.
+                      /health reports "warming" until it is done and /generate says 503;
+                      then `warm_frames` lists the frame counts warmed. The client
+                      refuses to start when a shape it will render is not listed
+                      (RUN-08); `python -m src.i2v.shape <config>` prints the list a
+                      config needs, and server/vast_run.sh passes it.
     LTX2_ENCODER      "auto" (default: h264_nvenc when ffmpeg and the driver support it,
                       else libx264), "x264", "nvenc", or "av" (diffusers' PyAV path).
     LTX2_X264_PRESET  libx264 preset (default "ultrafast").
@@ -147,6 +151,7 @@ _call_defaults: dict = {}   # recipe: sigmas / steps and guidance for the varian
 _steps: int = 0
 _audio_sample_rate: int = 48000
 _ready: bool = False        # True once the warm-up has run; /generate refuses until then
+_warm_frames: set[int] = set()   # frame counts warmed at startup (on the 8k+1 grid), reported by /health
 _attn_backend: str = "native"
 _quant: str = "bf16"
 _compiled: bool = False
@@ -486,18 +491,24 @@ def _uncompile(p) -> None:
     torch._dynamo.reset()
 
 
+# A story-agnostic warm-up sentence (CLEAN-05): compilation and autotuning
+# depend on the shape, not the words.
+WARMUP_PROMPT = ("A person stands in a softly lit, plain room and slowly raises one hand, "
+                 "then lowers it. The camera remains static.")
+
+
 def _warmup() -> None:
     """Throwaway renders at the configured frame counts on a flat reference."""
     frames_list = [int(x) for x in os.getenv("LTX2_WARMUP_FRAMES", "121,145").split(",") if x.strip()]
     ref = Image.new("RGB", (WIDTH, HEIGHT), (235, 235, 235))
-    prompt = ("A single LEGO minifigure with a plain yellow head, red torso and blue legs stands on a "
-              "seamless white background in soft studio light. It slowly raises one arm, then lowers it.")
+    prompt = WARMUP_PROMPT
     for n in frames_list:
         session["ref_image"] = ref
         session["window"] = None
         session["turn_count"] = 0
         t0 = time.monotonic()
         result = _run_pipeline(GenerateRequest(prompt=prompt, num_frames=n, seed=1, reset_window=True))
+        _warm_frames.add(_snap_to_frame_grid(n))
         logger.info("Warm-up: %d frames in %.1fs (%s)", n, time.monotonic() - t0, result["timings"])
     session.clear()
 
@@ -559,6 +570,7 @@ async def health():
         "steps": _steps,
         "recipe": {k: v for k, v in _call_defaults.items() if k != "sigmas"},
         "frame_rate": FRAME_RATE,
+        "warm_frames": sorted(_warm_frames),
         "width": WIDTH,
         "height": HEIGHT,
         "anchor": True,
@@ -635,8 +647,9 @@ def _run_pipeline(req: GenerateRequest) -> dict:
     generator = torch.Generator(device="cuda").manual_seed(seed)
 
     logger.info(
-        "Turn %d: %d frames on %s (strength=%.2f, seed=%d, %d steps) …",
-        turn, num_frames, cond_desc, req.continuity_strength, seed, _steps,
+        "Turn %d: %d frames%s, %d prompt words, on %s (strength=%.2f, seed=%d, %d steps) …",
+        turn, num_frames, "" if num_frames in _warm_frames else " (NOT WARMED: compiles now)",
+        len(req.prompt.split()), cond_desc, req.continuity_strength, seed, _steps,
     )
     t0 = time.monotonic()
 

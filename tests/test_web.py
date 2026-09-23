@@ -114,7 +114,7 @@ async def test_web_player_serves_replayed_clips():
         clips.mkdir()
         _tiny_clip(clips / "a.mp4")
         _tiny_clip(clips / "b.mp4")
-        config = _config(video_enabled=True, i2v_backend="replay", i2v_replay_dir=str(clips))
+        config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips))
         player = WebPlayer(port=0, time_scale=50)
         run = asyncio.create_task(run_live(
             config=config, story=story, log_dir=d, player=player, max_segments=3,
@@ -144,7 +144,7 @@ async def test_web_player_serves_replayed_clips():
         assert fetched == [e["turn"] for e in playing]
         state = await run
         assert len(state.history) == 3
-        assert all(abs(e["duration"] - 1.0) < 0.2 for e in playing), "durations probed from the clips"
+        assert all(e["duration"] == 25 / 24 for e in playing), "held for the shape's delivered frames"
         assert (Path(d) / "video" / "full_session.mp4").exists(), "the session was concatenated"
 
 

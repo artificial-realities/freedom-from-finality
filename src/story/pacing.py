@@ -42,7 +42,9 @@ def tick_story_clock(state: StoryState, config: Config) -> None:
         clip = state.last_clip_duration
         if not clip and state.current_shot is not None:
             clip = float(state.current_shot.duration_seconds)
-        state.silence_seconds += clip or float(config.clip_seconds or config.i2v_duration)
+        if not clip and state.current_shape is not None:
+            clip = state.current_shape.delivered_seconds
+        state.silence_seconds += clip
 
 
 def pacing_note(world: WorldModel, config: Config) -> str:

@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.i2v.base import I2VBackend
+from src.i2v.shape import ClipShape
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class ReplayI2V(I2VBackend):
         image_path: Path | str,
         prompt: str,
         turn: int,
-        duration: int | None = None,
+        shape: ClipShape,
     ) -> str | None:
         if self.delay:
             await asyncio.sleep(self.delay)

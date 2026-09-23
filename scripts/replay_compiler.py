@@ -252,7 +252,7 @@ def replay(data: dict, *, compiler, config: Config, story: Story) -> list[dict]:
             beat=beat, beat_intent=plan.intent, clip_index=index + 1, clip_count=len(plan.clips),
             user_input=clip.get("user_input", "") or "", intervention=clip.get("intervention", "none") or "none",
             narration=emitted.action_text(), on_screen=list(emitted.on_screen), end_state=emitted.end_state,
-            voiceover=plan.voiceover if index == 0 else "", duration=int(clip.get("duration", 0) or 0),
+            voiceover=plan.voiceover if index == 0 else "", duration=float(clip.get("duration", 0) or 0),
         ))
     return rows
 

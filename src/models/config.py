@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Config(BaseModel):
@@ -35,14 +35,16 @@ class Config(BaseModel):
     # line lands (two or three clips after it is typed, by arrival time).
     lead_clips: int = 0
     i2v_backend: str = "ltxv"
-    i2v_duration: int = 5
-    # Fixed clip length in seconds. 0 = `i2v_duration` seconds per clip (the
-    # engine's `clip_seconds` property and the runner's hold both read
-    # `clip_seconds or i2v_duration`; the compiler carries no duration).
-    # N = every clip is exactly N seconds and the Director is told to plan
-    # for N: one clip shape, so a compiled server compiles once, pacing is
-    # constant, and a viewer's line lands a known number of seconds later.
-    clip_seconds: int = 0
+    # The clip length, as the run's one production clip shape
+    # (`src.i2v.shape`): this many seconds on the 8k + 1 frame grid at the
+    # server's frame rate (6 s → 145 frames at 24 fps, 6.04 s on air). Every
+    # consumer reads the shape, not this number: the Director's prompt, the
+    # story clock, the render request, the player's hold. One shape, so a
+    # compiled server compiles once and a line lands a known time later.
+    clip_seconds: float = 6.0
+    # More shapes, registered (and required warm on the server) so an
+    # experiment can select them (X-18); the production policy never does.
+    extra_clip_seconds: list[float] = Field(default_factory=list)
     # The reference image the first clip is rendered from. "" → the story's
     # `seed_image` (`stories/<story>/story.json`); set here only for a story
     # without one.
@@ -126,6 +128,18 @@ class Config(BaseModel):
     # reach the screen sooner, because the clip it changes is rendered later.
     render_slack_seconds: float = 3.0
     extra: dict = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_duration(cls, data):
+        """`i2v_duration` (before RUN-01) maps once onto `clip_seconds`, where
+        it was the length used when `clip_seconds` was 0, and then goes."""
+        if isinstance(data, dict) and "i2v_duration" in data:
+            data = dict(data)
+            legacy = data.pop("i2v_duration")
+            if not data.get("clip_seconds"):
+                data["clip_seconds"] = legacy
+        return data
 
     @classmethod
     def from_yaml(cls, path: Path | str) -> "Config":

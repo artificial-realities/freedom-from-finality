@@ -26,8 +26,10 @@ export LTX2_VARIANT=${LTX2_VARIANT:-distilled}
 # fp8 matmuls: 1.27x on the forwards on Hopper, measured faster than bf16 end to end on a B200 too; no visible cost on the minifigure.
 export LTX2_QUANT=${LTX2_QUANT:-fp8}
 # The MVP setting measured on 2026-09-16 (docs/reviews/2026-09-16-real-time-plan.md): compiled blocks, 640x352,
-# and a warm-up of three 6 s clips (145 frames, the fixed `clip_seconds: 6` of configs/director.live.yaml), so
-# the one shape the film uses is compiled before the first viewer clip. Override any of these in the environment.
+# and a warm-up of every clip shape the film will render. The frame counts come from the client's shape
+# registry (`python -m src.i2v.shape <config>`, which server/vast_run.sh passes in LTX2_WARMUP_FRAMES); the
+# default below is the live config's one shape (145 frames) three times, for a start without vast_run.sh.
+# /health reports what was warmed and the client refuses to start without its shapes (RUN-08).
 export LTX2_COMPILE=${LTX2_COMPILE:-1}
 export LTX2_WIDTH=${LTX2_WIDTH:-640}
 export LTX2_HEIGHT=${LTX2_HEIGHT:-352}

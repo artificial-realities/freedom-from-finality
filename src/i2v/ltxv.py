@@ -28,6 +28,7 @@ import requests
 from PIL import Image
 
 from src.i2v.base import I2VBackend
+from src.i2v.shape import ClipShape, ShapeRegistry, UnregisteredShape
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ PROBE_TIMEOUT_S = 10
 
 # Fallbacks when the server can't be probed: LTX-2.5 renders at 24fps and
 # the server defaults to 960x544 (the model card's recommended size).
-DEFAULT_FRAME_RATE = 24
+DEFAULT_FRAME_RATE = 24.0
 DEFAULT_SIZE = (960, 544)
 # Fraction of the frame height the reference subject is scaled to when
 # letterboxed: a wide product shot with margins, not a crop.
@@ -103,15 +104,13 @@ class LtxvI2V(I2VBackend):
         # noise and experiment arms share it. "" → the server draws one.
         self.seed_key = seed_key
         self.model = "ltx-2.5"
-        self.resolution = "512x768"
-        self.duration = 5  # default seconds when the segment doesn't specify
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._seed_image_path: str | None = None
         self._initialized = False
         # Probed from the server on first use so client and server can't
         # silently disagree about the frame rate or the render size.
-        self._frame_rate: int | None = None
+        self._frame_rate: float | None = None
         self._size: tuple[int, int] | None = None
 
     @property
@@ -124,7 +123,7 @@ class LtxvI2V(I2VBackend):
     # ── Frame-count helpers ──────────────────────────────────────────
 
     @property
-    def frame_rate(self) -> int:
+    def frame_rate(self) -> float:
         """Server frame rate. Probed once; only a success is cached, so a
         server that wasn't up yet gets re-probed on the next call rather
         than pinning the fallback for the whole session."""
@@ -132,13 +131,27 @@ class LtxvI2V(I2VBackend):
             self._frame_rate = self._probe_frame_rate()
         return self._frame_rate or DEFAULT_FRAME_RATE
 
-    def _probe_frame_rate(self) -> int | None:
+    def _probe_frame_rate(self) -> float | None:
         health = self._probe_health()
         if not health:
             return None
-        rate = int(float(health.get("frame_rate", DEFAULT_FRAME_RATE)))
-        logger.info("LTX-2.5 server frame rate: %dfps", rate)
+        rate = float(health.get("frame_rate", DEFAULT_FRAME_RATE))
+        logger.info("LTX-2.5 server frame rate: %gfps", rate)
         return rate
+
+    def check_shapes(self, registry: ShapeRegistry) -> dict:
+        """RUN-08: the server must report every registered shape among the
+        frame counts it warmed (`/health` `warm_frames`), at the frame rate
+        the shapes were built for; otherwise the run is refused before it
+        starts, not stalled for minutes mid-film by a compile."""
+        health = self._probe_health()
+        if health is None:
+            raise UnregisteredShape(f"the LTX-2.5 server at {self.server_url} is not reachable; cannot check its warm shapes")
+        rate = float(health.get("frame_rate", DEFAULT_FRAME_RATE))
+        if rate != registry.default.fps:
+            raise UnregisteredShape(f"the server renders at {rate:g} fps; the shapes were built for {registry.default.fps:g}")
+        registry.check_warm(health.get("warm_frames"))
+        return {"frames": registry.frames, "warm_frames": sorted(set(health["warm_frames"]))}
 
     @property
     def size(self) -> tuple[int, int]:
@@ -184,10 +197,6 @@ class LtxvI2V(I2VBackend):
         mode = "cover" if within_aspect(path, width, height) else "pad"
         return {"checked": True, "fit": mode, "size": [width, height], "warnings": notes}
 
-    def seconds_to_frames(self, seconds: int) -> int:
-        """Seconds → a frame count on the VAE's causal (N*8 + 1) grid."""
-        return snap_to_frame_grid(seconds * self.frame_rate)
-
     # ── Rendering ────────────────────────────────────────────────────
 
     async def synthesize(
@@ -196,11 +205,11 @@ class LtxvI2V(I2VBackend):
         image_path: Path | str,
         prompt: str,
         turn: int,
-        duration: int | None = None,
+        shape: ClipShape,
     ) -> str | None:
         try:
             return await asyncio.to_thread(
-                self._synthesize_sync, image_path, prompt, turn, duration,
+                self._synthesize_sync, image_path, prompt, turn, shape,
             )
         except Exception as exc:
             logger.exception("LTX-2.5 render failed on turn %s: %s", turn, exc)
@@ -211,7 +220,7 @@ class LtxvI2V(I2VBackend):
         image_path: Path | str,
         prompt: str,
         turn: int,
-        duration: int | None = None,
+        shape: ClipShape,
     ) -> str | None:
         # Remember the original seed image so we can re-init after a
         # server restart. Always the reference, never a later frame.
@@ -222,7 +231,7 @@ class LtxvI2V(I2VBackend):
             "prompt": prompt,
             "continuity_strength": self.continuity_strength,
             "continuity_frames": self.continuity_frames,
-            "num_frames": self.seconds_to_frames(duration or self.duration),
+            "num_frames": shape.render_frames,
         }
         if self.negative_prompt:
             payload["negative_prompt"] = self.negative_prompt
@@ -298,11 +307,6 @@ def derive_seed(key: str, segment: int) -> int:
     texture); never random (irreproducible)."""
     digest = hashlib.sha256(f"{key}:{segment}".encode("utf-8")).digest()
     return int.from_bytes(digest[:4], "big")
-
-
-def snap_to_frame_grid(raw_frames: int) -> int:
-    """Snap a raw frame count onto the VAE's causal (N*8 + 1) grid."""
-    return ((max(raw_frames, 1) - 2) // 8 + 1) * 8 + 1
 
 
 def _encode_image(path: str) -> str:

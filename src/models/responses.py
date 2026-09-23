@@ -28,16 +28,14 @@ class Shot(BaseModel):
     camera: str
     motion: str
     end_frame_description: str
-    duration_seconds: int = Field(default=5, ge=1, le=15)
+    duration_seconds: float = Field(default=6.0, gt=0, le=15)   # the clip shape's delivered seconds
 
 
 class Commentary(BaseModel):
     """The spoken voice-over line for a segment. Empty means silence.
 
-    When rendered through TTS the line's runtime is measured after
-    synthesis; the live producer concatenates as many silent clips behind
-    it as the audio length warrants and keeps the voice-over gate closed
-    on those turns.
+    Rendered natively by LTX-2.5 (`narration: ltx`) or through TTS, mixed
+    into its clip; a TTS line longer than its clip is not rendered.
     """
 
     voiceover: str

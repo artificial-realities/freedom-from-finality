@@ -17,6 +17,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from src.agents._common import call_llm_structured
+from src.i2v.shape import seconds_label
 from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.state.story_state import StoryState
@@ -82,10 +83,11 @@ async def run(
     pacing_note: str,
     scene_note: str,
     beat_status: str,
+    clip_seconds: float,
 ) -> tuple[BeatPlan | None, list[str], bool]:
     """Return (beat, notes, retried). `beat` is None on a parse failure;
-    `retried` says the validator re-ask was made (a second LLM call)."""
-    clip_seconds = config.clip_seconds or config.i2v_duration
+    `retried` says the validator re-ask was made (a second LLM call).
+    `clip_seconds` is the delivered length of the run's clip shape."""
     system_prompt = load_prompt(
         SYSTEM_PATH,
         title=state.title or world.title,
@@ -96,7 +98,7 @@ async def run(
         cast_rules=format_cast_rules(world),
         locations=format_locations(world),
         narrator=format_narrator(state.narrator, state.tone_guidelines),
-        clip_seconds=clip_seconds,
+        clip_seconds=seconds_label(clip_seconds),
         max_clips=config.max_clips_per_beat,
     )
     user_prompt = load_prompt(
