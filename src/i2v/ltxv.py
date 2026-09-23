@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import logging
+import statistics
 from datetime import datetime
 from pathlib import Path
 
@@ -73,7 +75,7 @@ class LtxvI2V(I2VBackend):
         reference_fit: str = "pad",
         reference_fill: str = "auto",
         negative_prompt: str = "",
-        seed: int | None = None,
+        seed_key: str = "",
         anchor_strength: float = 0.0,
         anchor_index: int = -1,
     ) -> None:
@@ -85,14 +87,21 @@ class LtxvI2V(I2VBackend):
         # with this strength, so the clip has to return to the sheet. 0 = off.
         self.anchor_strength = anchor_strength
         self.anchor_index = anchor_index
-        # "pad": letterbox the seed image onto a `reference_fill` canvas at
-        # the server's render size so nothing is cropped (a square reference
-        # sent to a 3:2 render otherwise loses the top of the subject and the
-        # model invents a new head). "none": send the file as-is.
+        # How the reference is fitted to the render frame (`fit_reference`):
+        # within 5 % of the render aspect it is cover-resized; outside it
+        # "pad" letterboxes onto a `reference_fill` canvas with a warning (a
+        # square reference sent to a 3:2 render otherwise loses the top of
+        # the subject and the model invents a new head), "strict" refuses,
+        # "none" sends the file as-is.
+        if reference_fit not in REFERENCE_FITS:
+            raise ValueError(f"reference_fit must be one of {REFERENCE_FITS}, not {reference_fit!r}")
         self.reference_fit = reference_fit
         self.reference_fill = reference_fill
         self.negative_prompt = negative_prompt  # "" → the server's default; only the full variant encodes it
-        self.seed = seed                        # None → random per clip
+        # Every clip's seed is derived from this key and its segment
+        # (`derive_seed`), so a rerun under the same key reproduces the
+        # noise and experiment arms share it. "" → the server draws one.
+        self.seed_key = seed_key
         self.model = "ltx-2.5"
         self.resolution = "512x768"
         self.duration = 5  # default seconds when the segment doesn't specify
@@ -150,12 +159,30 @@ class LtxvI2V(I2VBackend):
         return None
 
     def _encode_reference(self, path: str) -> str:
-        if self.reference_fit == "pad":
-            width, height = self.size
-            return base64.b64encode(
-                letterbox_reference(path, width, height, fill=self.reference_fill),
-            ).decode()
-        return _encode_image(path)
+        if self.reference_fit == "none":
+            return _encode_image(path)
+        width, height = self.size
+        data, notes = fit_reference(path, width, height, fit=self.reference_fit, fill=self.reference_fill)
+        for note in notes:
+            logger.warning("Reference image %s: %s", path, note)
+        return base64.b64encode(data).decode()
+
+    def check_reference(self, path: Path | str) -> dict:
+        """Validate the reference against the server's render size before
+        the run starts: how it will be fitted and why. Raises
+        `ReferenceRefused` under `reference_fit: strict` when the aspect is
+        off; warnings are returned (and logged), not raised. When the
+        server cannot be probed yet the check is left to the first render."""
+        if self._probe_health() is None:
+            return {"checked": False, "reason": "server not reachable; checked at the first render"}
+        width, height = self.size
+        if self.reference_fit == "none":
+            return {"checked": True, "fit": "none", "size": [width, height], "warnings": []}
+        _, notes = fit_reference(path, width, height, fit=self.reference_fit, fill=self.reference_fill)
+        for note in notes:
+            logger.warning("Reference image %s: %s", path, note)
+        mode = "cover" if within_aspect(path, width, height) else "pad"
+        return {"checked": True, "fit": mode, "size": [width, height], "warnings": notes}
 
     def seconds_to_frames(self, seconds: int) -> int:
         """Seconds → a frame count on the VAE's causal (N*8 + 1) grid."""
@@ -199,15 +226,16 @@ class LtxvI2V(I2VBackend):
         }
         if self.negative_prompt:
             payload["negative_prompt"] = self.negative_prompt
-        if self.seed is not None:
-            payload["seed"] = self.seed
+        if self.seed_key:
+            payload["seed"] = derive_seed(self.seed_key, turn)
         if self.anchor_strength > 0.0:
             payload["anchor_strength"] = self.anchor_strength
             payload["anchor_index"] = self.anchor_index
         if not self._initialized:
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
         self.last_render = {"requested_frames": payload["num_frames"],
-                            "reference": "reference_image" in payload}
+                            "reference": "reference_image" in payload,
+                            "seed": payload.get("seed")}
 
         url = f"{self.server_url}/generate"
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
@@ -263,6 +291,15 @@ def render_headers(headers) -> dict:
     return out
 
 
+def derive_seed(key: str, segment: int) -> int:
+    """The render seed of `segment` under `key` (the session id): a stable
+    32-bit hash, the same in every process, different for every segment
+    and every key. Never one fixed seed for every clip (repeated noise
+    texture); never random (irreproducible)."""
+    digest = hashlib.sha256(f"{key}:{segment}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big")
+
+
 def snap_to_frame_grid(raw_frames: int) -> int:
     """Snap a raw frame count onto the VAE's causal (N*8 + 1) grid."""
     return ((max(raw_frames, 1) - 2) // 8 + 1) * 8 + 1
@@ -283,6 +320,79 @@ def border_color(img: Image.Image, band: int = 4) -> tuple[int, int, int]:
                if x < band or y < band or x >= w - band or y >= h - band]
     channels = list(zip(*samples))
     return tuple(sorted(c)[len(c) // 2] for c in channels)
+
+
+REFERENCE_FITS = ("pad", "strict", "none")
+# A reference within this fraction of the render aspect is cover-resized
+# (scaled to fill the frame, the overhang cropped evenly); outside it the
+# `reference_fit` policy applies.
+ASPECT_TOLERANCE = 0.05
+# Standard deviation of the border pixels (0-255, mean over the channels)
+# above which a letterbox fill cannot continue the image's own background:
+# the padding would show as a frame around a picture.
+BORDER_SD_LIMIT = 12.0
+
+
+class ReferenceRefused(ValueError):
+    """`reference_fit: strict` and the reference is not at the render aspect."""
+
+
+def within_aspect(path: Path | str, width: int, height: int) -> bool:
+    with Image.open(path) as img:
+        ratio = (img.width / img.height) / (width / height)
+    return abs(ratio - 1.0) <= ASPECT_TOLERANCE
+
+
+def border_sd(img: Image.Image, band: int = 4) -> float:
+    """Spread of the outer `band` pixels (the standard deviation per
+    channel, averaged): 0 for a uniform background."""
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    px = rgb.load()
+    samples = [px[x, y] for y in range(h) for x in range(w)
+               if x < band or y < band or x >= w - band or y >= h - band]
+    return statistics.fmean(statistics.pstdev(c) for c in zip(*samples))
+
+
+def fit_reference(
+    path: Path | str, width: int, height: int, *, fit: str = "pad", fill: str = "auto",
+) -> tuple[bytes, list[str]]:
+    """The reference fitted to a `width`x`height` render frame, as PNG
+    bytes, and what is wrong with it. Within `ASPECT_TOLERANCE` of the
+    render aspect it is cover-resized (an authored master at the render
+    aspect, the intended case); outside it `fit="pad"` letterboxes it with
+    a warning (and a second warning when the border is too uneven for the
+    fill to continue it), `fit="strict"` raises `ReferenceRefused`. A
+    reference smaller than the render frame is upscaled with a warning."""
+    notes: list[str] = []
+    with Image.open(path) as img:
+        img.load()
+        src_w, src_h = img.size
+        ratio = (src_w / src_h) / (width / height)
+        if abs(ratio - 1.0) <= ASPECT_TOLERANCE:
+            if src_w < width or src_h < height:
+                notes.append(f"{src_w}x{src_h} is smaller than the render size {width}x{height}; upscaled")
+            rgb = Image.alpha_composite(
+                Image.new("RGBA", img.size, "white"), img.convert("RGBA")).convert("RGB")
+            scale = max(width / src_w, height / src_h)
+            size = (max(width, round(src_w * scale)), max(height, round(src_h * scale)))
+            rgb = rgb.resize(size, Image.LANCZOS)
+            left, top = (size[0] - width) // 2, (size[1] - height) // 2
+            out = rgb.crop((left, top, left + width, top + height))
+            buf = io.BytesIO()
+            out.save(buf, format="PNG")
+            return buf.getvalue(), notes
+        off = f"aspect {src_w}x{src_h} is {abs(ratio - 1.0):.0%} off the render aspect {width}x{height}"
+        if fit == "strict":
+            raise ReferenceRefused(f"{off}; reference_fit is strict (supply a master at the render aspect)")
+        notes.append(f"{off}; letterboxed (supply a master at the render aspect to avoid it)")
+        sd = border_sd(img)
+        if sd > BORDER_SD_LIMIT:
+            notes.append(f"its border is not uniform (sd {sd:.0f}); the letterbox fill will show as a frame")
+        scaled_h = height * REFERENCE_SCALE
+        if src_h < scaled_h and src_w < width * REFERENCE_SCALE:
+            notes.append(f"{src_w}x{src_h} is smaller than the subject area of a {width}x{height} frame; upscaled")
+    return letterbox_reference(path, width, height, fill=fill), notes
 
 
 def letterbox_reference(

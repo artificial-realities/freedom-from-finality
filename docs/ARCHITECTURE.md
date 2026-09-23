@@ -106,7 +106,7 @@ Narration is a capability, not an agent. `voiceover` is an optional Director fie
 
 ## The video boundary
 
-The renderer receives a compiled prompt and a duration. Every clip is conditioned on the previous clip's tail (the server's sliding window); the first clip of a run, and the first clip after a server restart, is seeded from the reference image instead, and the compiler opens that clip from the cast sheet's `reference_pose`. There are no cuts: a beat is one continuous picture, and a change of angle or distance is a camera move inside a clip. Cuts were removed on 2026-09-17 because re-seeding from the reference reset costume, props and position to the reference's state. Only the compiler knows the model's dialect; the schemas do not change when the model does.
+The renderer receives a compiled prompt, a duration and a seed derived from the run's seed key (the session id unless `ltxv_seed_key` names another run) and the segment, so a rerun under the same key reproduces the noise and experiment arms share it. The reference image is checked twice: when the story loads (it exists, it decodes, the protagonist's `reference_pose` says what it shows) and when a run starts, against the server's render size: within 5 % of the render aspect it is cover-resized; outside it `i2v_reference_fit: pad` letterboxes it with a warning (and warns when its border is too uneven for the fill to continue it), `strict` refuses to start. The verdict is the timing log's `reference` record. Every clip is conditioned on the previous clip's tail (the server's sliding window); the first clip of a run, and the first clip after a server restart, is seeded from the reference image instead, and the compiler opens that clip from the cast sheet's `reference_pose`. There are no cuts: a beat is one continuous picture, and a change of angle or distance is a camera move inside a clip. Cuts were removed on 2026-09-17 because re-seeding from the reference reset costume, props and position to the reference's state. Only the compiler knows the model's dialect; the schemas do not change when the model does.
 
 ## Configuration
 
@@ -127,7 +127,7 @@ director_model: ""             # optional per-role model overrides
 showrunner_model: ""
 director_service_tier: ""      # OpenAI processing tier for the Director call ("priority": ~2.5x the tokens/s)
 ltxv_negative_prompt: ""       # "" → the server's default; the distilled recipe never encodes it (guidance 1.0)
-ltxv_seed: null                # fixed seed for reproducible renders
+ltxv_seed_key: ""              # render seeds derive from this key and the segment; "" = the session id
 ```
 
 `configs/director.yaml` is the headless config; `configs/director.live.yaml` drives LTX-2.5. The blueprint (`stories/<story>/story.json`, with the story's `seed_image` beside it) carries the story: `visual_style` and a one-sentence `visual_anchor`, each character's `look`, `look_short` and `reference_pose`, the rules of the world. Everything in `src/prompts/`, the schemas, the compiler and the engine is story-agnostic.

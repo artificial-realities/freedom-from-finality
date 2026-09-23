@@ -56,18 +56,25 @@ class Config(BaseModel):
     ltxv_continuity_strength: float = 1.0
     # Trailing frames of the previous chunk used as the condition.
     ltxv_continuity_frames: int = 9
-    # How the seed image is fitted to the render frame: "pad" letterboxes it
-    # at the server's aspect ratio (so a square reference is not cropped),
-    # "none" sends it unchanged. The fill is a colour name, or "auto" to
-    # continue the image's own border colour so no seam is introduced.
+    # How the seed image is fitted to the render frame. A reference within
+    # 5 % of the server's aspect ratio is cover-resized (an authored master
+    # at the render aspect is the intended case). Outside it, "pad"
+    # letterboxes it with a warning (so a square reference is not cropped),
+    # "strict" refuses to start, "none" sends the file unchanged. The fill
+    # is a colour name, or "auto" to continue the image's own border colour
+    # so no seam is introduced.
     i2v_reference_fit: str = "pad"
     i2v_reference_fill: str = "auto"
     # Negative prompt sent with every clip ("" → the server's default). Only
     # the `full` variant encodes it: the distilled recipe runs unguided
     # (guidance_scale 1.0) and the server ignores the field (LTX-08).
     ltxv_negative_prompt: str = ""
-    # Optional fixed seed for reproducible renders.
-    ltxv_seed: int | None = None
+    # Every clip's render seed is derived from this key and the clip's
+    # segment (`src.i2v.ltxv.derive_seed`), never fixed and never random.
+    # "" → the run's session id, so each run has its own noise; set it to
+    # an earlier session id to rerun that run's noise (experiment arms
+    # share it).
+    ltxv_seed_key: str = ""
     # Identity anchor: the server also conditions on the reference image as
     # a guiding keyframe at `ltxv_anchor_index` (latent frames, -1 = the
     # last) with this strength, so every clip has to return to the sheet.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from PIL import Image
 from pydantic import BaseModel, Field
 
 
@@ -54,4 +55,27 @@ class Story(BaseModel):
         story = cls(**json.loads(path.read_text(encoding="utf-8")))
         if story.seed_image and not Path(story.seed_image).is_absolute():
             story.seed_image = str(story_dir / story.seed_image)
+        story.check_reference()
         return story
+
+    def check_reference(self) -> None:
+        """The static half of the reference check (RUN-11): the seed image
+        exists and decodes, and the protagonist's `reference_pose` says what
+        it shows, since the first clip starts from exactly that pose. How it
+        fits the render frame is checked against the server's size when a
+        run starts (`LtxvI2V.check_reference`). Raises ValueError."""
+        if not self.seed_image:
+            return
+        image = Path(self.seed_image)
+        if not image.is_file():
+            raise ValueError(f"{self.title}: seed_image {image} does not exist")
+        try:
+            with Image.open(image) as img:
+                img.verify()
+        except Exception as exc:
+            raise ValueError(f"{self.title}: seed_image {image} does not decode as an image ({exc})") from exc
+        if not self.characters or not self.characters[0].reference_pose.strip():
+            raise ValueError(
+                f"{self.title}: the protagonist (the first character) needs a `reference_pose` "
+                "describing what the seed image shows; the first clip starts from it"
+            )

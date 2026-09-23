@@ -97,6 +97,21 @@ def _log_emit(timing: TimingLog, graph, turn: int) -> None:
                  seconds=ev.duration, voiceover=bool(ev.voiceover))
 
 
+def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog) -> None:
+    """Validate the reference against the render frame before anything
+    renders (RUN-11); the verdict goes to the timing log. A strict
+    refusal stops the run here, not at the first render."""
+    if i2v is None:
+        return
+    try:
+        verdict = i2v.check_reference(seed_image)
+    except Exception as exc:
+        timing.write("reference", image=seed_image, refused=str(exc))
+        raise
+    if verdict:
+        timing.write("reference", image=seed_image, **verdict)
+
+
 def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
     if not config.audio_enabled:
         return None
@@ -113,7 +128,9 @@ def seed_image_for(config: Config, story: Story) -> str:
     return story.seed_image or config.i2v_seed_image
 
 
-def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
+def _maybe_i2v(config: Config, log_dir: Path | str, session_id: str = "") -> I2VBackend | None:
+    """The run's render backend. Its seeds are derived from
+    `ltxv_seed_key`, or the session id when that is empty (LTX-09)."""
     if not config.video_enabled:
         return None
     video_dir = Path(log_dir) / "video"
@@ -126,7 +143,7 @@ def _maybe_i2v(config: Config, log_dir: Path | str) -> I2VBackend | None:
         reference_fit=config.i2v_reference_fit,
         reference_fill=config.i2v_reference_fill,
         negative_prompt=config.ltxv_negative_prompt,
-        seed=config.ltxv_seed,
+        seed_key=config.ltxv_seed_key or session_id,
         anchor_strength=config.ltxv_anchor_strength,
         anchor_index=config.ltxv_anchor_index,
         replay_dir=config.i2v_replay_dir,
@@ -312,10 +329,12 @@ async def run_play(
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
-    i2v = _maybe_i2v(config, log_dir)
+    i2v = _maybe_i2v(config, log_dir, session_id)
 
     session_dir = Path(log_dir) / "sessions" / session_id
     timing = _start_timing(config, story, session_id, session_dir, loop="play")
+    seed_image: str = seed_image_for(config, story)
+    _check_reference(i2v, seed_image, timing)
     graph = build_graph(
         config.graph, llm=llm, config=config, tts=tts,
         session_dir=session_dir, timing=timing,
@@ -323,7 +342,6 @@ async def run_play(
 
     ui = ui or TerminalUI()
 
-    seed_image: str = seed_image_for(config, story)
     video_dir = Path(log_dir) / "video"
     frames_dir = video_dir / "frames"
 
@@ -431,7 +449,7 @@ async def run_live(
 
     llm = build_backend(config.llm_backend, config.model)
     tts = _maybe_tts(config, log_dir)
-    i2v = _maybe_i2v(config, log_dir)
+    i2v = _maybe_i2v(config, log_dir, session_id)
     player = player or TerminalPlayer()
 
     queue_size = max(1, config.lead_clips + 1)
@@ -442,6 +460,7 @@ async def run_live(
         render_slack_seconds=config.render_slack_seconds, jit_safety=JIT_SAFETY,
         jit_margin=JIT_MARGIN_S, time_scale=player.time_scale,
     )
+    _check_reference(i2v, seed_image_for(config, story), timing)
     graph = build_graph(
         config.graph, llm=llm, config=config, tts=tts,
         session_dir=session_dir, timing=timing,

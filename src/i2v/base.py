@@ -25,6 +25,12 @@ class I2VBackend(ABC):
     #: mutated in place, on every `synthesize`; empty when nothing is known.
     last_render: dict = {}
 
+    def check_reference(self, path: Path | str) -> dict:
+        """Validate the reference image before the run renders anything;
+        return what was found for the timing log ({} when the backend has
+        nothing to check). Raise to refuse the run."""
+        return {}
+
     @abstractmethod
     async def synthesize(
         self,

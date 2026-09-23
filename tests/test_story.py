@@ -316,6 +316,7 @@ def test_blueprint_has_no_reference_image_field():
     raw["characters"][0]["reference_image"] = "legoman.png"
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "story.json").write_text(json.dumps(raw))
+        (Path(d) / "legoman.png").write_bytes(Path("stories/lego-void/legoman.png").read_bytes())
         story = Story.from_json(d)
     assert story.characters[0].reference_pose.startswith("standing upright")
     assert story.seed_image == str(Path(d) / "legoman.png"), "the seed image resolves against the story folder"
