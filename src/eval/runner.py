@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.graph import build_graph
+from src.graph.director_engine import EmitFailed
 from src.i2v import build_i2v_backend
 from src.i2v.base import I2VBackend
 from src.i2v.shape import DEFAULT_FPS, ClipShape, ShapeRegistry
@@ -42,6 +43,12 @@ from src.util.timing_log import TimingLog, git_revision
 # still leaves the render its moment.
 JIT_SAFETY = 1.25
 JIT_MARGIN_S = 0.5
+# Fail-soft (RUN-09): a failed render is retried once only if the retry can
+# still finish before its clip is due (the p95 of the last RENDER_WINDOW
+# renders plus JIT_MARGIN_S); this many failed segments in a row stop the
+# film instead of looping on a renderer that is down.
+RENDER_WINDOW = 20
+MAX_CONSECUTIVE_FAILURES = 3
 
 logger = logging.getLogger(__name__)
 
@@ -543,22 +550,50 @@ async def run_live(
             lead_ready.set()
         player.prepare(item)
 
+    renders: list[float] = []     # the last RENDER_WINDOW successful render walls
+
+    def _render_p95() -> float:
+        if not renders:
+            return est["render"] or 0.0
+        ordered = sorted(renders)
+        return ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
+
     async def _bg_render_and_enqueue(
         item: Playable, *, prompt: str, seed_image: str, shape: ClipShape, audio: str = "",
-    ) -> None:
+    ) -> bool:
         """Render one clip in the background and enqueue it, with the
         segment's TTS line (already no longer than the clip) mixed in. The
         player holds it for the shape's delivered frames (RUN-01); the
-        file's measured length is only checked against the shape."""
+        file's measured length is only checked against the shape. A failed
+        render is retried once when the retry can still land before the
+        clip is due (RUN-09). Returns whether the clip was queued."""
         assert i2v is not None
-        t0 = time.monotonic()
-        video_path = await i2v.synthesize(
-            image_path=seed_image, prompt=prompt, turn=item.turn, shape=shape,
-        )
-        render_s = time.monotonic() - t0
-        _learn("render", render_s)
-        timing.write("render_done", turn=item.turn, ok=bool(video_path), render_s=round(render_s, 4),
-                     server=dict(i2v.last_render))
+        video_path = None
+        for attempt in (1, 2):
+            t0 = time.monotonic()
+            video_path = await i2v.synthesize(
+                image_path=seed_image, prompt=prompt, turn=item.turn, shape=shape,
+            )
+            render_s = time.monotonic() - t0
+            timing.write("render_done", turn=item.turn, ok=bool(video_path), render_s=round(render_s, 4),
+                         server=dict(i2v.last_render), attempt=attempt)
+            if video_path:
+                _learn("render", render_s)
+                renders.append(render_s)
+                del renders[:-RENDER_WINDOW]
+                break
+            langfuse_event("i2v_render_failed", metadata={"turn": item.turn, "attempt": attempt}, level="ERROR")
+            if not config.fail_soft or attempt == 2:
+                return False
+            # The clip is due when everything on air and queued has played.
+            due = (air["start"] + air["hold"] + sum(queued_holds)) if air["start"] is not None else None
+            needs = _render_p95() + JIT_MARGIN_S
+            left = due - time.monotonic() if due is not None else None
+            retry = left is None or needs <= left
+            timing.write("render_retry", turn=item.turn, retry=retry, needs_s=round(needs, 4),
+                         left_s=round(left, 4) if left is not None else None)
+            if not retry:
+                return False
         if video_path:
             item.path = video_path
             if audio:
@@ -573,12 +608,8 @@ async def run_live(
                 timing.write("shape_mismatch", turn=item.turn, frames=shape.render_frames,
                              expected_s=round(shape.render_seconds, 4), measured_s=round(measured, 4))
             await _enqueue(item)
-        else:
-            langfuse_event(
-                "i2v_render_failed",
-                metadata={"turn": item.turn, "seed_image": seed_image},
-                level="ERROR",
-            )
+            return True
+        return False
 
     async def producer() -> None:
         nonlocal state
@@ -592,15 +623,58 @@ async def run_live(
         # while its beat has not emitted a clip: a line arriving then is
         # joined to it (ARCH-06).
         planned_text = ""
+        # Fail-soft (RUN-09): viewer text whose answer was rolled back, for
+        # the next plan; the lines that landed on the last clip; the silence
+        # count before it; failed segments in a row.
+        carry_text = ""
+        last_landed: tuple[int, list[int]] | None = None
+        silence_before = state.silence_seconds
+        failures = 0
 
-        async def _drain_prev() -> None:
+        def _fail(turn_failed: int, reason: str) -> None:
+            """Count a failed segment; stop the film after too many in a row."""
+            nonlocal failures
+            failures += 1
+            if failures >= MAX_CONSECUTIVE_FAILURES:
+                timing.write("error", where="producer", turn=turn_failed,
+                             error=f"{failures} segments failed in a row ({reason}); stopping")
+                player.status(f"{failures} segments failed in a row; the film stops")
+                raise RuntimeError(f"{failures} segments failed in a row: {reason}")
+
+        def _roll_back(turn_failed: int, reason: str) -> None:
+            """The last emitted clip never reached the viewer: take it back
+            (RUN-09) and have the next plan start from the clip before."""
+            nonlocal carry_text
+            carry = graph.rollback_clip(turn_failed, reason)
+            if state.history and state.history[-1].turn == turn_failed:
+                state.history.pop()
+            state.silence_seconds = silence_before
+            requeued = list(last_landed[1]) if last_landed and last_landed[0] == turn_failed else []
+            requeued += beat_lines
+            beat_lines.clear()
+            if requeued:
+                plan_lines[:0] = requeued
+                timing.write("line_requeued", turn=turn_failed, lines=requeued,
+                             reason="the clip that answered them never reached the screen")
+            if carry:
+                carry_text = " ".join(x for x in (carry, carry_text) if x)
+            timing.write("rollback", turn=turn_failed, reason=reason)
+            story_logger.log_note(f"Segment {turn_failed} never reached the viewer ({reason}); "
+                                  "the world was rolled back to before it and the segment replanned.")
+            player.status(f"segment {turn_failed} failed ({reason}); the Director replans from the clip before")
+
+        async def _drain_prev() -> bool:
+            """Wait for the render in flight; whether its clip was queued."""
             nonlocal _prev_render
+            ok = True
             if _prev_render is not None:
                 try:
-                    await _prev_render
+                    ok = bool(await _prev_render)
                 except Exception:
                     logger.warning("Pipelined render failed", exc_info=True)
+                    ok = False
                 _prev_render = None
+            return ok
 
         def _needed_at() -> float | None:
             """Monotonic time at which the next clip to render is due on
@@ -613,12 +687,16 @@ async def run_live(
             return due
 
         async def _take() -> str:
-            """Everything the viewer typed since the last call. The lines
-            join the next plan."""
+            """Everything the viewer typed since the last call, after any line
+            whose answer never reached the screen (a rolled-back clip). The
+            lines join the next plan."""
+            nonlocal carry_text
             text = await player.next_input()
             if player.taken:
                 plan_lines.extend(player.taken)
                 timing.write("line_taken", turn=state.turn_number, lines=list(player.taken))
+            if carry_text:
+                text, carry_text = " ".join(x for x in (carry_text, text) if x), ""
             return text
 
         def _abort(reason: str) -> int:
@@ -729,10 +807,34 @@ async def run_live(
                     metadata={"config": config.name},
                 ):
                     await _listen(turn)
-                    state = await graph.emit(state)
+                    # RUN-07: the previous clip's render is known before this
+                    # clip is emitted (it lands about 1.2 s before this
+                    # clip's fire in steady state, so nothing waits).
+                    if not await _drain_prev():
+                        if not config.fail_soft:
+                            timing.write("render_skipped", turn=turn - 1)
+                        else:
+                            _roll_back(turn - 1, "its render failed")
+                            _fail(turn - 1, "render failed")
+                            turn -= 2          # replan the failed segment's number
+                            continue
+                    elif i2v is not None and turn > 1:
+                        failures = 0
+                    try:
+                        state = await graph.emit(state)
+                    except EmitFailed as exc:
+                        timing.write("emit_failed", turn=turn, error=str(exc))
+                        story_logger.log_note(f"Segment {turn} could not be emitted ({exc}); replanned.")
+                        _fail(turn, "emit failed")
+                        turn -= 1
+                        continue
+                    if i2v is None:
+                        failures = 0
                     _log_emit(timing, graph, turn)
+                    last_landed = None
                     if beat_lines:
                         timing.write("line_landed", turn=turn, lines=list(beat_lines))
+                        last_landed = (turn, list(beat_lines))
                         beat_lines.clear()
 
                     if state.current_shot is not None:
@@ -748,7 +850,6 @@ async def run_live(
                             # Wait for the previous render (the sliding
                             # window is sequential), then fire this one in
                             # the background; a TTS line is mixed in there.
-                            await _drain_prev()
                             player.status(f"rendering segment {turn}")
                             shape = state.current_shape
                             # How long until this clip is due on air (None
@@ -769,6 +870,7 @@ async def run_live(
                             _prev_hold = shape.delivered_seconds / player.time_scale
                             # Pacing from the shape's delivered length, so the
                             # next voice-over decision is right.
+                            silence_before = state.silence_seconds
                             _pace_expected(state, shape.delivered_seconds)
 
                     set_trace_output(_trace_output(state))
@@ -776,7 +878,8 @@ async def run_live(
                 _commit_history(state)
                 _log_story_turn(story_logger, state)
             # A bounded run: let the last render land before signalling the end.
-            await _drain_prev()
+            if not await _drain_prev():
+                timing.write("render_skipped", turn=turn, reason="the last render failed at the end of a bounded run")
         except asyncio.CancelledError:
             if _prev_render is not None:
                 _prev_render.cancel()

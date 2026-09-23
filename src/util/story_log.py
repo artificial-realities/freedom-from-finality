@@ -52,6 +52,14 @@ class StoryLogger:
         except OSError as exc:
             logger.exception("Failed to initialize transcript %s: %s", self.log_file, exc)
 
+    def log_note(self, text: str) -> None:
+        """A line about the run itself (a rollback, a failure), between turns."""
+        try:
+            with self.log_file.open("a", encoding="utf-8") as f:
+                f.write(f"> **Note:** {text}\n\n")
+        except OSError as exc:
+            logger.exception("Failed to append to transcript %s: %s", self.log_file, exc)
+
     def log_turn(
         self,
         *,

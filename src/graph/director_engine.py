@@ -64,6 +64,11 @@ from src.util.timing_log import TimingLog
 logger = logging.getLogger(__name__)
 
 
+class EmitFailed(RuntimeError):
+    """Emitting a clip raised; the engine restored the world and cut the beat
+    (RUN-09), and the loop replans the segment."""
+
+
 class DirectorEngine:
     def __init__(
         self,
@@ -107,6 +112,12 @@ class DirectorEngine:
         # The trigger this plan decided on, spawned at the beat's first clip
         # after it is applied (ARCH-03): (reason, mode).
         self._pending_spawn: tuple[str, str] | None = None
+        # Fail-soft (RUN-09): the engine and world as they were before the
+        # last emitted clip, its segment, and the Showrunner updates landed
+        # since (a plan for the next clip may land one before the clip's
+        # render is known to have failed).
+        self._emit_snapshot: dict | None = None
+        self._landed_since: list[tuple] = []
         # The beat being emitted, clip by clip.
         self._beat: BeatPlan | None = None
         self._clip_index: int = 0
@@ -311,7 +322,95 @@ class DirectorEngine:
 
     async def emit(self, state: StoryState) -> StoryState:
         """Emit the next clip of the current beat as segment `state.turn_number`:
-        apply its world changes, compile its prompt, fill the views, log it."""
+        apply its world changes, compile its prompt, fill the views, log it.
+        With `fail_soft` the engine and world are kept as they were before
+        the clip, so a clip that never renders can be taken back
+        (`rollback_clip`); an exception here restores them, cuts the beat
+        and raises `EmitFailed` instead of ending the film."""
+        if not self.config.fail_soft:
+            return await self._emit(state)
+        snapshot = self._snapshot(state.turn_number)
+        try:
+            state = await self._emit(state)
+        except Exception as exc:
+            logger.exception("Emitting segment %s failed; rolling back", state.turn_number)
+            self._restore(snapshot, [])
+            self._cut_after_failure(snapshot, f"emitting it failed ({type(exc).__name__})")
+            raise EmitFailed(f"segment {state.turn_number}: {type(exc).__name__}: {exc}") from exc
+        self._emit_snapshot, self._landed_since = snapshot, []
+        return state
+
+    def rollback_clip(self, segment: int, reason: str) -> str:
+        """Take back the last emitted clip, `segment`, whose render failed
+        (RUN-09): the world and the beat return to before it (Showrunner
+        updates landed since are applied again), the beat is cut, and the
+        next plan is told the picture ends on the clip before. Returns the
+        viewer text to answer again: the line the dropped beat answered, if
+        the failed clip was its first, and the line of a beat planned since
+        and never played; the lines' recorded interventions are dropped so
+        the next plan records them once."""
+        snap = self._emit_snapshot
+        if snap is None or snap["segment"] != segment or self.world is None:
+            logger.warning("No snapshot for segment %s; cannot roll back", segment)
+            return ""
+        carry = []
+        if snap["clip_index"] == 0 and snap["beat_input"]:
+            carry.append(snap["beat_input"])
+        if self._beat is not None and self._clip_index == 0 and self._beat_input and self._beat is not snap["beat_ref"]:
+            carry.append(self._beat_input)          # a beat planned since, never played
+        self._restore(snap, self._landed_since)
+        for seg in {segment, self.world.segment}:
+            self.world.drop_pending_interventions(seg)
+        self._cut_after_failure(snap, reason)
+        self._emit_snapshot, self._landed_since = None, []
+        if self.session_dir is not None:
+            try:
+                self.world.save(self.session_dir, rewrite=True)
+            except OSError:
+                logger.exception("Could not persist world model to %s", self.session_dir)
+        return " ".join(carry)
+
+    def _snapshot(self, segment: int) -> dict:
+        return {
+            "segment": segment,
+            "world": self.world.model_copy(deep=True) if self.world is not None else None,
+            "beat": self._beat.model_copy(deep=True) if self._beat is not None else None,
+            "beat_ref": self._beat,
+            "clip_index": self._clip_index, "beat_no": self._beat_no, "beat_input": self._beat_input,
+            "plan_notes": list(self._plan_notes), "plan_meta": dict(self._plan_meta),
+            "last_end_state": self._last_end_state, "last_beat": self._last_beat,
+            "pending_note": self._pending_note, "pending_spawn": self._pending_spawn,
+            "held_trigger": self._held_trigger, "beat_shape": self._beat_shape,
+        }
+
+    def _restore(self, snap: dict, landings: list[tuple]) -> None:
+        self.world = snap["world"]
+        self._beat, self._clip_index, self._beat_no = snap["beat"], snap["clip_index"], snap["beat_no"]
+        self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
+        self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
+        self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
+        self._held_trigger, self._beat_shape = snap["held_trigger"], snap["beat_shape"]
+        for update, at_segment, force_replan in landings:
+            apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan)
+
+    def _cut_after_failure(self, snap: dict, reason: str) -> None:
+        """The beat whose clip failed is cut there; the next plan starts from
+        the picture before it."""
+        beat = self._beat
+        seg = snap["segment"]
+        where = (f"The picture ends on: {self._last_end_state}" if self._last_end_state
+                 else "The picture is still the reference image.")
+        if beat is not None:
+            done, total = self._clip_index, len(beat.clips)
+            self._pending_note = (
+                f'Clip {done + 1} of the beat "{beat.intent}" never reached the viewer ({reason}); '
+                f"it and the rest of the beat were dropped and the world is as it was before it. {where}"
+            )
+            self._last_beat = (beat.intent, done, total)
+        self._beat, self._clip_index, self._pending_spawn = None, 0, None
+        self._showrunner_notes.append(f"segment {seg}: {reason}; rolled back to before it and replanned")
+
+    async def _emit(self, state: StoryState) -> StoryState:
         world = self.world
         beat = self._beat
         assert world is not None and beat is not None and self._clip_index < len(beat.clips)
@@ -540,6 +639,7 @@ class DirectorEngine:
                 self.world.scene_started = at_segment + 1
             return
         landed = apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan)
+        self._landed_since.append((update, at_segment, force_replan))
         if any(n.startswith("scene ") for n in landed):
             self._held_trigger = None   # a new card answers any replan still held
         card = self.world.plan.scene

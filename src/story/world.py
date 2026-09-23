@@ -333,12 +333,20 @@ class WorldModel(BaseModel):
 
     # ── Persistence ─────────────────────────────────────────────────
 
-    def save(self, directory: Path | str) -> None:
+    def save(self, directory: Path | str, *, rewrite: bool = False) -> None:
+        """Write `world.json` and append new events to `events.jsonl`;
+        `rewrite` writes the whole event log again (after a rollback took a
+        recorded clip back out)."""
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "world.json").write_text(
             self.model_dump_json(indent=2, exclude={"events"}), encoding="utf-8",
         )
+        if rewrite:
+            (directory / "events.jsonl").write_text(
+                "".join(ev.model_dump_json() + "\n" for ev in self.events), encoding="utf-8")
+            self._saved_events = len(self.events)
+            return
         new = self.events[self._saved_events:]
         if new:
             with (directory / "events.jsonl").open("a", encoding="utf-8") as f:

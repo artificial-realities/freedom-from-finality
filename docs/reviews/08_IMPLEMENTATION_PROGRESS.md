@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_015 (RUN-03, ARCH-10, LTX-04), 2026-09-23
+- **Latest completed batch:** BATCH_016 (RUN-07, RUN-09), 2026-09-23
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -58,9 +58,9 @@ The execution state of every decision in the final decision record. The record i
 | RUN-04 | APPROVED | 6 | NOT_STARTED | RUN-05, RUN-13 | — | — | Dependencies done (RUN-13 completed in BATCH_005); phase 6, after phases 0-5. BATCH_002 wrote RUN-04's threshold values into `benchmarks/runtime/baseline.json` `gates` because RUN-13's `bench_report` must fail on them; RUN-04's own validation (bench_report on the next live run, GPU) remains. |
 | RUN-05 | APPROVED | 0 | COMPLETED | none | BATCH_001 | `python -m tests.run` 32/32 (7 new in `tests/test_timing.py`); headless run of `configs/director.yaml --player web` (real Director) wrote `logs/batch-001/real-live/sessions/director_live_20260922_190413/timing.jsonl` (50 records); terminal loop and headless-Chromium replay run also wrote it, 7 page beacons received | `src/util/timing_log.py`; records listed in BATCH_001. `revision` is null on the GPU box (no `.git` in the shipped tree): for RUN-13. |
 | RUN-06 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-05, X-09, ARCH-06 | — | — | Gated by X-09 (local Monte Carlo + replay loop); needs RUN-05 and ARCH-06. |
-| RUN-07 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
+| RUN-07 | APPROVED | 1 | COMPLETED | none | BATCH_016 | `tests/test_fail_soft.py::test_the_previous_render_is_known_before_the_next_clip_is_emitted`; `tests/test_jit.py`; suite 107/107 | Drain right before emit. |
 | RUN-08 | APPROVED | 2 | COMPLETED | RUN-01 | BATCH_014 | `test_the_client_checks_the_server_s_warm_shapes` (mocked single/multi-shape `/health`), `test_a_run_is_refused_when_its_shape_is_not_warm` | `/health` `warm_frames`; `LtxvI2V.check_shapes`; `vast_run.sh` takes `LTX2_WARMUP_FRAMES` from `python -m src.i2v.shape`. Server side not yet run on hardware. |
-| RUN-09 | APPROVED | 5 | NOT_STARTED | RUN-07 | — | — | Phase 5; depends on RUN-07. |
+| RUN-09 | APPROVED | 5 | COMPLETED | RUN-07 | BATCH_016 | `tests/test_fail_soft.py` (7: rollback + replan from k−1, retry, emit exception, loop guard, flag off, line re-answered) | Retry once if p95 + margin fits before air; else snapshot restore (+ landings re-applied), beat cut, replan same segment; `EmitFailed`; 3 failures in a row stop the film; `fail_soft` flag. |
 | RUN-10 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-01 | — | — | Gated by X-11 (GPU); RUN-01 first. |
 | RUN-11 | APPROVED | 1 | COMPLETED | none | BATCH_009 | `tests/test_i2v.py::test_reference_is_fitted_to_the_render_frame`, `test_reference_is_checked_before_the_run_renders`, `test_story_load_checks_the_reference`; suite 69/69 | Load: image exists, decodes, protagonist `reference_pose` non-empty. Run start: cover within 5 %, `pad` letterbox + warning (uneven border, small image), `strict` refuses; `reference` record in the timing log. The Lego asset swap stays gated by X-12. |
 | RUN-12 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-02, LTX-12 | — | — | Built only if X-02 leaves a swap gate unmet. |
@@ -141,9 +141,11 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_013 | 2026-09-23 | ARCH-19 | COMPLETED | `implementation_batches/BATCH_013.md` |
 | BATCH_014 | 2026-09-23 | RUN-01, RUN-08, CLEAN-05, CLEAN-06 | COMPLETED (server half unmeasured on hardware) | `implementation_batches/BATCH_014.md` |
 | BATCH_015 | 2026-09-23 | RUN-03, ARCH-10, LTX-04 | COMPLETED (ARCH-10 awaits its reading) | `implementation_batches/BATCH_015.md` |
+| BATCH_016 | 2026-09-23 | RUN-07, RUN-09 | COMPLETED | `implementation_batches/BATCH_016.md` |
 
 ## Reconciliation notes
 
+- 2026-09-23 (BATCH_016 close): BATCH_015 committed as `99607e1`. RUN-07 and RUN-09 `COMPLETED`. Suite 107/107. Every approved row with code scope is now implemented; open: readings that need the real Director (ARCH-01, ARCH-16, ARCH-11, ARCH-10), GPU validations (LTX-09, RUN-04), AUD-01 (realised through other rows).
 - 2026-09-23 (BATCH_015 close): BATCH_014 committed as `8574087`. RUN-03 and LTX-04 `COMPLETED`, ARCH-10 `IN_PROGRESS` (reading). Suite 100/100. Phase 2 is done; next RUN-07 + RUN-09, then the real-Director validation run.
 - 2026-09-23 (BATCH_014 close): BATCH_013 committed as `5c3106c`. Phase 2's coordinated change is in: RUN-01, RUN-08, CLEAN-05, CLEAN-06 `COMPLETED`. Suite 98/98. Unblocked by RUN-01: RUN-03, ARCH-10, LTX-04 (approved); LTX-01's comparison-compiler prep; X-02, X-03, X-18 prerequisites (RUN-08 done too).
 - 2026-09-23 (BATCH_013 close): BATCH_012 committed as `31b9ac0`. ARCH-19 `COMPLETED` on its schema/validator tests; X-26 is post-implementation. Phase 1's code is done except RUN-07 (drain before emit, planned with RUN-09); ARCH-01/ARCH-16/ARCH-11 await a real-Director run. `tests/fixtures/lighthouse` is the synthetic story for X-26 and X-29.

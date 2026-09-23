@@ -136,6 +136,13 @@ class Config(BaseModel):
     # 3.0 s of slack, at the baseline's 4.8 s render). Lowering it waits for
     # X-09 (RUN-06).
     buffer_seconds: float = 4.7
+    # Fail-soft (RUN-09): a failed render is retried once when the buffer
+    # allows; otherwise, or when the retry fails, the world and the beat are
+    # restored to before the failed clip and the Director replans from the
+    # last clip the viewer received. An exception while emitting a clip takes
+    # the same route instead of ending the film. False = the old behaviour
+    # (a failed render is skipped, an emit exception ends the film).
+    fail_soft: bool = True
     extra: dict = Field(default_factory=dict)
 
     @model_validator(mode="before")
