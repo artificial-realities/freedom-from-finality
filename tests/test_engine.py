@@ -36,8 +36,8 @@ class Scripted(Player):
 
 def _config(**over) -> Config:
     base = dict(name="mocktest", graph="director", llm_backend="mock", model="mock",
-                min_pause_seconds=6.0, compaction_interval=4, showrunner_min_gap=1,
-                render_slack_seconds=0.0)
+                compaction_interval=4, showrunner_min_gap=1,
+                buffer_seconds=0.0)
     base.update(over)
     return Config(**base)
 

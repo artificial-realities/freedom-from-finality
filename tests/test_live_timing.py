@@ -53,10 +53,11 @@ async def test_line_typed_while_a_clip_plays_cuts_the_beat_and_lands_two_clips_l
         clips.mkdir()
         _tiny_clip(clips / "a.mp4")
         # Replay backend with a 0.3 s "render" of 1 s clips: the mock Director
-        # is instant, so the loop has most of each clip to wait for input.
+        # is instant, so the loop has most of each clip to wait for input. A
+        # 1 s buffer fires each render about a clip ahead of its air time.
         config = Config(name="timing", graph="director", llm_backend="mock", model="mock",
-                        min_pause_seconds=6.0, video_enabled=True, clip_seconds=1, lead_clips=0,
-                        render_slack_seconds=0.0,
+                        video_enabled=True, clip_seconds=1, startup_clips=0,
+                        buffer_seconds=1.0,
                         i2v_backend="replay", i2v_replay_dir=str(clips), i2v_replay_delay=0.3)
         player = Steer("a red cap", at_turn=2, after=0.1)
         state = await run_live(config=config, story=story, log_dir=d, player=player, max_segments=5)

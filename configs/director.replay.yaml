@@ -8,7 +8,7 @@ max_tokens_per_agent: 1024
 
 live: true
 video_enabled: true
-lead_clips: 0
+startup_clips: 0
 
 # ── Replay video backend ───────────────────────────────────────────
 # Serves clips left by an earlier live run, in order, ignoring the prompt.
@@ -26,5 +26,5 @@ max_clips_per_beat: 4
 scene_seconds: 240
 compaction_interval: 10
 showrunner_min_gap: 4
-render_slack_seconds: 3.0
+buffer_seconds: 4.7
 stagnation_seconds: 90

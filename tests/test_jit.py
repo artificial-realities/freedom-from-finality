@@ -14,7 +14,6 @@ from __future__ import annotations
 import random
 import statistics
 
-from src.eval import runner
 from tests.jit_sim import Line, Spread, baseline_director, baseline_render, clip_length, simulate
 
 # Real-time seconds a measured margin may differ from the policy's arithmetic
@@ -62,12 +61,10 @@ async def test_the_live_schedule_holds_the_picture_under_adversarial_lines():
     for r in sim.of("director_end"):
         plans.setdefault(r["turn"], []).append(r)
 
-    # The buffer the policy is built to keep: a render fires the estimate
-    # times the safety factor, a margin and the slack before its clip is
-    # due, so the clip is queued the estimate's surplus plus both before air.
-    renders = [r["render_s"] for r in sim.of("render_done")]
-    buffer = ((runner.JIT_SAFETY - 1) * statistics.mean(renders) + runner.JIT_MARGIN_S
-              + sim.config.render_slack_seconds)
+    # The buffer the policy is built to keep (RUN-03): a render fires the
+    # estimate plus `buffer_seconds` before its clip is due, so the clip is
+    # queued about `buffer_seconds` before air.
+    buffer = sim.config.buffer_seconds
     first_line = min(r["t"] for r in received.values())
     steady = [turn for turn, r in emits.items()
               if r["clip"] > 1 and turn > 3 and fires[turn]["t"] < first_line and turn in margins]

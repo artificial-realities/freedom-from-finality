@@ -21,7 +21,7 @@ from src.web import WebPlayer
 
 def _config(**over) -> Config:
     base = dict(name="webtest", graph="director", llm_backend="mock", model="mock",
-                min_pause_seconds=6.0)
+                )
     base.update(over)
     return Config(**base)
 

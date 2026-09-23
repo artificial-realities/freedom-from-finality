@@ -166,7 +166,7 @@ async def test_reads_a_real_run_of_the_live_loop():
             await self._hold(item.duration)
 
     config = Config(name="benchtest", graph="director", llm_backend="mock", model="mock",
-                    min_pause_seconds=6.0, render_slack_seconds=0.0)
+                    buffer_seconds=0.0)
     with tempfile.TemporaryDirectory() as d:
         await run_live(config=config, story=Story.from_json("stories/lego-void"), log_dir=d,
                        player=Scripted(), max_segments=6)

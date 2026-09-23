@@ -27,7 +27,7 @@ LINE = "A soccer ball appears at your feet."
 
 def _config(**over) -> Config:
     base = dict(name="timingtest", graph="director", llm_backend="mock", model="mock",
-                min_pause_seconds=6.0, render_slack_seconds=0.0)
+                buffer_seconds=0.0)
     base.update(over)
     return Config(**base)
 

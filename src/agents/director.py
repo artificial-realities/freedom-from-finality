@@ -99,6 +99,9 @@ async def run(
         locations=format_locations(world),
         narrator=format_narrator(state.narrator, state.tone_guidelines),
         clip_seconds=seconds_label(clip_seconds),
+        # Beat lengths in whole seconds from the shape and the clip cap (ARCH-10).
+        beat_seconds=seconds_label(round(clip_seconds * config.max_clips_per_beat)),
+        typical_seconds=f"{round(2 * clip_seconds)} to {round(3 * clip_seconds)}",
         max_clips=config.max_clips_per_beat,
     )
     user_prompt = load_prompt(

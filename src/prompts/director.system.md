@@ -51,10 +51,10 @@ One JSON object. It is written while the film plays and its length is its delay,
 
 - `intent`: the beat in a few words ("he sleeps, undisturbed", "the ball rolls in and he notices it").
 - `framing`: shot size and angle for the whole beat, for example "medium shot, straight-on, eye level".
-- `clips`: one to {max_clips} clips of {clip_seconds} seconds each, in order. A beat lasts as long as its action or state naturally does; most beats are two or three clips. Each clip has:
+- `clips`: one to {max_clips} clips of {clip_seconds} seconds each, in order: a beat is {clip_seconds} to {beat_seconds} seconds of film. Let it last as long as its action or state naturally does: a quick reaction is one clip ({clip_seconds} seconds), most beats run {typical_seconds} seconds, a long held state may take all {beat_seconds}. Each clip has:
   - `action`: what the camera sees in these seconds, one or two short sentences. One movement or one held stillness per clip; a clip in which nothing changes is written as such ("He lies still, asleep. Nothing else happens."). This is also the prose the viewer reads.
   - `end_state`: the final image of the clip, one short sentence.
-  - `camera_motion`: "static" or a specific move.
+  - `camera_motion`: "static", or the move as a verb phrase without its subject: "slowly pushes in toward him", "pans left to follow the ball", "tilts up to the sky".
   - `ambient_sound`: a few words tied to visible or locatable sources, or empty.
   - `on_screen`: entity ids visible in the clip.
   - `dialogue`: lines spoken in this clip, each with `speaker` (entity id), `line` (in the speaker's language) and `delivery` (a few words on how it is said: "quiet, hoarse"). Only characters who can speak. Usually empty.
@@ -66,6 +66,14 @@ One JSON object. It is written while the film plays and its length is its delay,
 - `delivered_request`: when this beat delivers an earlier request listed under "Earlier requests still owed", that request's segment number; otherwise 0.
 - `scene_done`: true when the scene's exit condition has been met. Say so as soon as it is true.
 - `needs_replan`: true when the plan no longer fits what has happened.
+
+# Writing for the video model
+
+A video model renders each clip from your text, {clip_seconds} seconds at a time, and it does what is written, literally. So:
+
+- One plausible movement per clip, the kind a body or an object can really make in {clip_seconds} seconds; two at most, joined by "a moment later". Nothing the eye cannot follow: no spins, flips in place, or counts ("does a hundred push-ups").
+- No inner states without a visible cue. Do not write what someone thinks, wants or feels ("curiously", "wonders", "determined"); write what the camera sees that shows it (a head tilt, a pause, a step back).
+- About {clip_seconds} seconds of action per clip. The model neither stretches a short action to fill the clip nor rushes a long one: write as much as those seconds hold.
 
 # Discipline
 

@@ -12,6 +12,11 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 
+# What the pre-RUN-03 schedule kept on top of `render_slack_seconds`, at the
+# baseline's 4.8 s render: 0.25 x 4.8 s of safety surplus and a 0.5 s margin.
+LEGACY_SLACK_TO_BUFFER = 1.7
+
+
 class Config(BaseModel):
     name: str
     description: str = ""
@@ -27,13 +32,13 @@ class Config(BaseModel):
     live: bool = False
 
     video_enabled: bool = False
-    # Startup lead, in clips: the consumer waits for `lead_clips + 1` clips
-    # to be queued before playback starts, and the queue holds that many.
-    # Nothing else reads it: once the player has a clock the just-in-time
-    # schedule fires each render as late as it safely can and keeps its
-    # own steady-state buffer, so this does not change where a viewer's
+    # Startup only, in clips: the consumer waits for `startup_clips + 1`
+    # clips to be queued before playback starts, and the queue holds that
+    # many. Once the player has a clock the just-in-time schedule keeps
+    # `buffer_seconds` instead, so this does not change where a viewer's
     # line lands (two or three clips after it is typed, by arrival time).
-    lead_clips: int = 0
+    # Was `lead_clips` (RUN-03).
+    startup_clips: int = 0
     i2v_backend: str = "ltxv"
     # The clip length, as the run's one production clip shape
     # (`src.i2v.shape`): this many seconds on the 8k + 1 frame grid at the
@@ -121,12 +126,16 @@ class Config(BaseModel):
     # again next segment. At most one run is in flight at a time.
     showrunner_min_gap: int = 4
     stagnation_seconds: float = 90.0    # story seconds without structural change before pressure
-    # Just-in-time rendering: a clip's render starts this many seconds before
-    # the latest moment that would still have it ready on time (the render
-    # estimate times a safety factor plus a margin). More slack absorbs
-    # slower renders and Director calls; less slack lets a viewer's line
-    # reach the screen sooner, because the clip it changes is rendered later.
-    render_slack_seconds: float = 3.0
+    # The steady-state buffer the just-in-time schedule keeps (RUN-03): each
+    # render fires the render estimate plus this many seconds before its
+    # clip is due on air, so a clip is ready about this long before it
+    # plays. More absorbs slower renders and Director calls that answer a
+    # line late; less lets a line reach the screen sooner, because the clip
+    # it changes is rendered later. 4.7 s is what the schedule kept
+    # implicitly before it was named (a 1.25x render estimate, 0.5 s and
+    # 3.0 s of slack, at the baseline's 4.8 s render). Lowering it waits for
+    # X-09 (RUN-06).
+    buffer_seconds: float = 4.7
     extra: dict = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -139,6 +148,21 @@ class Config(BaseModel):
             legacy = data.pop("i2v_duration")
             if not data.get("clip_seconds"):
                 data["clip_seconds"] = legacy
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _startup_and_buffer(cls, data):
+        """Before RUN-03: `lead_clips` is `startup_clips`; `render_slack_seconds`
+        was added to 1.25x the render estimate and a 0.5 s margin, which at
+        the baseline's 4.8 s render is a buffer of the slack plus 1.7 s."""
+        if isinstance(data, dict) and ("lead_clips" in data or "render_slack_seconds" in data):
+            data = dict(data)
+            if "lead_clips" in data:
+                data.setdefault("startup_clips", data.pop("lead_clips"))
+            if "render_slack_seconds" in data:
+                slack = data.pop("render_slack_seconds")
+                data.setdefault("buffer_seconds", slack + LEGACY_SLACK_TO_BUFFER)
         return data
 
     @classmethod

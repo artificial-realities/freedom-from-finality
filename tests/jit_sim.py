@@ -5,7 +5,7 @@ replay backend, `scale` times faster than real time. The player holds
 each clip for its length over `scale`, and every delay the scheduler
 lives by is divided by it: the render and the Director call (drawn from
 `benchmarks/runtime/baseline.json`), the Showrunner, the config's
-`render_slack_seconds` and the runner's `JIT_MARGIN_S`. The timing log is
+`buffer_seconds` and the runner's `JIT_MARGIN_S`. The timing log is
 multiplied back afterwards, so what `scripts/bench_report.py` measures,
 and what a test asserts, is in real-time seconds.
 
@@ -308,7 +308,7 @@ async def simulate(
             "llm_backend": "mock", "model": "mock",
             "i2v_backend": "replay", "i2v_replay_dir": str(replay), "i2v_replay_delay": 0.0,
             "i2v_seed_image": story.seed_image,
-            "render_slack_seconds": real.render_slack_seconds / scale,
+            "buffer_seconds": real.buffer_seconds / scale,
         })
         with mock.patch.object(MockBackend, "generate_structured", timed_director), \
              mock.patch.object(MockBackend, "showrunner_delay", showrunner_s / scale), \

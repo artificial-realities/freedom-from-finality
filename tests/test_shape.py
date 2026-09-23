@@ -17,7 +17,7 @@ from src.models.story import Story
 
 
 def _config(**over) -> Config:
-    base = dict(name="shapetest", graph="director", llm_backend="mock", model="mock", render_slack_seconds=0.0)
+    base = dict(name="shapetest", graph="director", llm_backend="mock", model="mock", buffer_seconds=0.0)
     base.update(over)
     return Config(**base)
 
@@ -232,3 +232,54 @@ def test_the_server_warms_neutrally_and_reports_its_shapes():
     assert '"warm_frames": sorted(_warm_frames)' in source and "_warm_frames.add(" in source
     assert "prompt words" in source and "NOT WARMED" in source
     subprocess.run(["python", "-m", "py_compile", "server/ltx2_server.py"], check=True)
+
+
+def test_the_buffer_is_explicit_and_startup_is_startup():
+    """RUN-03: `lead_clips` is `startup_clips` (the startup gate and queue
+    size only) and the steady state is `buffer_seconds`; an old config maps
+    onto both (its slack plus what the old formula kept at the baseline's
+    render). The JIT simulation holds the schedule to the buffer
+    (`tests/test_jit.py`)."""
+    from src.models.config import LEGACY_SLACK_TO_BUFFER
+    assert "lead_clips" not in Config.model_fields and "render_slack_seconds" not in Config.model_fields
+    assert _config().startup_clips == 0 and Config(name="t", llm_backend="mock", model="m").buffer_seconds == 4.7
+    old = Config(name="t", llm_backend="mock", model="m", lead_clips=1, render_slack_seconds=3.0)
+    assert old.startup_clips == 1 and old.buffer_seconds == 3.0 + LEGACY_SLACK_TO_BUFFER == 4.7
+    live = Config.from_yaml("configs/director.live.yaml")
+    assert live.startup_clips == 1 and live.buffer_seconds == 4.7
+    for cfg in ("configs/director.yaml", "configs/director.live.yaml", "configs/director.replay.yaml"):
+        text = Path(cfg).read_text()
+        assert "lead_clips" not in text and "render_slack_seconds" not in text, cfg
+
+
+def test_the_director_is_told_lengths_in_seconds_and_how_the_renderer_reads():
+    """ARCH-10: the beat guidance is time from the shape and the four-clip
+    cap. LTX-04: three generic renderer rules and `camera_motion` as a verb
+    phrase, in the (cached) system prompt."""
+    from src.agents import director
+    from src.llm.mock_backend import MockBackend
+    from src.state.story_state import StoryState
+    from src.story.world import WorldModel
+    import asyncio
+    story = Story.from_json("stories/lego-void")
+    seen: list[str] = []
+
+    class Capture(MockBackend):
+        async def generate_structured(self, messages, schema, *a, **kw):
+            seen.append(messages[0]["content"])
+            return await super().generate_structured(messages, schema, *a, **kw)
+
+    state = StoryState.initialize(story, config_name="t")
+    state.turn_number = 1
+    for seconds in (6, 4):
+        shape = ClipShape.from_seconds(seconds)
+        asyncio.run(director.run(world=WorldModel.from_story(story), state=state, llm=Capture(), config=_config(),
+                                 voiceover_open=False, pacing_note="p", scene_note="s", beat_status="b",
+                                 clip_seconds=shape.delivered_seconds))
+    six, four = seen
+    assert "one to 4 clips of 6 seconds each, in order: a beat is 6 to 24 seconds of film" in six
+    assert "most beats run 12 to 18 seconds, a long held state may take all 24" in six
+    assert "clips of 4 seconds each" in four and "a beat is 4 to 16 seconds" in four, "from the shape, not a constant"
+    assert "One plausible movement per clip" in six and 'joined by "a moment later"' in six
+    assert "No inner states without a visible cue" in six and "About 6 seconds of action per clip" in six
+    assert '`camera_motion`: "static", or the move as a verb phrase without its subject' in six

@@ -35,10 +35,11 @@ from src.util.media import probe_duration
 from src.util.story_log import StoryLogger
 from src.util.timing_log import TimingLog, git_revision
 
-# Just-in-time rendering: the render and Director estimates are scaled by
-# JIT_SAFETY and JIT_MARGIN_S is kept in hand (plus the config's
-# render_slack_seconds), so a slower than usual call still has the clip
-# on air in time.
+# Just-in-time rendering: a render fires its estimate plus the config's
+# `buffer_seconds` before its clip is due on air, so the clip is ready that
+# long before it plays (RUN-03). The Director's estimate is scaled by
+# JIT_SAFETY and JIT_MARGIN_S is kept in hand, so a slower than usual call
+# still leaves the render its moment.
 JIT_SAFETY = 1.25
 JIT_MARGIN_S = 0.5
 
@@ -421,14 +422,14 @@ async def run_live(
 
     The producer emits one clip per segment from the Director's current
     beat and pushes each rendered clip onto a bounded queue (size =
-    `lead_clips + 1`). The consumer hands them to the player one at a
+    `startup_clips + 1`). The consumer hands them to the player one at a
     time; the player holds each for its duration, so the server is the
     clock. `max_segments` stops the producer after that many clips
     (tests, bounded demos); otherwise it runs until Ctrl+C.
 
     Just in time: once playback runs, a clip's render is fired as late as
     it safely can be (the render estimate times a safety factor, a
-    margin and `render_slack_seconds` before the clip is due on air), and
+    `buffer_seconds`, the steady-state buffer, before the clip is due on air), and
     the Director is asked for the next beat only when the current one has
     no clip left, as late as the render allows. Until then the producer
     listens for the viewer. A line cuts the beat in progress short (its
@@ -460,13 +461,13 @@ async def run_live(
     i2v = _maybe_i2v(config, log_dir, session_id)
     player = player or TerminalPlayer()
 
-    queue_size = max(1, config.lead_clips + 1)
+    queue_size = max(1, config.startup_clips + 1)
     session_dir = Path(log_dir) / "sessions" / session_id
     shapes = _shapes_for(config, i2v)
     timing = _start_timing(
         config, story, session_id, session_dir, loop="live", shapes=shapes,
-        lead_clips=config.lead_clips, queue_size=queue_size,
-        render_slack_seconds=config.render_slack_seconds, jit_safety=JIT_SAFETY,
+        startup_clips=config.startup_clips, queue_size=queue_size,
+        buffer_seconds=config.buffer_seconds, jit_safety=JIT_SAFETY,
         jit_margin=JIT_MARGIN_S, time_scale=player.time_scale,
     )
     _check_reference(i2v, seed_image_for(config, story), timing)
@@ -476,9 +477,9 @@ async def run_live(
         session_dir=session_dir, timing=timing, shapes=shapes,
     )
     mode = "video" if i2v is not None else "text (no video backend)"
-    if config.lead_clips > 0:
+    if config.startup_clips > 0:
         print(f"Live, {mode}: pre-buffering {queue_size} segments before playback "
-              f"(lead_clips={config.lead_clips}). Ctrl+C to quit.", flush=True)
+              f"(startup_clips={config.startup_clips}). Ctrl+C to quit.", flush=True)
     else:
         print(f"Live, {mode}: playback starts as soon as the first segment is ready. "
               "Ctrl+C to quit.", flush=True)
@@ -688,7 +689,7 @@ async def run_live(
                 need = _needed_at()
                 if need is None:
                     break  # building the lead: as fast as possible
-                fire_at = need - (est["render"] or 0.0) * JIT_SAFETY - JIT_MARGIN_S - config.render_slack_seconds
+                fire_at = need - (est["render"] or 0.0) - config.buffer_seconds
                 if graph.has_next_clip():
                     wait_until = fire_at
                     player.status(f"listening for your input before segment {turn}")
@@ -794,9 +795,9 @@ async def run_live(
     async def consumer() -> None:
         gate = queue_size
         try:
-            # Lead gate: wait until `lead_clips + 1` items are queued (or the
-            # producer is already done). At lead=0 this is just "wait for
-            # the first segment."
+            # Startup gate: wait until `startup_clips + 1` items are queued (or
+            # the producer is already done). At 0 this is just "wait for the
+            # first segment."
             while queue.qsize() < gate and not stop_event.is_set() and not producer_done.is_set():
                 try:
                     await asyncio.wait_for(lead_ready.wait(), 0.25)
@@ -804,7 +805,7 @@ async def run_live(
                     pass
             if stop_event.is_set():
                 return
-            if config.lead_clips > 0:
+            if config.startup_clips > 0:
                 print(f"Lead ready ({queue.qsize()} segments). Starting playback.", flush=True)
 
             while not stop_event.is_set():
