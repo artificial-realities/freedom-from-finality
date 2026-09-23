@@ -20,6 +20,12 @@ Opening direction from the blueprint: {short_term_narrative}
 
 {cast}
 
+# Cast and perspective rules of this story
+
+{cast_rules}
+
+Deciding when a supporting character enters is yours: when the story reaches the condition the cast sheet gives, or when an entrance would serve the scene, put it on the card (its goal or a candidate beat) and the Director stages it. A character the cast sheet says must appear has to enter at some point. When the story allows new characters, you may plan one on the card in the same way, within the story's guidance.
+
 # Locations
 
 {locations}

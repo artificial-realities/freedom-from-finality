@@ -11,7 +11,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from src.models.responses import Beat, Commentary, Shot
-from src.models.story import Character, Location, Narrator, Story
+from src.models.story import CastPolicy, Character, Location, Narrator, Perspective, Story
 
 
 class HistoryEntry(BaseModel):
@@ -77,7 +77,9 @@ class StoryState(BaseModel):
     world_constraints: list[str] = Field(default_factory=list)
     narrative_premise: str = ""
     thread_guidance: str = ""
-    cast_locked: bool = False
+    protagonist: str = ""
+    cast_policy: CastPolicy = Field(default_factory=CastPolicy)
+    perspective: Perspective = Field(default_factory=Perspective)
 
     def get_recent_history(self, count: int = 5) -> list[HistoryEntry]:
         if count <= 0:
@@ -99,7 +101,9 @@ class StoryState(BaseModel):
             world_constraints=list(story.world_constraints),
             narrative_premise=story.narrative_premise,
             thread_guidance=story.thread_guidance,
-            cast_locked=story.cast_locked,
+            protagonist=story.protagonist,
+            cast_policy=story.cast_policy,
+            perspective=story.perspective,
             long_term_narrative=story.long_term_narrative,
             short_term_narrative=story.short_term_narrative,
             config_name=config_name,

@@ -19,6 +19,7 @@ from src.models.config import Config
 from src.state.story_state import StoryState
 from src.story.context import (
     format_cast,
+    format_cast_rules,
     format_events,
     format_interventions_all,
     format_locations,
@@ -79,6 +80,7 @@ async def run(
         short_term_narrative=state.short_term_narrative or "(none)",
         world_constraints=format_rules(state.world_constraints),
         cast=format_cast(world),
+        cast_rules=format_cast_rules(world),
         locations=format_locations(world),
         thread_guidance=state.thread_guidance.strip() or "(none given: judge each thread by the story)",
     )

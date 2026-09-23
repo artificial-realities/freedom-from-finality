@@ -45,9 +45,22 @@ def format_narrator(narrator: Narrator, tone_guidelines: str = "") -> str:
 
 
 def format_cast(world: WorldModel) -> str:
+    """The blueprint's cast sheet (system prompts: it never changes during a
+    run, so characters the film introduces are listed in World now)."""
     lines = []
     for ent in world.by_kind("character"):
+        if ent.dynamic:
+            continue
         bits = [f"- `{ent.id}`: {ent.name}. {ent.description}".rstrip()]
+        if ent.role:
+            bits.append(f"  Role: {ent.role}.")
+        if ent.personality:
+            bits.append(f"  Personality: {ent.personality}")
+        if ent.invariants:
+            bits.append("  Never changes: " + "; ".join(ent.invariants) + ".")
+        if ent.appears:
+            when = f", when {ent.appears_when.rstrip('.')}" if ent.appears_when else ""
+            bits.append(f"  Not in the film at the start; {ent.appears} appear{when}.")
         if ent.look:
             bits.append(f"  Look (verbatim for shots): {ent.look}")
         if ent.reference_pose:
@@ -62,6 +75,38 @@ def format_cast(world: WorldModel) -> str:
                 bits.append(f"  Voice: {said}.")
         lines.append("\n".join(bits))
     return "\n".join(lines) if lines else "(none)"
+
+
+def format_cast_rules(world: WorldModel) -> str:
+    """The story's cast and perspective policy (ARCH-19), for both system
+    prompts: the protagonist's continuity, whether new characters may be
+    introduced and how, and how the film is shot."""
+    out: list[str] = []
+    hero = world.entities.get(world.protagonist)
+    if hero is not None:
+        out.append(f"- Protagonist: `{hero.id}` ({hero.name}). Always the same character: never removed from the "
+                   "story, never appearing twice, its look and anything under \"Never changes\" held in every clip.")
+    supporting = [e for e in world.by_kind("character") if e.appears]
+    if supporting:
+        out.append("- Supporting characters enter when the story calls for them (see the cast): the Showrunner "
+                   "decides when an entrance serves the story, the Director stages it by bringing the character "
+                   "in with its id (`update`, `present: true`).")
+    policy = world.cast_policy
+    if policy.dynamic_characters:
+        guide = " ".join(policy.dynamic_guidance.split()) or "Invent them freely within the rules of the world."
+        out.append(f"- New characters beyond the cast are allowed. {guide} Introduce one with `introduce`, kind "
+                   "`character`, a `description` of how it looks, its `role`, `speaks`, and a `voice` if it speaks; "
+                   "it is then registered and must look and sound the same in every later clip.")
+    else:
+        out.append("- No characters beyond the cast: anything else that appears is a prop.")
+    persp = world.perspective
+    if persp.allowed:
+        rule = f" {' '.join(persp.switching.split())}" if persp.switching.strip() else ""
+        out.append(f"- Perspective: the film is shot {persp.default}. A beat may switch to "
+                   f"{' or '.join(persp.allowed)}; set `perspective` on that beat, otherwise leave it empty.{rule}")
+    else:
+        out.append(f"- Perspective: the film is shot {persp.default}, always. Leave `perspective` empty.")
+    return "\n".join(out)
 
 
 def format_locations(world: WorldModel) -> str:
@@ -122,6 +167,13 @@ def format_world_now(world: WorldModel) -> str:
                 now = ent.now() or "(not recorded yet: describe it in your first op)"
                 held = ", ".join(p.name for p in world.held_props(ent.id))
                 line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATUS_CHARS)}"
+                if ent.dynamic:
+                    # Not on the cast sheet (it came into the film at segment
+                    # `first_seen`): who it is and whether it speaks.
+                    voice = f", voice: {ent.voice.description}" if ent.voice and ent.voice.description else ""
+                    line += (f" · introduced at segment {ent.first_seen}"
+                             + (f" · role: {ent.role}" if ent.role else "")
+                             + (f" · speaks{voice}" if ent.speaks else " · never speaks"))
                 if held:
                     line += f" · holding: {held}"
                 if ent.location:
@@ -145,7 +197,8 @@ def format_world_now(world: WorldModel) -> str:
     away = [e for e in world.by_kind("character") if not e.present and not e.gone]
     if away:
         out.append("Characters not in the scene: " + "; ".join(
-            f"`{e.id}`" + (f" ({e.now()})" if e.now() else "") for e in away))
+            f"`{e.id}`" + (" (not yet in the film)" if not e.first_seen and not e.last_seen and e.appears
+                           else f" ({e.now()})" if e.now() else "") for e in away))
     dormant = world.dormant_props()
     if dormant:
         out.append(

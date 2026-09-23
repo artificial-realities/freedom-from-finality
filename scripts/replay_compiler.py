@@ -200,8 +200,7 @@ def replay(data: dict, *, compiler, config: Config, story: Story) -> list[dict]:
     """The compiled prompt of every emitted clip, in order, from the
     blueprint world forward. A clip whose beat has no plan, or that lies
     beyond its plan, gets a note and no prompt."""
-    world = WorldModel.from_blueprint(title=story.title, characters=story.characters,
-                                      locations=story.locations, cast_locked=story.cast_locked)
+    world = WorldModel.from_story(story)
     plans: dict[int, BeatPlan | None] = {}
     rows: list[dict] = []
     for clip in data["clips"]:

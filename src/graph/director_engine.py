@@ -403,12 +403,7 @@ class DirectorEngine:
         """A fresh world from the blueprint. Resume is not built: every run
         creates its own session directory, and the `world.json` written
         there is for inspection (and `events.jsonl` for replay)."""
-        return WorldModel.from_blueprint(
-            title=state.title,
-            characters=state.characters,
-            locations=state.locations,
-            cast_locked=state.cast_locked,
-        )
+        return WorldModel.from_story(state)
 
     def _save(self) -> None:
         if self.world is not None and self.session_dir is not None:

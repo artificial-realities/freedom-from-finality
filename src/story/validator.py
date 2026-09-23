@@ -3,8 +3,10 @@
 Plan → Diff → Validate → Apply. The LLM proposes, this module decides
 what is structurally admissible, applies the admissible part, and
 reports the rest so the caller can re-ask once and log the remainder.
-Hard violations (unknown entities, a locked cast, a mute character
-speaking) are the ones worth a retry; warnings are fixed up silently.
+Hard violations (unknown entities, a character the story's cast policy
+does not allow, the protagonist removed or doubled, a perspective the
+story does not permit, a mute character speaking) are the ones worth a
+retry; warnings are fixed up silently.
 
 `check` looks at the whole beat before any of it plays. `apply_clip`
 applies one clip when it is emitted, so a beat the viewer cuts short
@@ -16,6 +18,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from src.models.story import Voice
 from src.story.schemas import BeatPlan, EntityOp, ShowrunnerUpdate
 from src.story.world import MAX_NOTES, Entity, SceneCard, Summary, Thread, WorldModel, slugify
 
@@ -50,19 +53,45 @@ def resolve_location(world: WorldModel, ref: str):
     return None
 
 
+def _doubles_protagonist(name: str, world: WorldModel) -> bool:
+    """A new character whose name contains the protagonist's ("Lego Man 2",
+    "another Mara"): a second copy of the one identity that must stay single."""
+    hero = world.entities.get(world.protagonist)
+    return hero is not None and slugify(hero.name) in slugify(name)
+
+
 def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, where: str) -> None:
     existing = world.resolve(op.entity)
     if op.op == "introduce":
         if existing is not None:
             r.warnings.append(f"{where}: '{op.entity}' already exists as {existing.id}; treated as update")
-        elif op.kind == "character" and world.cast_locked:
-            r.violations.append(
-                f"{where}: cannot introduce character '{op.entity}': the cast of this world "
-                "is locked and no new characters may appear (creatures and objects are props)",
-            )
-            return
+        elif op.kind == "character":
+            cast = ", ".join(f"`{e.id}`" for e in world.by_kind("character"))
+            if not world.cast_policy.dynamic_characters:
+                r.violations.append(
+                    f"{where}: cannot introduce character '{op.entity}': this story allows no characters "
+                    f"beyond its cast ({cast}); bring one of them in, or make it a prop",
+                )
+                return
+            if _doubles_protagonist(op.entity, world):
+                r.violations.append(
+                    f"{where}: cannot introduce '{op.entity}': the protagonist is one character and "
+                    "never appears twice",
+                )
+                return
+            if not op.description.strip():
+                r.violations.append(
+                    f"{where}: new character '{op.entity}' needs a `description` of how it looks, "
+                    "so it stays the same character in every later clip",
+                )
+                return
+            if op.speaks and not op.voice.strip():
+                r.warnings.append(f"{where}: new character '{op.entity}' speaks but has no `voice`")
+            introduced.add(slugify(op.entity))
         else:
             introduced.add(slugify(op.entity))
+    elif op.op == "remove" and existing is not None and existing.id == world.protagonist:
+        r.violations.append(f"{where}: the protagonist `{existing.id}` cannot be removed from the story")
     elif existing is None and slugify(op.entity) not in introduced:
         r.violations.append(
             f"{where}: {op.op} of unknown entity '{op.entity}'; use an id from "
@@ -109,11 +138,34 @@ def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
     if beat.delivered_request and not _owed_item(world, beat.delivered_request):
         r.warnings.append(f"delivered_request {beat.delivered_request} names no deferred request; ignored")
 
+    if not world.perspective.permits(beat.perspective):
+        allowed = ", ".join([world.perspective.default, *world.perspective.allowed])
+        r.violations.append(
+            f"perspective '{beat.perspective}' is not one this story allows ({allowed}); "
+            "leave `perspective` empty for the default",
+        )
+
     open_ids = {t.id for t in world.open_threads()}
     for top in beat.thread_ops:
         if top.op != "open" and top.thread not in open_ids:
             r.warnings.append(f"thread op '{top.op}' on unknown or closed thread '{top.thread}' ignored")
     return r
+
+
+SHORT_LOOK_WORDS = 14
+
+
+def _short_look(look: str) -> str:
+    """A character introduced by the film gets its look cut to its first
+    clause (at most SHORT_LOOK_WORDS words) as the short look later clips
+    carry, so its identity is restated on every clip it is in."""
+    text = " ".join(look.split()).rstrip(".")
+    for stop in ("; ", ". "):
+        cut = text.find(stop)
+        if cut > 0:
+            text = text[:cut]
+    words = text.split()
+    return " ".join(words[:SHORT_LOOK_WORDS])
 
 
 def _owed_item(world: WorldModel, segment: int):
@@ -139,8 +191,9 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     for op in clip.entity_ops:
         ent = world.resolve(op.entity)
         if op.op == "introduce" and ent is None:
-            if op.kind == "character" and world.cast_locked:
-                continue
+            if op.kind == "character" and (world.cast_locked or not op.description.strip()
+                                           or _doubles_protagonist(op.entity, world)):
+                continue    # reported as a violation by check()
             eid = world._unique_id(slugify(op.entity))
             name = op.entity.strip()
             if "_" in name and " " not in name:
@@ -151,6 +204,15 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 look=op.description.strip() if op.kind != "location" else "",
                 first_seen=seg,
             )
+            if ent.kind == "character":
+                # Registered once, with what keeps it the same character:
+                # its look (and a short form for later clips), role, voice,
+                # whether it speaks, and its state from this op.
+                ent.dynamic = True
+                ent.look_short = _short_look(ent.look)
+                ent.role = " ".join(op.role.split())
+                ent.speaks = bool(op.speaks)
+                ent.voice = Voice(description=" ".join(op.voice.split())) if op.voice.strip() else None
             if ent.kind == "prop":
                 here = world.current_location()
                 ent.location = here.id if here else ""
@@ -164,6 +226,8 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             continue  # reported as a violation by check()
 
         if op.op == "remove":
+            if ent.id == world.protagonist:
+                continue    # reported as a violation by check()
             if not ent.gone:
                 ent.gone = True
                 ent.present = False

@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_012 (AUD-06, LTX-05, AUD-04), 2026-09-23
+- **Latest completed batch:** BATCH_013 (ARCH-19), 2026-09-23
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -36,7 +36,7 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-16 | APPROVED | 1 | IN_PROGRESS | none | BATCH_010 | `test_threads_show_their_age`, `test_the_showrunner_reads_the_story_thread_guidance` | Thread age in `format_threads`; continue/resolve/abandon in `rationale`; optional `Story.thread_guidance`. Remaining: the row's transcript review. |
 | ARCH-17 | APPROVED | 1 | COMPLETED | none | BATCH_010 | `test_notes_are_kept_only_when_they_add_something` (session A's restated bootstrap note rejected) | Characters only; restated or summarised notes not kept; `MAX_NOTES = 4`, oldest out. |
 | ARCH-18 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; `format_summaries` pins `scenes[0]` (BATCH_008 claim table) | `ARCHITECTURE.md`: the 2.8K cached system prompt is not cut for latency; the opening pin is the first compaction window; reductions wait for X-07/X-08/X-17. |
-| ARCH-19 | APPROVED | 1 | NOT_STARTED | LTX-05 for voice fields | — | — | Large blueprint/world/validator change; LTX-05 first for voice fields. Full validation includes X-26 (post-implementation). |
+| ARCH-19 | APPROVED | 1 | COMPLETED | LTX-05 for voice fields | BATCH_013 | `tests/test_cast_policy.py` (5, on `tests/fixtures/lighthouse`); session A's 64 prompts unchanged (`logs/batch-013/`); suite 91/91 | Protagonist, supporting (must/should/may + condition), dynamic policy + guidance, perspective (default, allowed, switching); `EntityOp.role/speaks/voice`, `BeatPlan.perspective`; Lego protagonist-only. X-26 (post-implementation) pending. |
 | LTX-01 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-01, LTX-02, RUN-13 (replay harness) | — | — | Gated by X-05 (GPU). Permitted prep: comparison compiler behind an off-by-default flag, after RUN-01 (RUN-13's replay harness is done: BATCH_005). Dependency cycle with LTX-02 in the record (each lists the other); X-06 runs on the prose compiler, so the LTX-01 arm comes first. |
 | LTX-02 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-01 | — | — | Gated by X-06 (GPU). Candidate blueprint forms prepared only after the LTX-01 arm exists (see LTX-01 note). |
 | LTX-03 | APPROVED | 0* | COMPLETED | CLEAN-08 if the old compiler remains active | BATCH_007 | `tests/test_story.py::test_compiler_describes_entering_and_returning_entities` (a prop introduced off screen gets its look on first appearance; a returning dormant prop gets its identifiers; a returning character the full look); suite 64/64; session A replayed: the entering sentence appears on segments 35, 49 and 53 only (`logs/batch-007/session-a-summary.txt`) | Entering entities (introduced this segment, listed or not; or on screen and not in the previous clip's picture, read from the event log) are described before the action and never listed as present; the replay harness records events like the engine. Unmeasured on a GPU; the LTX-01 arm inherits the rule. |
@@ -138,9 +138,11 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_010 | 2026-09-23 | ARCH-01, ARCH-02, ARCH-03, ARCH-05, ARCH-16, ARCH-17 | COMPLETED (ARCH-01/16 await a transcript review) | `implementation_batches/BATCH_010.md` |
 | BATCH_011 | 2026-09-23 | ARCH-06, ARCH-07, ARCH-11 | COMPLETED (ARCH-11 awaits its latency reading) | `implementation_batches/BATCH_011.md` |
 | BATCH_012 | 2026-09-23 | AUD-06, LTX-05, AUD-04 (+ CLEAN-06's narrator half) | COMPLETED | `implementation_batches/BATCH_012.md` |
+| BATCH_013 | 2026-09-23 | ARCH-19 | COMPLETED | `implementation_batches/BATCH_013.md` |
 
 ## Reconciliation notes
 
+- 2026-09-23 (BATCH_013 close): BATCH_012 committed as `31b9ac0`. ARCH-19 `COMPLETED` on its schema/validator tests; X-26 is post-implementation. Phase 1's code is done except RUN-07 (drain before emit, planned with RUN-09); ARCH-01/ARCH-16/ARCH-11 await a real-Director run. `tests/fixtures/lighthouse` is the synthetic story for X-26 and X-29.
 - 2026-09-23 (BATCH_012 close): BATCH_011 committed as `f82edcf`. AUD-04, AUD-06 and LTX-05 `COMPLETED`; CLEAN-06 `IN_PROGRESS` (narrator half done, duration half waits for RUN-01). Suite 86/86. ARCH-19's dependency (LTX-05) is done; AUD-07's AUD-06/LTX-05 prerequisites are done (RUN-01 remains).
 - 2026-09-23 (BATCH_011 close): BATCH_010 committed as `5b0f0b2`. ARCH-06 and ARCH-07 `COMPLETED`; ARCH-11 implemented. Suite 80/80. X-09's prerequisite ARCH-06 is done.
 - 2026-09-23 (BATCH_010 close): BATCH_009 committed as `571a58a`. ARCH-02/03/05/17 `COMPLETED`; ARCH-01 and ARCH-16 implemented, `IN_PROGRESS` until a transcript with the real Director and scripted lines is reviewed. Suite 77/77. ARCH-08 and ARCH-09 now have ARCH-03 (and ARCH-02) in place; X-07/X-08 still need their harness.

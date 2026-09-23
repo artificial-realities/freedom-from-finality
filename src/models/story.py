@@ -8,7 +8,9 @@ for the per-field audience table.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+from typing import Literal
 
 from PIL import Image
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -52,6 +54,38 @@ class Narrator(BaseModel):
         return Voice.coerce(value) or Voice()
 
 
+def perspective_key(text: str) -> str:
+    """A perspective as the policy compares it: "First person" → "first-person"."""
+    return re.sub(r"[^a-z]+", "-", text.strip().lower()).strip("-")
+
+
+class CastPolicy(BaseModel):
+    """Who may appear besides the blueprint's cast (ARCH-19). A story that
+    allows no new characters keeps its cast as written (objects and
+    creatures can still be props); one that allows them says what they
+    should be like, or leaves it to the film ("" = decide within the
+    rules of the world)."""
+
+    dynamic_characters: bool = False
+    dynamic_guidance: str = ""
+
+
+class Perspective(BaseModel):
+    """How the film is shot (ARCH-19): its default perspective
+    ("third-person", "first-person", "observer", …), the perspectives a
+    beat may switch to, and when a switch is right. The Director declares
+    a switch in `BeatPlan.perspective`; the validator refuses one the story
+    does not allow."""
+
+    default: str = "third-person"
+    allowed: list[str] = Field(default_factory=list)
+    switching: str = ""
+
+    def permits(self, perspective: str) -> bool:
+        key = perspective_key(perspective)
+        return not key or key in {perspective_key(p) for p in [self.default, *self.allowed]}
+
+
 class Location(BaseModel):
     name: str
     description: str
@@ -65,6 +99,19 @@ class Character(BaseModel):
     speaks: bool = True         # False → dialogue from this character is rejected
     voice: Voice | None = None  # how the character sounds when it speaks (LTX-05)
     reference_pose: str = ""    # what the story's seed image shows (pose, framing); the first clip starts from it
+    # ARCH-19: who the character is in the story and what must never drift.
+    role: str = ""              # "protagonist", "the keeper's nephew", …
+    personality: str = ""
+    invariants: list[str] = Field(default_factory=list)   # characteristics that must not change over the film
+    # The starting state (the protagonist's is where the first clip starts).
+    posture: str = ""
+    activity: str = ""
+    position: str = ""
+    # Supporting characters: whether and when they enter the film. The
+    # Showrunner decides when an entrance serves the story; the Director
+    # stages it. Ignored for the protagonist, who is in the film from the start.
+    appears: Literal["must", "should", "may"] = "may"
+    appears_when: str = ""      # the narrative condition, "" = whenever it serves the story
 
     @field_validator("voice", mode="before")
     @classmethod
@@ -87,15 +134,27 @@ class Story(BaseModel):
     short_term_narrative: str = ""
     thread_guidance: str = ""   # optional: how long setups, promises and gags should run in this story (the Showrunner's)
     seed_image: str = ""        # reference image for the video model, resolved relative to the story dir
-    cast_locked: bool = False   # True → no new characters may be introduced (props are fine)
+    protagonist: str = ""       # the protagonist's name; "" = the first character
+    cast_policy: CastPolicy | None = None   # absent → from `cast_locked` (a blueprint from before ARCH-19)
+    perspective: Perspective = Field(default_factory=Perspective)
+    cast_locked: bool = False   # before ARCH-19: True = no new characters; read into `cast_policy`
 
     @model_validator(mode="after")
-    def _narrator(self) -> "Story":
+    def _defaults(self) -> "Story":
         if self.narrator is None:
             # A blueprint from before AUD-06: its tone guidelines were the
             # voice-over register, and a story without them had no narrator.
             self.narrator = Narrator(enabled=bool(self.tone_guidelines.strip()), tone=self.tone_guidelines)
+        if self.cast_policy is None:
+            self.cast_policy = CastPolicy(dynamic_characters=not self.cast_locked)
+        if self.protagonist and not any(c.name == self.protagonist for c in self.characters):
+            raise ValueError(f"protagonist {self.protagonist!r} is not one of the characters")
         return self
+
+    def protagonist_character(self) -> Character | None:
+        """The protagonist: the character named `protagonist`, or the first."""
+        return next((c for c in self.characters if c.name == self.protagonist), None) or (
+            self.characters[0] if self.characters else None)
 
     @classmethod
     def from_json(cls, path: Path | str) -> "Story":
@@ -128,8 +187,9 @@ class Story(BaseModel):
                 img.verify()
         except Exception as exc:
             raise ValueError(f"{self.title}: seed_image {image} does not decode as an image ({exc})") from exc
-        if not self.characters or not self.characters[0].reference_pose.strip():
+        hero = self.protagonist_character()
+        if hero is None or not hero.reference_pose.strip():
             raise ValueError(
-                f"{self.title}: the protagonist (the first character) needs a `reference_pose` "
+                f"{self.title}: the protagonist needs a `reference_pose` "
                 "describing what the seed image shows; the first clip starts from it"
             )

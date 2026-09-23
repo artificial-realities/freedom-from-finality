@@ -57,8 +57,9 @@ def _thread_open(messages: list[dict], tid: str) -> bool:
 
 
 def _op(op: str, entity: str, **over) -> dict:
-    base = {"op": op, "entity": entity, "kind": "prop", "description": "", "status": "", "location": "",
-            "holder": "", "present": None, "posture": "", "activity": "", "position": ""}
+    base = {"op": op, "entity": entity, "kind": "prop", "description": "", "role": "", "speaks": None,
+            "voice": "", "status": "", "location": "", "holder": "", "present": None, "posture": "",
+            "activity": "", "position": ""}
     base.update(over)
     return base
 
@@ -112,6 +113,7 @@ class MockBackend(LLMBackend):
             "thread_ops": [],
             "intervention": "none",
             "intervention_reason": "",
+            "perspective": "",
             "delivered_request": 0,
             "scene_done": False,
             "needs_replan": False,

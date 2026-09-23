@@ -53,8 +53,7 @@ def test_engine_starts_a_fresh_world_even_if_the_session_dir_has_one():
     from src.story.validator import apply_clip
     story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d:
-        old = WorldModel.from_blueprint(title=story.title, characters=story.characters,
-                                        locations=story.locations, cast_locked=story.cast_locked)
+        old = WorldModel.from_story(story)
         from src.story.schemas import BeatPlan, ClipSpec
         beat = BeatPlan(intent="a hat", framing="wide", clips=[ClipSpec(
             action="A hat.", end_state="hat", on_screen=["lego_man"],

@@ -24,10 +24,7 @@ def _config(**over) -> Config:
 
 def _world() -> WorldModel:
     story = Story.from_json("stories/lego-void")
-    return WorldModel.from_blueprint(
-        title=story.title, characters=story.characters, locations=story.locations,
-        cast_locked=story.cast_locked,
-    )
+    return WorldModel.from_story(story)
 
 
 def _clip(**over) -> ClipSpec:
@@ -122,7 +119,7 @@ def test_validator_cast_lock_and_mute_dialogue():
         dialogue=[DialogueLine(speaker="lego_man", line="Hi")],
     )])
     r = check(beat, w)
-    assert any("cast" in v and "locked" in v for v in r.violations)
+    assert any("allows no characters beyond its cast" in v for v in r.violations)
     assert any("never speaks" in v for v in r.violations)
     _apply(beat, w, 1)
     assert "lego_woman" not in w.entities, "locked cast: the character is never created"
@@ -318,8 +315,7 @@ def test_blueprint_has_no_reference_image_field():
         story = Story.from_json(d)
     assert story.characters[0].reference_pose.startswith("standing upright")
     assert story.seed_image == str(Path(d) / "legoman.png"), "the seed image resolves against the story folder"
-    w = WorldModel.from_blueprint(title=story.title, characters=story.characters, locations=story.locations,
-                                  cast_locked=story.cast_locked)
+    w = WorldModel.from_story(story)
     assert w.entities["lego_man"].reference_pose == story.characters[0].reference_pose
 
 
