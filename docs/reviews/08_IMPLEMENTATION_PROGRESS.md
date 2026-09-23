@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_002 (RUN-13 part a), 2026-09-22
+- **Latest completed batch:** BATCH_003 (RUN-13 part b), 2026-09-22
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -64,7 +64,7 @@ The execution state of every decision in the final decision record. The record i
 | RUN-10 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-01 | — | — | Gated by X-11 (GPU); RUN-01 first. |
 | RUN-11 | APPROVED | 1 | NOT_STARTED | none | — | — | Static checks + fallback now; the 16:9 asset swap stays gated by X-12 (GPU). |
 | RUN-12 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-02, LTX-12 | — | — | Built only if X-02 leaves a swap gate unmet. |
-| RUN-13 | APPROVED | 0 | IN_PROGRESS | RUN-05 | BATCH_002 | Part a: `python -m tests.run` 42/42 (10 new in `tests/test_bench.py`); `bench_report` on the BATCH_001 logs (`logs/batch-002/bench-*.txt`): the real headless run fails `stalls` and `min_queue_margin_s` as expected | Done (part a): `benchmarks/runtime/baseline.json`, `scripts/bench_report.py`, README table, CLAUDE.md pointer. Remaining: b = offline JIT simulation test; c = `seam_check.py`, `audio_check.py`; d = compiler replay harness, `latency_probe --warm 30` with +3 % tolerance. |
+| RUN-13 | APPROVED | 0 | IN_PROGRESS | RUN-05 | BATCH_002, BATCH_003 | Part a: `python -m tests.run` 42/42 (10 new in `tests/test_bench.py`); `bench_report` on the BATCH_001 logs (`logs/batch-002/bench-*.txt`): the real headless run fails `stalls` and `min_queue_margin_s` as expected. Part b: `python -m tests.run` 45/45 (3 new in `tests/test_jit.py`); `test_jit` 5/5 repeat runs and under full CPU load; five scheduler mutations of `runner.py` all caught (`logs/batch-003/mutations.txt`) | Done: a = `benchmarks/runtime/baseline.json`, `scripts/bench_report.py`, README table, CLAUDE.md pointer; b = `tests/jit_sim.py` + `tests/test_jit.py` (live config at 25×, baseline draws, adversarial lines, zero stalls; the ≥ 1 s margin gate is not met under a line 0.3 s before a fire, by design of the current policy: X-09/RUN-06). Remaining: c = `seam_check.py`, `audio_check.py`; d = compiler replay harness, `latency_probe --warm 30` with +3 % tolerance. |
 | AUD-01 | APPROVED | — | NOT_STARTED | none | — | — | Approved direction with no direct code scope; realised through AUD-04/05/06/07. Validation needs X-01 (listeners) and X-15/X-29 (GPU). |
 | AUD-02 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-12, RUN-01, AUD-03 | — | — | One design with LTX-12/AUD-03; gated by X-02. |
 | AUD-03 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-12, AUD-02 | — | — | One design with LTX-12/AUD-02; value from X-13 (local), rollout with X-02. |
@@ -100,7 +100,7 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | X-06 | blocking | LTX-02 text; LTX-14 | X-05 arm; LTX-02 candidate forms | GPU (~45 min), session 1 | NOT_STARTED | 0 | — |
 | X-07 | blocking | ARCH-08 | ARCH-03; RUN-05; `scripts/steer.py` | OpenAI calls only | NOT_STARTED | 0 | — |
 | X-08 | blocking | ARCH-09 | ARCH-02, ARCH-03; RUN-05 | OpenAI calls only | NOT_STARTED | 0 | — |
-| X-09 | blocking | RUN-06 | RUN-05, RUN-13 (JIT simulation), ARCH-06 | local | NOT_STARTED | 0 | — |
+| X-09 | blocking | RUN-06 | RUN-05 (done), RUN-13 JIT simulation (done: `tests/jit_sim.py`), ARCH-06 | local | NOT_STARTED | 0 | — |
 | X-10 | blocking (long-film trust) | RUN-04 for long films | phases 0-5 | GPU (~40 min), session 2 | NOT_STARTED | 0 | — |
 | X-11 | blocking | RUN-10 flag default | RUN-01; RUN-10 behind a flag | GPU (~20 min), session 2 | NOT_STARTED | 0 | — |
 | X-12 | blocking | RUN-11 asset swap | RUN-11 static checks; a 16:9 master | GPU (~10 min), session 2 | NOT_STARTED | 0 | — |
@@ -127,10 +127,13 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | Batch | Date | Decision IDs | Outcome | Report |
 |---|---|---|---|---|
 | BATCH_001 | 2026-09-22 | RUN-05 | COMPLETED (commit `b5e6d3d`) | `implementation_batches/BATCH_001.md` |
-| BATCH_002 | 2026-09-22 | RUN-13 (part a) | COMPLETED (row stays IN_PROGRESS) | `implementation_batches/BATCH_002.md` |
+| BATCH_002 | 2026-09-22 | RUN-13 (part a) | COMPLETED (row stays IN_PROGRESS; commit `e77c787`) | `implementation_batches/BATCH_002.md` |
+| BATCH_003 | 2026-09-22 | RUN-13 (part b) | COMPLETED (row stays IN_PROGRESS) | `implementation_batches/BATCH_003.md` |
 
 ## Reconciliation notes
 
+- 2026-09-22 (BATCH_003 close): RUN-13 part b validated; the row stays `IN_PROGRESS` for parts c and d. The JIT simulation (the X-09 prerequisite) exists; X-09 still waits for ARCH-06. Recorded for RUN-06/X-09: under the current policy a line 0.3 s before a fire, answered by a ~4 s Director call, leaves ~1.0 s of queue margin (the RUN-04 gate's floor).
+- 2026-09-22 (session 3 start): record SHA-256 unchanged; `python -m tests.run` 42/42. The owner committed BATCH_002 as `e77c787` (with the ledger and BATCH_001 report updates); recorded here and in the Batches table. BATCH_003 selected: RUN-13 part b, as BATCH_002 recommended.
 - 2026-09-22 (BATCH_002 close): RUN-13 part a validated; the row stays `IN_PROGRESS` for parts b-d. RUN-04's thresholds now exist in the baseline file as `bench_report`'s input; RUN-04 is not marked started.
 - 2026-09-22 (session 2 start): repository, record SHA-256 and ledger agree; BATCH_001's evidence is present under `logs/batch-001/` and `python -m tests.run` is 32/32. The owner committed BATCH_001 as `b5e6d3d` after the session; recorded here and in its report.
 - 2026-09-22 (BATCH_001 close): RUN-05 validated. The real headless validation run recorded one 0.40 s stall at clip 3 caused by a 5.15 s answering Director call (default tier): evidence for RUN-06 / X-09, not a regression. Pre-existing pyflakes finding (`runner.py` `_plan`'s unused `nonlocal state`) left as is; it is not covered by any row.

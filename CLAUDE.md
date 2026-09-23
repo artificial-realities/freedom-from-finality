@@ -25,7 +25,7 @@ src/
   eval/runner.py             # run_live (the film: just-in-time render, viewer interrupts) · run_play (terminal, turn by turn)
   ui/terminal.py             # free-text input between clips (run_play)
   util/                      # json sanitizer, langfuse, media, prompt loader, story log, timing log
-tests/                       # python -m tests.run (no pytest needed)
+tests/                       # python -m tests.run (no pytest needed); jit_sim.py: the live config under compressed time (test_jit)
 scripts/steer.py             # scripted viewer: posts lines to a running web player at given segments
 scripts/latency_probe.py     # seconds per clip second for one server setting (the real-time work)
 scripts/bench_report.py      # a run's timing.jsonl against the gates; --update-readme regenerates the README's baseline table

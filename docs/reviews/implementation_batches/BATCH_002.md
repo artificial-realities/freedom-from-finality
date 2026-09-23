@@ -145,4 +145,4 @@ README's baseline table, and CLAUDE.md now points at the file instead
 of restating real-time figures (RUN-13, part a).
 ```
 
-Commit: not created (not permitted by the loop prompt).
+Commit: not created by the batch session (not permitted by the loop prompt). The owner committed it afterwards as `e77c787` (recorded at the start of BATCH_003).
