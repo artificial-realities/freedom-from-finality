@@ -51,6 +51,7 @@ from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
 from src.story.schemas import BeatPlan  # noqa: E402
 from src.story.validator import apply_clip  # noqa: E402
+from src.story.world import EventRecord  # noqa: E402
 from src.story.world import WorldModel  # noqa: E402
 
 DEFAULT_COMPILER = "src.story.compiler:compile_clip"
@@ -244,6 +245,16 @@ def replay(data: dict, *, compiler, config: Config, story: Story) -> list[dict]:
         )
         row.update({"prompt": prompt, "words": len(prompt.split()), "chars": len(prompt)})
         rows.append(row)
+        # The engine records the clip after compiling it; the compiler reads
+        # the previous clip's picture from this record.
+        emitted = plan.clips[index]
+        world.events.append(EventRecord(
+            segment=seg, scene_id=world.plan.scene.id if world.plan.scene else 0,
+            beat=beat, beat_intent=plan.intent, clip_index=index + 1, clip_count=len(plan.clips),
+            user_input=clip.get("user_input", "") or "", intervention=clip.get("intervention", "none") or "none",
+            narration=emitted.action_text(), on_screen=list(emitted.on_screen), end_state=emitted.end_state,
+            voiceover=plan.voiceover if index == 0 else "", duration=int(clip.get("duration", 0) or 0),
+        ))
     return rows
 
 

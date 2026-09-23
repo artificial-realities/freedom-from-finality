@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_006 (CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-07, CLEAN-09, LTX-08), 2026-09-22
+- **Latest completed batch:** BATCH_007 (LTX-03, CLEAN-08), 2026-09-22
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -39,7 +39,7 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-19 | APPROVED | 1 | NOT_STARTED | LTX-05 for voice fields | — | — | Large blueprint/world/validator change; LTX-05 first for voice fields. Full validation includes X-26 (post-implementation). |
 | LTX-01 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | RUN-01, LTX-02, RUN-13 (replay harness) | — | — | Gated by X-05 (GPU). Permitted prep: comparison compiler behind an off-by-default flag, after RUN-01 (RUN-13's replay harness is done: BATCH_005). Dependency cycle with LTX-02 in the record (each lists the other); X-06 runs on the prose compiler, so the LTX-01 arm comes first. |
 | LTX-02 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-01 | — | — | Gated by X-06 (GPU). Candidate blueprint forms prepared only after the LTX-01 arm exists (see LTX-01 note). |
-| LTX-03 | APPROVED | 0* | NOT_STARTED | CLEAN-08 if the old compiler remains active | — | — | Unplaced in §2; compiler bug fix, pairs with CLEAN-08 (camera-line grammar) in one compiler batch. |
+| LTX-03 | APPROVED | 0* | COMPLETED | CLEAN-08 if the old compiler remains active | BATCH_007 | `tests/test_story.py::test_compiler_describes_entering_and_returning_entities` (a prop introduced off screen gets its look on first appearance; a returning dormant prop gets its identifiers; a returning character the full look); suite 64/64; session A replayed: the entering sentence appears on segments 35, 49 and 53 only (`logs/batch-007/session-a-summary.txt`) | Entering entities (introduced this segment, listed or not; or on screen and not in the previous clip's picture, read from the event log) are described before the action and never listed as present; the replay harness records events like the engine. Unmeasured on a GPU; the LTX-01 arm inherits the rule. |
 | LTX-04 | APPROVED | 2+* | NOT_STARTED | RUN-01 | — | — | Unplaced in §2; depends on RUN-01. X-22 is post-implementation validation. |
 | LTX-05 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
 | LTX-06 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | LTX-01 | — | — | Part of the LTX-01 arm; gated by X-05. |
@@ -82,7 +82,7 @@ The execution state of every decision in the final decision record. The record i
 | CLEAN-05 | APPROVED | 2 | NOT_STARTED | RUN-08 | — | — | Listed in phase 0 but depends on RUN-08 (phase 2). |
 | CLEAN-06 | APPROVED | 2 | NOT_STARTED | RUN-01, AUD-06 | — | — | Listed in phase 0 but depends on RUN-01 and AUD-06. |
 | CLEAN-07 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_context_shows_character_state_and_keeps_notes_out_of_the_cast` asserts no `looks:`; suite 62/62 | `format_world_now` prints status, holder and location for props, not the look. |
-| CLEAN-08 | APPROVED | 0 | NOT_STARTED | none | — | — | Fix in the active compiler now; pairs with LTX-03. |
+| CLEAN-08 | APPROVED | 0 | COMPLETED | none | BATCH_007 | `tests/test_story.py::test_compiler_camera_clause`; suite 64/64; session A's 11 distinct camera lines all grammatical (`logs/batch-007/session-a-summary.txt`) | `camera_clause`: "the camera remains static" or the motion after "the camera" as a verb phrase, a participle or (today's Director) a noun phrase ("the camera makes a slow push-in toward the pair"). The LTX-01 arm inherits the rule. |
 | CLEAN-09 | APPROVED | 0 | COMPLETED | none | BATCH_006 | `tests/test_story.py::test_location_resolver_forms_and_prefix_collision`; note under "Not built yet, by design" in `ARCHITECTURE.md` | The test pins ids, names and prefixed forms, and the substring fallback's prefix collision (`the_void` wins for "The Void Annex, far end"; `void` for "void 2, by the edge") as the known gap. The resolver is unchanged (the row's scope is tests and docs); the two-line fix (longest id wins) is proposed to the owner in the BATCH_006 report. |
 | CLEAN-10 | APPROVED | 0 | NOT_STARTED | none | — | — | Docs-only note about the 01 review header; the reviews are untracked user files. |
 
@@ -131,10 +131,13 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_003 | 2026-09-22 | RUN-13 (part b) | COMPLETED (row stays IN_PROGRESS; commit `a14c44a`) | `implementation_batches/BATCH_003.md` |
 | BATCH_004 | 2026-09-22 | RUN-13 (part c) | COMPLETED (row stays IN_PROGRESS; commit `5cbfe21`) | `implementation_batches/BATCH_004.md` |
 | BATCH_005 | 2026-09-22 | RUN-13 (part d) | COMPLETED (RUN-13 COMPLETED; commit `59f5243`) | `implementation_batches/BATCH_005.md` |
-| BATCH_006 | 2026-09-22 | CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-07, CLEAN-09, LTX-08 | COMPLETED (the commit after `59f5243`; hash recorded next session) | `implementation_batches/BATCH_006.md` |
+| BATCH_006 | 2026-09-22 | CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-07, CLEAN-09, LTX-08 | COMPLETED (commit `6d0c6bf`) | `implementation_batches/BATCH_006.md` |
+| BATCH_007 | 2026-09-22 | LTX-03, CLEAN-08 | COMPLETED (uncommitted) | `implementation_batches/BATCH_007.md` |
 
 ## Reconciliation notes
 
+- 2026-09-22 (BATCH_007 close): LTX-03 and CLEAN-08 `COMPLETED`; `python -m tests.run` 64/64 (2 new tests). Every compiled prompt changes (the camera clause); a stored replay file no longer verifies against its old transcript, by design (`logs/batch-007/session-a-verify.txt`: 0 of 64 equal). The change is unmeasured on hardware. Phase 0 now has open: CLEAN-04 with ARCH-04/14/18 and CLEAN-10 (docs), LTX-09. BATCH_007 is uncommitted.
+- 2026-09-22 (session 6 start): record SHA-256 unchanged; HEAD is `6d0c6bf` (BATCH_006, recorded in the Batches table) on top of `59f5243` (BATCH_005); `python -m tests.run` 62/62; the working tree carries only the owner's files. BATCH_007 selected: LTX-03 + CLEAN-08, the two approved fixes in the active compiler.
 - 2026-09-22 (BATCH_006 close): the six rows `COMPLETED`; `python -m tests.run` 62/62 (5 new tests). Phase 0 now has open: LTX-03 + CLEAN-08 (compiler), CLEAN-04 with ARCH-04/14/18 and CLEAN-10 (docs), LTX-09 (derived seeds; GPU validation). Pre-existing pyflakes findings left as is (not covered by any row): `runner.py` `_plan`'s unused `nonlocal state`, `tests/test_i2v.py` line 50's unused `import json`. Proposal for the owner, outside CLEAN-09's scope: fix the location resolver's substring fallback to prefer the longest id. The owner then asked for both batches to be committed separately: BATCH_005 as `59f5243` (the shared doc and ledger hunks split by batch), BATCH_006 as the commit after it.
 - 2026-09-22 (session 5 start): record SHA-256 unchanged; `python -m tests.run` 57/57. BATCH_005 is complete but uncommitted (the owner did not ask for a commit); its files stay in the working tree next to this batch's, listed per batch in the BATCH_006 report so they can be committed separately. BATCH_006 selected: the six mechanical phase-0 cleanup rows that share one validation boundary; LTX-03 + CLEAN-08 (compiler), CLEAN-04 with the doc-only ARCH rows, CLEAN-10 and LTX-09 are left for their own batches.
 - 2026-09-22 (BATCH_005 close): RUN-13 `COMPLETED`: parts a-d done and every offline piece runs in the suite (57/57). The only piece that needs hardware, `latency_probe --warm 30`, is implemented and tested against a fake server and is not claimed as run. Phase 0 now has CLEAN-01/02/03/04/07/09, CLEAN-08 + LTX-03, LTX-08 and LTX-09 open; phase 1 is unblocked for the rows with no dependencies.

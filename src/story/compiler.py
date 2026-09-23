@@ -6,11 +6,13 @@ action, dialogue in quotes and the image the clip ends on. Every clip
 continues the previous one, so the prompt describes the next few seconds
 of motion, not the picture the conditioning frames already carry: the
 full visual style and the full look of a character go only on the
-opening clip of the run; a prop's description goes only on the clip
-that introduces it. Later clips carry the blueprint's short visual
-anchor and each character's short look, which hold framing and identity
-over long chains. When the model changes, this file changes; the schemas
-do not.
+opening clip of the run; an entity's description goes on the clip in
+which it enters the picture (introduced, or back after an absence), and
+an entering entity is never listed as already on screen, because the
+conditioning frames do not have it. Later clips carry the blueprint's
+short visual anchor and each character's short look, which hold framing
+and identity over long chains. When the model changes, this file
+changes; the schemas do not.
 """
 
 from __future__ import annotations
@@ -47,8 +49,8 @@ def _first_sentence(text: str) -> str:
 
 def describe(entity: Entity, *, full: bool) -> str:
     """The entity as the prompt names it: with its full look when `full`
-    (the opening clip, or the clip that introduces it), otherwise a
-    character's short look or just the name."""
+    (the opening clip, or the clip in which it enters the picture),
+    otherwise a character's short look or just the name."""
     if full:
         look = " ".join(entity.render_look().split()).rstrip(".")
         if look and look.lower() != entity.name.lower():
@@ -60,7 +62,50 @@ def describe(entity: Entity, *, full: bool) -> str:
     return entity.name
 
 
-DESCRIBED_IN_FULL = 6   # on-screen entities described; the rest by name only
+CAMERA_STATIC = ("static", "static camera", "none", "no movement", "no camera movement",
+                 "still", "fixed", "locked off", "locked-off")
+
+
+def camera_clause(motion: str) -> str:
+    """The camera as one clause: "the camera remains static", or the
+    Director's motion after "the camera" in a form that reads as a
+    sentence whether the motion is a verb phrase ("slowly pushes in"), a
+    participle ("tracking him") or a noun phrase ("slow push-in toward
+    the pair", the form the Director writes today)."""
+    text = " ".join(motion.split()).strip().rstrip(".").strip()
+    low = text.lower()
+    for prefix in ("the camera ", "camera "):
+        if low.startswith(prefix):
+            text, low = text[len(prefix):], low[len(prefix):]
+    if not low or low in CAMERA_STATIC or low.startswith("static"):
+        return "the camera remains static"
+    words = low.split()
+    head = next((w for w in words if not w.endswith("ly")), words[0])
+    if head.endswith("ing"):
+        return f"the camera is {text}"
+    if head.endswith("s") and not head.endswith("ss"):
+        return f"the camera {text}"
+    article = "an" if low[0] in "aeiou" else "a"
+    return f"the camera makes {article} {text}"
+
+
+DESCRIBED_IN_FULL = 6   # entities described with a look; the rest by name only
+
+
+def previous_picture(world: WorldModel, segment_no: int) -> set[str] | None:
+    """The entities in the picture at the end of the previous clip: that
+    clip's `on_screen` plus whatever entered during it (introduced then),
+    so an entity described as entering once is not described as entering
+    again on the next clip. None when the previous clip is not on record
+    (the first clip of a run, or a replay with a gap)."""
+    if not world.events:
+        return None
+    prev = world.events[-1]
+    if prev.segment != segment_no - 1:
+        return None
+    picture = set(prev.on_screen)
+    picture |= {e.id for e in world.entities.values() if e.first_seen == prev.segment}
+    return picture
 
 
 def compile_clip(
@@ -78,31 +123,68 @@ def compile_clip(
     """The prompt for clip `index` of `beat`. `opening` marks the first
     clip of a run: the renderer seeds it from the reference image, so it
     carries the full style, the full looks and the reference pose.
-    `segment_no` lets a prop's description ride on the clip that
-    introduces it and nowhere else."""
+    `segment_no` is the clip's segment: an entity introduced in it, or
+    on screen now but not in the previous clip's picture (read from the
+    world's event log), enters during this clip and is described then."""
     clip = beat.clips[index]
     parts: list[str] = []
     if clip.ambient_sound.strip():
         parts.append(_sentence(clip.ambient_sound))
     framing = " ".join(beat.framing.split()).rstrip(".") or "medium shot"
-    motion = " ".join(clip.camera_motion.split()).rstrip(".") or "static"
-    parts.append(_sentence(f"{framing}, {motion} camera"))
+    parts.append(_sentence(f"{framing}; {camera_clause(clip.camera_motion)}"))
 
-    ents = [e for e in (world.resolve(eid) for eid in clip.on_screen)
-            if e is not None and e.kind != "location"]
-    ents.sort(key=lambda e: e.kind != "character")  # characters first
-    named = [describe(e, full=opening or e.first_seen == segment_no) for e in ents[:DESCRIBED_IN_FULL]]
-    named += [e.name for e in ents[DESCRIBED_IN_FULL:]]
+    seen: set[str] = set()
+    ents: list[Entity] = []
+    for eid in clip.on_screen:
+        e = world.resolve(eid)
+        if e is not None and e.kind != "location" and e.id not in seen:
+            seen.add(e.id)
+            ents.append(e)
+    # Who enters the picture during this clip: introduced in this segment
+    # (listed by the Director or not: the world has it present), or on
+    # screen now without having been in the previous clip's picture.
+    previous = previous_picture(world, segment_no)
+    entering: list[Entity] = []
+    staying: list[Entity] = []
+    for e in ents:
+        new = (segment_no > 0 and e.first_seen == segment_no) or (previous is not None and e.id not in previous)
+        (entering if new else staying).append(e)
+    if segment_no > 0:
+        for e in world.entities.values():
+            if (e.first_seen == segment_no and e.present and not e.gone
+                    and e.kind != "location" and e.id not in seen):
+                entering.append(e)
+    entering.sort(key=lambda e: e.kind != "character")  # characters first
+    staying.sort(key=lambda e: e.kind != "character")
+    # The look budget: characters first (identity), then what enters, then
+    # the rest; beyond it, names only.
+    budget = DESCRIBED_IN_FULL
+    described: dict[str, bool] = {}
+    staying_ids = {e.id for e in staying}
+    for e in sorted(entering + staying, key=lambda e: (e.kind != "character", e.id in staying_ids)):
+        described[e.id] = budget > 0
+        budget -= 1
+    action_low = " ".join(clip.action.split()).lower()
+
+    def entering_name(e: Entity) -> str:
+        look = " ".join(e.render_look().split()).rstrip(".")
+        if not described[e.id] or (look and look.lower() in action_low):
+            return e.name          # the Director's action already carries the look
+        return describe(e, full=True)
+
+    named = [describe(e, full=opening) if described[e.id] else e.name for e in staying]
     if named:
         parts.append("On screen: " + "; ".join(named) + ".")
     # The first clip starts from the reference image, so it must open from
     # what that image shows; a pose mismatch in the first frames is what
     # drags the picture off the sheet (2026-09-08 sweep).
     if opening:
-        for ent in ents:
+        for ent in staying:
             if ent.reference_pose:
                 parts.append(f"The shot opens with {ent.name} {ent.reference_pose.strip().rstrip('.')}, then the action begins.")
                 break
+    if entering:
+        parts.append("Entering the picture during this clip: " + "; ".join(entering_name(e) for e in entering) + ".")
     if clip.action.strip():
         parts.append(_sentence(clip.action))
     for line in clip.dialogue:
