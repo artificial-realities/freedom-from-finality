@@ -578,6 +578,10 @@ async def run_live(
         pending_span: dict | None = None
         # Background render task for pipelining.
         _prev_render: asyncio.Task | None = None
+        # The viewer text the last plan answered ("" when it answered none),
+        # while its beat has not emitted a clip: a line arriving then is
+        # joined to it (ARCH-06).
+        planned_text = ""
 
         async def _drain_prev() -> None:
             nonlocal _prev_render
@@ -621,7 +625,7 @@ async def run_live(
             """Ask the Director for the next beat from `text`. A line that
             arrives while the call runs cancels it, and the call restarts
             with everything the viewer typed."""
-            nonlocal state
+            nonlocal state, planned_text
             while True:
                 state.user_input = text
                 t0 = time.monotonic()
@@ -634,6 +638,7 @@ async def run_live(
                     _learn("director", time.monotonic() - t0)
                     beat_lines[:] = plan_lines
                     plan_lines.clear()
+                    planned_text = text
                     return
                 call.cancel()
                 try:
@@ -644,6 +649,27 @@ async def run_live(
                 more = await _take()
                 text = " ".join(x for x in (text, more) if x)
                 player.status(f"you spoke while the Director was writing; it starts segment {state.turn_number} again")
+
+        async def _answer(text: str, turn: int) -> None:
+            """A viewer line arrived before segment `turn` was emitted: cut
+            the beat in progress short and plan from the line. When the
+            planned beat has not played a clip and its plan answered an
+            earlier line (the second line of the pair arrived after the
+            Director returned), that earlier line is joined to this one
+            and planned once, as a line that cancels a call in flight is:
+            its recorded intervention is dropped so the pair is recorded
+            once, with one disposition (ARCH-06)."""
+            if graph.beat_unplayed() and planned_text:
+                graph.discard_pending_input(state.turn_number)
+                plan_lines[:0] = beat_lines     # the earlier line travels with this one
+                beat_lines.clear()
+                text = f"{planned_text} {text}"
+                player.status("you spoke again before the Director's answer played; it answers both lines")
+            dropped = _abort("the viewer spoke") if graph.has_next_clip() else 0
+            if dropped:
+                player.status(f"your line cut the beat short; {dropped} planned clip(s) dropped")
+            player.status(f"the Director is writing segment {turn}")
+            await _plan(text)
 
         async def _listen(turn: int) -> None:
             """Wait for the just-in-time moment of segment `turn`, taking the
@@ -668,11 +694,7 @@ async def run_live(
                 text = await _take()
                 if not text:
                     continue
-                dropped = _abort("the viewer spoke") if graph.has_next_clip() else 0
-                if dropped:
-                    player.status(f"your line cut the beat short; {dropped} planned clip(s) dropped")
-                player.status(f"the Director is writing segment {turn}")
-                await _plan(text)
+                await _answer(text, turn)
             # The moment has come. Anything typed since is taken now.
             if not graph.has_next_clip():
                 player.status(f"the Director is writing segment {turn}")
@@ -680,10 +702,7 @@ async def run_live(
             elif player.has_input():
                 text = await _take()
                 if text:
-                    dropped = _abort("the viewer spoke")
-                    player.status(f"your line cut the beat short; {dropped} planned clip(s) dropped")
-                    player.status(f"the Director is writing segment {turn}")
-                    await _plan(text)
+                    await _answer(text, turn)
 
         try:
             while not stop_event.is_set():

@@ -43,6 +43,13 @@ SYSTEM_PATH: Path = prompt_path("director.system.md")
 USER_PATH: Path = prompt_path("director.user.md")
 
 
+def clip_cap(config: Config, user_input: str) -> int:
+    """How many clips the beat may have: fewer when it answers a line."""
+    if (user_input or "").strip():
+        return max(1, min(config.answer_max_clips, config.max_clips_per_beat))
+    return config.max_clips_per_beat
+
+
 async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: Config, turn: int) -> BeatPlan | None:
     parsed = await call_llm_structured(
         agent="director",
@@ -104,6 +111,7 @@ async def run(
             pacing=pacing_note,
             scene=scene_note,
             narration_mode=config.narration,
+            answer_clips=config.answer_max_clips if (state.user_input or "").strip() else 0,
         ),
     )
 
@@ -112,7 +120,7 @@ async def run(
     if beat is None:
         return None, ["director: structured parse failed"], False
 
-    report = check(beat, world, max_clips=config.max_clips_per_beat)
+    report = check(beat, world, max_clips=clip_cap(config, state.user_input))
     retried = bool(report.violations)
     if report.violations:
         notes.append("director: first proposal rejected: " + "; ".join(report.violations))
@@ -125,7 +133,7 @@ async def run(
         )
         second = await _call(system_prompt, retry_prompt, llm, config, state.turn_number)
         if second is not None:
-            report2 = check(second, world, max_clips=config.max_clips_per_beat)
+            report2 = check(second, world, max_clips=clip_cap(config, state.user_input))
             if len(report2.violations) <= len(report.violations):
                 beat = second
             if report2.violations:

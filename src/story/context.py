@@ -247,8 +247,10 @@ def format_events(world: WorldModel, since: int) -> str:
 
 
 def format_gates(
-    *, voiceover_open: bool, pacing: str, scene: str, narration_mode: str,
+    *, voiceover_open: bool, pacing: str, scene: str, narration_mode: str, answer_clips: int = 0,
 ) -> str:
+    """The deterministic signals for this beat. `answer_clips` > 0 when the
+    beat answers a viewer line: its clip cap (ARCH-11)."""
     if narration_mode == "off":
         vo = "Voice-over: not part of this film. Leave `voiceover` empty."
     elif voiceover_open:
@@ -258,4 +260,8 @@ def format_gates(
         )
     else:
         vo = "Voice-over floor: CLOSED (a line played recently). Leave `voiceover` empty."
-    return f"{vo}\nPacing: {pacing}\n{scene}"
+    out = f"{vo}\nPacing: {pacing}\n{scene}"
+    if answer_clips:
+        out += (f"\nThis beat answers the viewer: at most {answer_clips} clip{'s' if answer_clips != 1 else ''}. "
+                "Start the answer now; the next beat continues it.")
+    return out

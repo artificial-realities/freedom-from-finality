@@ -116,3 +116,23 @@ async def test_the_simulation_reports_a_stall_when_the_renderer_is_slower_than_r
     assert sim.gate("stalls")["result"] == "FAIL", sim.gate("stalls")
     assert sim.measured["film"]["stalls"] >= 1
     assert sim.gate("render_ratio_p95")["result"] == "FAIL"
+
+
+async def test_a_second_line_after_the_answer_is_joined():
+    """ARCH-06: a line that arrives after the Director has answered the
+    previous one, but before that answer has played, is joined to it: the
+    pair is planned once, recorded as one intervention with one
+    disposition, and lands on one clip; nothing is dropped."""
+    first = "A soccer ball appears at your feet."
+    second = "Make it bounce."
+    sim = await simulate(clips=16, lines=[Line(first, after_clip=6, before_fire=-0.3),
+                                          Line(second, after_clip=6, after_answer=0.4)])
+    assert all(line.id is not None for line in sim.lines), [(x.text, x.id) for x in sim.lines]
+    assert [(i.text, i.disposition) for i in sim.world.interventions] == [(f"{first} {second}", "absorbed")], \
+        [(i.text, i.disposition) for i in sim.world.interventions]
+    assert not sim.of("line_dropped"), sim.of("line_dropped")
+    landed = sim.of("line_landed")
+    assert len(landed) == 1 and sorted(landed[0]["lines"]) == [1, 2], landed
+    answers = [r for r in sim.of("director_end") if r["input"] and not r.get("cancelled")]
+    assert len(answers) == 2, "the first answer, then one call for the pair"
+    assert sim.measured["film"]["stalls"] == 0

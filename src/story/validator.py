@@ -106,11 +106,22 @@ def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
             if world.resolve(ref) is None and slugify(ref) not in introduced:
                 r.warnings.append(f"{where}: on_screen entity '{ref}' is unknown and was dropped")
 
+    if beat.delivered_request and not _owed_item(world, beat.delivered_request):
+        r.warnings.append(f"delivered_request {beat.delivered_request} names no deferred request; ignored")
+
     open_ids = {t.id for t in world.open_threads()}
     for top in beat.thread_ops:
         if top.op != "open" and top.thread not in open_ids:
             r.warnings.append(f"thread op '{top.op}' on unknown or closed thread '{top.thread}' ignored")
     return r
+
+
+def _owed_item(world: WorldModel, segment: int):
+    """The deferred request recorded at `segment`: the id the Director
+    reads in "Earlier requests still owed" and names in
+    `delivered_request`. One plan records at most one line per segment
+    (the live loop joins lines typed together), so the segment is unique."""
+    return next((i for i in world.interventions if i.disposition == "deferred" and i.segment == segment), None)
 
 
 def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int) -> Report:
@@ -260,14 +271,30 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 item.reason = reason
                 item.resolved_at = None if beat.intervention == "deferred" else seg
             r.applied.append(f"viewer request {beat.intervention}" + (f": {reason}" if reason else ""))
-        elif beat.intervention in ("absorbed", "declined"):
-            deferred = [i for i in world.interventions if i.disposition == "deferred"]
-            if deferred:
-                item = deferred[-1]
-                item.disposition = beat.intervention
-                item.reason = reason
-                item.resolved_at = seg
-                r.applied.append(f"deferred viewer request now {beat.intervention}: {item.text!r}")
+        # A deferred request is resolved by identity (ARCH-07): the one the
+        # beat names in `delivered_request`. Without the field, an absorbed
+        # or declined beat with no new line still resolves the only one
+        # owed; with two or more owed nothing is guessed.
+        deferred = [i for i in world.interventions if i.disposition == "deferred"]
+        item = None
+        disposition = "absorbed"
+        if beat.delivered_request:
+            item = _owed_item(world, beat.delivered_request)
+            if item is None:
+                r.warnings.append(f"delivered_request {beat.delivered_request} names no deferred request; ignored")
+        elif not pending and beat.intervention in ("absorbed", "declined") and deferred:
+            if len(deferred) == 1:
+                item, disposition = deferred[0], beat.intervention
+            else:
+                r.warnings.append(
+                    f"{beat.intervention} beat with {len(deferred)} requests owed and no delivered_request; "
+                    "none resolved",
+                )
+        if item is not None:
+            item.disposition = disposition
+            item.reason = reason if not pending else (item.reason or reason)
+            item.resolved_at = seg
+            r.applied.append(f"deferred viewer request (segment {item.segment}) now {disposition}: {item.text!r}")
 
     if r.changed:
         world.last_change = seg

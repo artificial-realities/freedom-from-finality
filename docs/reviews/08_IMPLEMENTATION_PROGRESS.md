@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_010 (ARCH-01, 02, 03, 05, 16, 17), 2026-09-23
+- **Latest completed batch:** BATCH_011 (ARCH-06, ARCH-07, ARCH-11), 2026-09-23
 - **Batch in progress:** none
 - **GPU spend:** $0.00 of the $30.00 authorised (record §2, Q8)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -23,12 +23,12 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-03 | APPROVED | 1 | COMPLETED | ARCH-02 | BATCH_010 | `test_the_showrunner_snapshot_includes_the_clip_that_triggered_it`, `test_a_spawn_waits_for_the_first_clip_and_survives_a_cut`; fail on the old engine | Trigger decided at the plan, spawned at the beat's first clip after apply + event record; windows `..at_segment` inclusive; a beat cut before clip 1 spawns nothing. |
 | ARCH-04 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; the claim checked against `_run_showrunner_now` and the prompts (BATCH_008 claim table) | `ARCHITECTURE.md` bootstrap step: the only synchronous run and the only route for `short_term_narrative`; why it stays synchronous. |
 | ARCH-05 | APPROVED | 1 | COMPLETED | ARCH-03 | BATCH_010 | `test_stagnation_rungs_have_one_owner_each` | `REQUIRED_AT = 1.5` (Director), `SHOWRUNNER_REPLAN_AT = 2.0` (trigger and the compact-mode judgement); docs name both. |
-| ARCH-06 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
-| ARCH-07 | APPROVED | 1 | NOT_STARTED | none | — | — |  |
+| ARCH-06 | APPROVED | 1 | COMPLETED | none | BATCH_011 | `tests/test_jit.py::test_a_second_line_after_the_answer_is_joined` (fails on the old runner); suite 80/80 | `runner._answer`: a line after the answer returned but before it played is joined, the earlier intervention dropped, one plan. RUN-06/X-09 touch the same branch. |
+| ARCH-07 | APPROVED | 1 | COMPLETED | none | BATCH_011 | `tests/test_story.py::test_a_deferred_request_is_resolved_by_identity` | `BeatPlan.delivered_request` (segment; 0 = none); resolved by identity; the `deferred[-1]` guess is gone (one owed + absorbed still resolves it). |
 | ARCH-08 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-07, ARCH-03 | — | — | Gated by X-07 (LLM-only, headless, scripted lines); ARCH-03 first. |
 | ARCH-09 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-08, ARCH-02, ARCH-03 | — | — | Gated by X-08 (LLM-only, headless); ARCH-02/03 first. |
 | ARCH-10 | APPROVED | 2+* | NOT_STARTED | RUN-01 | — | — | Unplaced in §2; depends on RUN-01 (phase 2). |
-| ARCH-11 | APPROVED | 1* | NOT_STARTED | none | — | — | Unplaced in §2; no deps; prompt/context gate change. Validation reads Director latency on answer calls (timing log, RUN-05). |
+| ARCH-11 | APPROVED | 1* | IN_PROGRESS | none | BATCH_011 | `tests/test_story.py::test_an_answer_beat_is_capped_and_told_so` | `answer_max_clips: 2` in the gates when a line is present, enforced by the engine. Remaining: the row's reading of Director latency on answer calls (real Director). |
 | ARCH-12 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-19 | — | — | Gated by X-19 (optional experiment, required before this row). |
 | ARCH-13 | APPROVED | — | NOT_APPLICABLE | ARCH-02, ARCH-03 | — | — | Approved keep-as-is (no change to the card; scope none). Cards exist in the engine; lifecycle fixes are ARCH-02/03. |
 | ARCH-14 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; checked: nothing reads `current_act` beyond display (BATCH_008 claim table) | `ARCHITECTURE.md`: the arc orients both roles; the code enforces nothing from it. |
@@ -136,9 +136,11 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_008 | 2026-09-22 | CLEAN-04, ARCH-04, ARCH-14, ARCH-18, CLEAN-10 | COMPLETED (commit `608d7fc`) | `implementation_batches/BATCH_008.md` |
 | BATCH_009 | 2026-09-23 | LTX-09, RUN-11 | COMPLETED (RUN-11; LTX-09 awaits its GPU validation) | `implementation_batches/BATCH_009.md` |
 | BATCH_010 | 2026-09-23 | ARCH-01, ARCH-02, ARCH-03, ARCH-05, ARCH-16, ARCH-17 | COMPLETED (ARCH-01/16 await a transcript review) | `implementation_batches/BATCH_010.md` |
+| BATCH_011 | 2026-09-23 | ARCH-06, ARCH-07, ARCH-11 | COMPLETED (ARCH-11 awaits its latency reading) | `implementation_batches/BATCH_011.md` |
 
 ## Reconciliation notes
 
+- 2026-09-23 (BATCH_011 close): BATCH_010 committed as `5b0f0b2`. ARCH-06 and ARCH-07 `COMPLETED`; ARCH-11 implemented. Suite 80/80. X-09's prerequisite ARCH-06 is done.
 - 2026-09-23 (BATCH_010 close): BATCH_009 committed as `571a58a`. ARCH-02/03/05/17 `COMPLETED`; ARCH-01 and ARCH-16 implemented, `IN_PROGRESS` until a transcript with the real Director and scripted lines is reviewed. Suite 77/77. ARCH-08 and ARCH-09 now have ARCH-03 (and ARCH-02) in place; X-07/X-08 still need their harness.
 - 2026-09-23 (session 9, BATCH_009 close): the owner asked for larger batches and for commits without asking; each batch is still reported and committed separately. Record SHA-256 unchanged; HEAD was `608d7fc` (BATCH_008, now in the Batches table); suite 64/64 at start, 69/69 after. RUN-11 `COMPLETED`; LTX-09 implemented and `BLOCKED` on its GPU validation only (X-05). Phase 0 has no open code work.
 - 2026-09-22 (BATCH_008 close): the five documentation rows `COMPLETED`; no behaviour changed (comments and docs only; suite 64/64). Phase 0 has one open row left, LTX-09; phase 1's rows without dependencies (ARCH-02, ARCH-06, ARCH-07, ARCH-16, ARCH-17, AUD-06, LTX-05, RUN-07, RUN-11, ARCH-01, ARCH-11, AUD-04) are unblocked. BATCH_008 is uncommitted.

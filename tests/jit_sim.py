@@ -39,6 +39,7 @@ from src.llm.mock_backend import MockBackend, _segment_number, _viewer_line
 from src.models.config import Config
 from src.models.story import Story
 from src.playback.player import Playable, Player
+from src.story.world import WorldModel
 
 REPO = Path(__file__).resolve().parent.parent
 BASELINE_PATH = REPO / "benchmarks" / "runtime" / "baseline.json"
@@ -104,12 +105,16 @@ class Line:
     continuation of a beat (a fire on the just-in-time schedule, not one
     brought forward by a Director call). `mid_call` sends it instead
     `mid_call` of the way through the first Director call that is not
-    answering a line (the cancel-and-restart path)."""
+    answering a line (the cancel-and-restart path). `after_answer` sends
+    it that many real-time seconds after the Director call answering the
+    previous line returns, before that answer has played (the second
+    line of a pair)."""
 
     text: str
     after_clip: int
     before_fire: float | None = None
     mid_call: float | None = None
+    after_answer: float | None = None
     # Filled in when it is sent.
     id: int | None = None
     sent_at: float | None = None
@@ -157,6 +162,10 @@ class SimPlayer(Player):
         line = self._next_line(on_air)
         if line is not None and line.mid_call is not None and not answering:
             asyncio.get_running_loop().call_later(seconds * line.mid_call, self._send, line)
+        follower = self._follower() if answering else None
+        if follower is not None:
+            asyncio.get_running_loop().call_later(seconds + follower.after_answer / self.time_scale,
+                                                  self._send, follower)
 
     # Sending.
 
@@ -169,6 +178,13 @@ class SimPlayer(Player):
                     return None
                 continue
             return line if on_air >= line.after_clip else None
+        return None
+
+    def _follower(self) -> Line | None:
+        """The first unsent `after_answer` line whose predecessor is sent."""
+        for before, line in zip(self.lines, self.lines[1:]):
+            if line.id is None:
+                return line if line.after_answer is not None and before.id is not None else None
         return None
 
     def _fire_phase(self) -> float | None:
@@ -212,6 +228,7 @@ class Sim:
     lines: list[Line]
     player: SimPlayer
     config: Config             # the config as the policy runs it in real time
+    world: WorldModel          # the run's world model as saved at the end
 
     def of(self, event: str) -> list[dict]:
         return [r for r in self.records if r.get("event") == event]
@@ -299,11 +316,12 @@ async def simulate(
              mock.patch.object(runner, "JIT_MARGIN_S", runner.JIT_MARGIN_S / scale), \
              mock.patch.object(runner, "probe_duration", known_length):
             await runner.run_live(config=run, story=story, log_dir=d, player=player, max_segments=clips)
-        log = next((Path(d) / "sessions").iterdir()) / "timing.jsonl"
-        records = _real_time(bench.load_records(log), scale)
+        session = next((Path(d) / "sessions").iterdir())
+        records = _real_time(bench.load_records(session / "timing.jsonl"), scale)
+        world = WorldModel.load(session)
 
     gates = baseline()["gates"]
     measured = bench.measure(records, warm_after=baseline()["cold_warm"]["warm_after_clips"],
                              stall_s=gates["stalls"]["threshold_s"], compile_factor=gates["mid_film_compiles"]["factor"])
     return Sim(records=records, measured=measured, gates=bench.evaluate(measured, gates), lines=player.lines,
-               player=player, config=real)
+               player=player, config=real, world=world)

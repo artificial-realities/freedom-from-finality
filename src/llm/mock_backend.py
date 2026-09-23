@@ -47,6 +47,11 @@ def _owed(messages: list[dict]) -> bool:
     return "Earlier requests still owed" in _user(messages)
 
 
+def _owed_segment(messages: list[dict]) -> int:
+    m = re.search(r"Earlier requests still owed \(deferred\):\n- segment (\d+):", _user(messages))
+    return int(m.group(1)) if m else 0
+
+
 def _thread_open(messages: list[dict], tid: str) -> bool:
     return f"- `{tid}` [" in _user(messages)
 
@@ -107,6 +112,7 @@ class MockBackend(LLMBackend):
             "thread_ops": [],
             "intervention": "none",
             "intervention_reason": "",
+            "delivered_request": 0,
             "scene_done": False,
             "needs_replan": False,
         }
@@ -147,7 +153,7 @@ class MockBackend(LLMBackend):
                 entity_ops=[_op("update", "soccer_ball", status="rolled out of frame", holder="nobody", present=False)],
             )]
             base["scene_done"] = True
-            base["intervention"] = "absorbed"
+            base["delivered_request"] = _owed_segment(messages)
             base["intervention_reason"] = "the deferred trick happens now"
         elif _thread_open(messages, "t1") and not retry:
             # Two hard violations: a new character in a locked cast, and a

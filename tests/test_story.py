@@ -152,7 +152,8 @@ def test_validator_threads_and_interventions_land_on_the_first_clip():
     r = _apply(beat, w, 3)
     assert w.threads[0].status == "paid_off" and w.threads[0].closed_at == 3
     assert item.disposition == "absorbed" and item.resolved_at == 3
-    assert any("deferred viewer request now absorbed" in a for a in r.applied)
+    assert any("deferred viewer request (segment 2) now absorbed" in a for a in r.applied), \
+        "the only request owed is resolved without the field"
 
     w.add_intervention(4, "do a flip")
     beat = _beat()  # no disposition given
@@ -451,3 +452,52 @@ def test_compiler_describes_entering_and_returning_entities():
     w2 = _world()
     p = compile_clip(_beat(clips=[_clip(on_screen=["lego_man"])]), 0, w2, visual_style="", narration_mode="off", segment_no=5)
     assert "On screen: Lego Man (" in p and "Entering" not in p
+
+
+def test_a_deferred_request_is_resolved_by_identity():
+    """ARCH-07: with two requests owed, the beat names the one it delivers
+    by its segment; an absorbed beat that names none resolves neither
+    (it used to take the last one); an unknown segment is ignored."""
+    w = _world()
+    for seg, text in ((2, "kick the ball"), (5, "wear a hat")):
+        w.add_intervention(seg, text)
+        _apply(_beat(intervention="deferred", intervention_reason="later"), w, seg)
+    assert [i.disposition for i in w.interventions] == ["deferred", "deferred"]
+
+    r = _apply(_beat(intervention="absorbed"), w, 6)
+    assert [i.disposition for i in w.interventions] == ["deferred", "deferred"]
+    assert any("2 requests owed and no delivered_request" in x for x in r.warnings), r.warnings
+
+    beat = _beat(delivered_request=9)
+    assert any("names no deferred request" in x for x in check(beat, w).warnings)
+    r = _apply(beat, w, 7)
+    assert [i.disposition for i in w.interventions] == ["deferred", "deferred"] and r.warnings
+
+    r = _apply(_beat(delivered_request=2, intervention_reason="the kick, at last"), w, 8)
+    kick, hat = w.interventions
+    assert (kick.disposition, kick.resolved_at, kick.reason) == ("absorbed", 8, "the kick, at last")
+    assert hat.disposition == "deferred", "the other request is still owed"
+    assert any("(segment 2) now absorbed" in a for a in r.applied)
+
+    w.add_intervention(9, "jump")            # a new line answered while an old one is delivered
+    _apply(_beat(intervention="absorbed", intervention_reason="he jumps", delivered_request=5), w, 9)
+    assert [(i.text, i.disposition, i.resolved_at) for i in w.interventions] == [
+        ("kick the ball", "absorbed", 8), ("wear a hat", "absorbed", 9), ("jump", "absorbed", 9)]
+    assert "delivered_request" in BeatPlan.model_fields, "a strict-subset int field"
+
+
+def test_an_answer_beat_is_capped_and_told_so():
+    """ARCH-11: a beat that answers a viewer line has at most
+    `answer_max_clips` clips; the cap is in the user prompt's gates (the
+    system prompt stays byte-identical) and the engine enforces it."""
+    from src.agents.director import clip_cap
+    from src.story.context import format_gates
+    cfg = _config()
+    assert cfg.answer_max_clips == 2
+    assert clip_cap(cfg, "a ball appears") == 2 and clip_cap(cfg, "  ") == cfg.max_clips_per_beat == 4
+    assert clip_cap(_config(answer_max_clips=6), "x") == 4, "never above the beat cap"
+    gates = format_gates(voiceover_open=False, pacing="p", scene="s", narration_mode="ltx", answer_clips=2)
+    assert gates.endswith("This beat answers the viewer: at most 2 clips. Start the answer now; the next beat continues it.")
+    assert "answers the viewer" not in format_gates(voiceover_open=False, pacing="p", scene="s", narration_mode="ltx")
+    beat = _beat(clips=[_clip(), _clip(), _clip()])
+    assert any("only the first 2" in x for x in check(beat, _world(), max_clips=clip_cap(cfg, "x")).warnings)

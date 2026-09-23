@@ -130,6 +130,10 @@ class DirectorEngine:
     def has_next_clip(self) -> bool:
         return self._beat is not None and self._clip_index < len(self._beat.clips)
 
+    def beat_unplayed(self) -> bool:
+        """A beat is planned and none of its clips has been emitted yet."""
+        return self._beat is not None and self._clip_index == 0
+
     # ── Plan: the Director call ─────────────────────────────────────
 
     async def plan(self, state: StoryState) -> None:
@@ -194,7 +198,7 @@ class DirectorEngine:
         if beat is None:
             beat = self._fallback_beat()
             notes.append("director: call failed; holding the picture for one clip")
-        beat.clips = beat.clips[: self.config.max_clips_per_beat]
+        beat.clips = beat.clips[: director_agent.clip_cap(self.config, text)]
         if not vo_open:
             beat.voiceover = ""
 

@@ -107,6 +107,11 @@ class Config(BaseModel):
     max_tokens_showrunner: int = 2048
     recent_clips: int = 6               # verbatim recent clips in the Director prompt
     max_clips_per_beat: int = 4         # the Director plans one beat of up to this many clips per call
+    # A beat that answers a viewer line has at most this many clips: the
+    # answer call is the one on the critical path and its latency tracks
+    # its length; the next beat continues the idea. Stated in the user
+    # prompt's gates (the system prompt stays cached) and enforced here.
+    answer_max_clips: int = 2
     scene_seconds: float = 240.0        # a scene runs about this long; past it the Director is told to close it
     compaction_interval: int = 10       # segments between Showrunner compaction passes
     # Fewest segments between two Showrunner runs (any trigger; the bootstrap

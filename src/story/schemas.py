@@ -88,6 +88,9 @@ class BeatPlan(BaseModel):
     thread_ops: list[ThreadOp] = Field(default_factory=list)
     intervention: Literal["none", "absorbed", "deferred", "declined"] = "none"
     intervention_reason: str = ""
+    # The segment of the earlier, deferred request this beat delivers (as
+    # listed under "Earlier requests still owed"); 0 = none.
+    delivered_request: int = 0
     scene_done: bool = False
     needs_replan: bool = False
 
