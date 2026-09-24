@@ -26,12 +26,22 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIBackend(LLMBackend):
-    def __init__(self, model: str, api_key: str | None = None, service_tier: str = "") -> None:
+    def __init__(self, model: str, api_key: str | None = None, service_tier: str = "",
+                 reasoning_effort: str = "") -> None:
         self.model = model
         # OpenAI processing tier for every request ("priority" buys faster
         # tokens per second at a higher price; "" leaves the API default).
         self.service_tier = service_tier
+        # A reasoning model (the GPT-5 family, o-series) takes its effort
+        # and `max_completion_tokens`, and only its default temperature;
+        # "" is a chat model (gpt-4.1, gpt-4o) with `max_tokens`.
+        self.reasoning_effort = reasoning_effort
         self.client = AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+
+    def _sampling(self, temperature: float, max_tokens: int) -> dict:
+        if self.reasoning_effort:
+            return {"reasoning_effort": self.reasoning_effort, "max_completion_tokens": max_tokens}
+        return {"temperature": temperature, "max_tokens": max_tokens}
 
     async def generate(
         self,
@@ -58,8 +68,7 @@ class OpenAIBackend(LLMBackend):
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+                **self._sampling(temperature, max_tokens),
                 **extra,
             )
         except Exception as exc:
@@ -119,8 +128,7 @@ class OpenAIBackend(LLMBackend):
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+                **self._sampling(temperature, max_tokens),
                 response_format=response_format,
                 **extra,
             )

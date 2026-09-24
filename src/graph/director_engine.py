@@ -93,8 +93,9 @@ class DirectorEngine:
         self.world: WorldModel | None = None
         self.llm_director = (
             build_backend(config.llm_backend, config.director_model or config.model,
-                          service_tier=config.director_service_tier)
-            if (config.director_model or config.director_service_tier) else llm
+                          service_tier=config.director_service_tier,
+                          reasoning_effort=config.director_reasoning_effort)
+            if (config.director_model or config.director_service_tier or config.director_reasoning_effort) else llm
         )
         self.llm_showrunner = (
             build_backend(config.llm_backend, config.showrunner_model)

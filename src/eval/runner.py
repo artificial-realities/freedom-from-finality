@@ -99,6 +99,7 @@ def _start_timing(
         revision=revision, dirty=dirty, llm_backend=config.llm_backend,
         director_model=config.director_model or config.model,
         director_service_tier=config.director_service_tier or None,
+        director_reasoning_effort=config.director_reasoning_effort or None,
         video=config.video_enabled, i2v_backend=config.i2v_backend if config.video_enabled else None,
         clip_seconds=round(shapes.default.delivered_seconds, 4), shape=shapes.default.record(),
         shapes=shapes.frames,

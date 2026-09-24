@@ -131,6 +131,9 @@ class Config(BaseModel):
     # 2026-09-17 (2.1 s instead of 5.8 s per segment) at a higher per-token
     # price. "" leaves the API default.
     director_service_tier: str = ""
+    # RUN-16: the Director's model is a reasoning model (the GPT-5 family):
+    # its effort, "none" for the fastest; "" for a chat model (gpt-4.1).
+    director_reasoning_effort: str = ""
     showrunner_model: str = ""          # override `model` for the Showrunner call
     max_tokens_director: int = 2048
     max_tokens_showrunner: int = 2048

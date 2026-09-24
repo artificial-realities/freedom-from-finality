@@ -180,6 +180,9 @@ async def main_async(args) -> int:
     out.mkdir(parents=True, exist_ok=True)
     config = Config.from_yaml(REPO / args.config).model_copy(update={
         "name": f"x07x08-{args.arm}", "director_service_tier": args.tier, "video_enabled": False,
+        # RUN-16: a candidate Director model (the Showrunner keeps the config's).
+        **({"director_model": args.director_model} if args.director_model else {}),
+        **({"director_reasoning_effort": args.reasoning_effort} if args.reasoning_effort else {}),
     })
     story = Story.from_json(REPO / args.story)
     viewer = HeadlessViewer(SCHEDULES[args.schedule], time_scale=args.time_scale)
@@ -191,6 +194,7 @@ async def main_async(args) -> int:
         "arm": args.arm, "schedule": args.schedule, "rep": args.rep,
         "segments": args.segments, "story": args.story, "config": args.config,
         "director_model": config.director_model or config.model, "tier": args.tier,
+        "reasoning_effort": config.director_reasoning_effort,
         "time_scale": args.time_scale, "lines": viewer.sent, "wall_s": round(time.time() - started, 1),
     }, indent=2), encoding="utf-8")
     return 0
@@ -207,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--story", default="stories/lego-void")
     ap.add_argument("--tier", default="priority", help="the Director's OpenAI service tier (the live config's)")
     ap.add_argument("--time-scale", type=float, default=1.0, help="1.0 = real time, as a viewer would see it")
+    ap.add_argument("--director-model", default="", help="RUN-16: the Director's model instead of the config's")
+    ap.add_argument("--reasoning-effort", default="", help="RUN-16: its effort, for a reasoning model (\"none\")")
     return asyncio.run(main_async(ap.parse_args(argv)))
 
 
