@@ -6,7 +6,7 @@ The execution state of every decision in the final decision record. The record i
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
 - **Latest completed batch:** BATCH_026 (the card paused during a direction; ARCH-20), 2026-09-23
-- **Batch in progress:** none
+- **Batch in progress:** BATCH_027 (GPU session 2: RUN-14's arms, the seam rollout, the live run)
 - **GPU spend:** ≈ $3.68 of the $30.00 authorised (record §2, Q8): one unreachable rental (BATCH_020, ≈ $0.68) and GPU session 1 (BATCH_021, ≈ $3.00)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
 - **Owner decisions after the record:** `docs/reviews/08_OWNER_DECISIONS.md` (D-01..D-04, 2026-09-23): 5 rows to `APPROVED` (ARCH-08, ARCH-09, LTX-12, AUD-02, AUD-03), 7 to `REJECTED` (LTX-01, LTX-02, LTX-06, LTX-11, LTX-14, RUN-06, RUN-12), one new row `APPROVED` (RUN-14). The status column shows `record → decision`.

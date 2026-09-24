@@ -6,7 +6,12 @@ typing in the browser. Default lines and segments are the four steers of
 the 2026-09-09 full-combination run (typed during segments 2, 4, 6, 8;
 absorbed at 3, 5, 7, 9).
 
-    python scripts/steer.py [--player http://127.0.0.1:8765] [--at 2:"text" ...]
+    python scripts/steer.py [--player http://127.0.0.1:8765] [--at 2:"text" ...] [--at 14+2.3:"text"]
+
+`SEG+SECONDS:text` sends the line that many seconds after segment SEG
+started playing (the player's `started_at`), to time a line against the
+schedule (a live run wants a third of its lines within 1 s of a render's
+fire, RUN-04); plain `SEG:text` sends it as soon as SEG is seen playing.
 """
 
 from __future__ import annotations
@@ -31,7 +36,13 @@ def main() -> None:
     ap.add_argument("--at", action="append", default=[], help='segment:"line", repeatable')
     ap.add_argument("--poll", type=float, default=3.0)
     args = ap.parse_args()
-    plan = [(int(a.split(":", 1)[0]), a.split(":", 1)[1]) for a in args.at] or DEFAULT
+
+    def parse(spec: str) -> tuple[int, float, str]:
+        head, text = spec.split(":", 1)
+        seg, _, offset = head.partition("+")
+        return int(seg), float(offset or 0.0), text
+
+    plan = [parse(a) for a in args.at] or [(seg, 0.0, text) for seg, text in DEFAULT]
     pending = sorted(plan)
     while pending:
         try:
@@ -42,11 +53,16 @@ def main() -> None:
         if state.get("ended"):
             print(f"film ended with {len(pending)} lines unsent", flush=True)
             return
-        now = (state.get("now") or {}).get("turn")
+        playing = state.get("now") or {}
+        now, started = playing.get("turn"), playing.get("started_at")
         while pending and now is not None and now >= pending[0][0]:
-            seg, text = pending.pop(0)
+            seg, offset, text = pending[0]
+            if now == seg and offset and started and time.time() < started + offset:
+                break                         # not yet: this segment's offset is still ahead
+            pending.pop(0)
             r = requests.post(f"{args.player}/input", json={"text": text}, timeout=5)
-            print(f"segment {now}: sent {text!r} -> {r.status_code}", flush=True)
+            late = time.time() - started if started else float("nan")
+            print(f"segment {now} +{late:.2f} s: sent {text!r} -> {r.status_code}", flush=True)
         time.sleep(args.poll)
     print("all lines sent", flush=True)
 
