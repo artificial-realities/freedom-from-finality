@@ -2,6 +2,13 @@
 
 Experiments of the final decision record (`docs/reviews/05_consolidated_decision_record.md`) that have reported. Each entry gives the result and a recommended disposition; the owner decides whether a gated row changes status. The decision record is not edited by the implementation loop, and no gated production behaviour has been implemented or enabled. Newest first.
 
+## RUN-15: plan the next beat earlier (D-14) — 2026-09-24
+
+Report: `docs/reviews/implementation_batches/BATCH_033.md`.
+
+- **Keep `plan_early: true`** (it is on). In the JIT simulation with real runs' Director calls it is neutral under X-10's slow Director and better under session 2's fast one: a fuller queue, and lines landing 1.2 s sooner on average. The cost is some discarded plans (tokens).
+- **Its validation's stall half is not met under X-10's tail**, and cannot be: at X-10's call speed the old schedule already started the call at the last clip's emit. X-10's stalls need a shorter call (RUN-16) or the first clip sooner (X-19 → ARCH-12).
+
 ## GPU session 3: X-10, X-11, X-12, X-22, X-23, X-31 — 2026-09-24
 
 Report: `docs/reviews/experiments/session3.md`.

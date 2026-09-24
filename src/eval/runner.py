@@ -884,6 +884,12 @@ async def run_live(
                 if graph.has_next_clip():
                     wait_until = fire_at
                     player.status(f"listening for your input before segment {turn}")
+                elif config.plan_early:
+                    # RUN-15: plan the next beat now; the loop then waits for
+                    # the fire with the beat in hand, still listening.
+                    player.status(f"the Director is writing segment {turn}")
+                    await _plan(await _take())
+                    continue
                 else:
                     wait_until = fire_at - _director_lead()
                     player.status(f"listening for your input before the Director writes from segment {turn}")

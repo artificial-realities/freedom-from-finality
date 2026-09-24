@@ -83,6 +83,28 @@ class Spread:
         return min(self.hi, max(self.lo, rng.gauss(self.mean, self.sd)))
 
 
+@dataclass
+class Samples:
+    """A delay distribution resampled from measured values, so the tail is
+    a real run's rather than a clipped normal's (whose floor at mean − 3 sd
+    can reach zero and pull the running estimate down, which real calls
+    never do)."""
+
+    values: list[float]
+
+    def draw(self, rng: random.Random) -> float:
+        return rng.choice(self.values)
+
+    @classmethod
+    def director_calls(cls, timing: Path | str) -> "Samples":
+        """The completed Director calls of a run's `timing.jsonl` (the
+        bootstrap and cancelled calls left out; validator re-asks are
+        inside the samples, so leave `director_retry_rate` at 0)."""
+        rows = [json.loads(line) for line in Path(timing).read_text().splitlines() if line.strip()]
+        return cls(sorted(r["plan_s"] for r in rows if r.get("event") == "director_end"
+                          and not r.get("bootstrap") and not r.get("cancelled") and r.get("plan_s") is not None))
+
+
 def baseline_render() -> Spread:
     return Spread.of(baseline()["renders"]["render_s"])
 
@@ -111,13 +133,16 @@ class Line:
     answering a line (the cancel-and-restart path). `after_answer` sends
     it that many real-time seconds after the Director call answering the
     previous line returns, before that answer has played (the second
-    line of a pair)."""
+    line of a pair). `into_clip` sends it that many real-time seconds after
+    clip `after_clip` goes on air (the same moment of the film under any
+    policy, for paired comparisons)."""
 
     text: str
     after_clip: int
     before_fire: float | None = None
     mid_call: float | None = None
     after_answer: float | None = None
+    into_clip: float | None = None
     # Filled in when it is sent.
     id: int | None = None
     sent_at: float | None = None
@@ -147,6 +172,8 @@ class SimPlayer(Player):
         if item.user_input:
             self.answered.append(item.user_input)
         line = self._next_line(item.turn)
+        if line is not None and line.into_clip is not None and item.turn == line.after_clip:
+            asyncio.get_running_loop().call_later(line.into_clip / self.time_scale, self._send, line)
         if line is not None and line.before_fire is not None:
             phase = self._fire_phase()
             if phase is not None:
@@ -271,6 +298,7 @@ async def simulate(
     policy: str | None = None,
     buffer_seconds: float | None = None,
     director_retry_rate: float = 0.0,
+    plan_early: bool | None = None,
 ) -> Sim:
     """Run `clips` clips of `config` with the mock LLM and replayed clips,
     `scale` times faster than real time. Render walls and Director calls
@@ -322,6 +350,7 @@ async def simulate(
         real = real.model_copy(update={
             "jit_policy": policy or real.jit_policy,
             "buffer_seconds": real.buffer_seconds if buffer_seconds is None else buffer_seconds,
+            "plan_early": real.plan_early if plan_early is None else plan_early,
         })
         run = real.model_copy(update={
             "llm_backend": "mock", "model": "mock",

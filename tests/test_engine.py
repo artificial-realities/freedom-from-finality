@@ -114,10 +114,12 @@ async def test_live_loop_renders_from_the_story_image():
 
 
 async def test_director_engine_end_to_end():
+    """On the schedule that plans each beat just before its fire (plan_early
+    off), so the timeline below is fixed; early planning has its own test."""
     story = Story.from_json("stories/lego-void")
     player = Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."})
     with tempfile.TemporaryDirectory() as d:
-        state = await run_live(config=_config(), story=story, log_dir=d, player=player, max_segments=7)
+        state = await run_live(config=_config(plan_early=False), story=story, log_dir=d, player=player, max_segments=7)
 
         assert player.turns == [1, 2, 3, 4, 5, 6, 7]
         assert len(state.history) == 7, "every clip produced beat + shot + commentary"
@@ -234,3 +236,23 @@ async def test_showrunner_min_gap_holds_triggers():
         world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
     assert world.showrunner_runs == 2, world.showrunner_runs
     assert "showrunner trigger held" in transcript and "minimum 4" in transcript
+
+
+async def test_the_next_beat_is_planned_as_soon_as_the_last_clip_is_out():
+    """RUN-15 (D-14): with plan_early the Director call for the next beat
+    starts right after the running beat's last clip is emitted, not just
+    before the next fire; a line that arrives while that beat is unplayed
+    drops it and is answered at once, landing sooner."""
+    import json as _json
+    story = Story.from_json("stories/lego-void")
+    player = Scripted(lines={4: "Do a trick with it."})
+    with tempfile.TemporaryDirectory() as d:
+        state = await run_live(config=_config(plan_early=True), story=story, log_dir=d, player=player, max_segments=7)
+        session_dir = next((Path(d) / "sessions").iterdir())
+        records = [_json.loads(x) for x in (session_dir / "timing.jsonl").read_text().splitlines()]
+    inputs = [h.user_input for h in state.history]
+    assert inputs.index("Do a trick with it.") == 4, inputs          # typed during clip 4, on air at 5
+    emits = {r["turn"]: r["t"] for r in records if r["event"] == "emit"}
+    starts = [r for r in records if r["event"] == "director_start" and not r.get("input") and r["turn"] > 2]
+    # Each plan for a new beat starts right after the previous clip was emitted.
+    assert starts and all(r["t"] - emits[r["turn"] - 1] < 0.05 for r in starts), [(r["turn"], r["t"]) for r in starts]

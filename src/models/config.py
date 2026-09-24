@@ -161,6 +161,14 @@ class Config(BaseModel):
     # 3.0 s of slack, at the baseline's 4.8 s render). Lowering it waits for
     # X-09 (RUN-06).
     buffer_seconds: float = 4.7
+    # RUN-15 (D-14): when a beat has no clip left, the Director call for the
+    # next beat starts at once instead of one estimated call (x JIT_SAFETY,
+    # plus a margin) before the next render's fire; a viewer's line during
+    # the call still cancels and restarts it. With a slow Director the two
+    # moments nearly coincide (the estimate is about a clip), so it gains
+    # little; with a fast one it keeps the queue fuller and lines land
+    # sooner (BATCH_033). False: the old schedule.
+    plan_early: bool = True
     # The just-in-time policy. "current" is production. "deadline" is RUN-06's
     # candidate, for the X-09 experiment only (RUN-06 is EXPERIMENT_REQUIRED;
     # do not enable it in a production config): render and Director
