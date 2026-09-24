@@ -54,5 +54,5 @@ def test_the_player_seam_mode_is_fade_unless_an_experiment_asks():
     assert item.model_dump()["overlap_seconds"] == 0.375 and Playable(turn=1).overlap_seconds == 0.0
     page = Path("src/web/player.html").read_text()
     assert "let seam = 'fade';" in page and "if (s.seam === 'overlap'" in page, "the page defaults to today's fade"
-    source = Path("server/ltx2_server.py").read_text()
+    source = Path("server/encode.py").read_text()   # the server's encode (RUN-14 moved it out of ltx2_server.py)
     assert 'os.getenv("LTX2_AUDIO_CEILING_LUFS", "")' in source, "the server's ceiling is off unless set"

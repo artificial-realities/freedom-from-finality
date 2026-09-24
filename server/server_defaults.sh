@@ -16,3 +16,5 @@ export LTX2_COMPILE=${LTX2_COMPILE:-1}
 export LTX2_WIDTH=${LTX2_WIDTH:-640}
 export LTX2_HEIGHT=${LTX2_HEIGHT:-352}
 export LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-145,145,145}
+# Render-time headroom (RUN-14, server/encode.py): LTX2_GPU_FRAMES=1, LTX2_PIPE_FORMAT=yuv420p and
+# LTX2_X264_THREADS stay at the code's defaults (off, rgb24, 0) until a GPU session has measured them.

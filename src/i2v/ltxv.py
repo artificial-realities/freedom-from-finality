@@ -49,6 +49,7 @@ REFERENCE_SCALE = 0.8
 RENDER_HEADERS: dict[str, tuple[str, type]] = {
     "X-Latency-S": ("latency_s", float),
     "X-Encode-S": ("encode_s", float),
+    "X-Post-S": ("post_s", float),       # frames to uint8 after the pipeline (RUN-14)
     "X-Timings": ("timings", str),
     "X-Num-Frames": ("num_frames", int),
     "X-Duration-S": ("duration_s", float),

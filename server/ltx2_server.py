@@ -97,6 +97,22 @@ Speed (docs/reviews/2026-09-16-real-time-plan.md):
     LTX2_ENCODER      "auto" (default: h264_nvenc when ffmpeg and the driver support it,
                       else libx264), "x264", "nvenc", or "av" (diffusers' PyAV path).
     LTX2_X264_PRESET  libx264 preset (default "ultrafast").
+
+Render-time headroom (RUN-14; `server/encode.py`), each off until a GPU
+session measures it:
+    LTX2_GPU_FRAMES   "1": the pipeline returns its frames as a GPU tensor
+                      (`output_type="pt"`) and they become uint8 there, the
+                      same bytes as the host path, without converting 390 MB
+                      of float32 on the CPU after the measured generate time.
+                      Default "0" (the numpy path).
+    LTX2_PIPE_FORMAT  "rgb24" (default) or "yuv420p": frames reach ffmpeg as
+                      planar YUV 4:2:0 converted beside them (on the GPU with
+                      LTX2_GPU_FRAMES=1), half the bytes and no conversion in
+                      ffmpeg; BT.601 limited range, as ffmpeg's own. Needs
+                      LTX2_GPU_FRAMES=1 (on the host it costs seconds).
+    LTX2_X264_THREADS libx264 threads (default 0 = ffmpeg's choice, which on
+                      a 128-thread host spawns far more than a 640x352 clip
+                      can use).
 """
 
 from __future__ import annotations
@@ -107,10 +123,8 @@ import io
 import logging
 import os
 import shutil
-import subprocess
 import tempfile
 import time
-import wave
 
 import numpy as np
 import torch
@@ -120,6 +134,8 @@ from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
+
+import encode
 
 logging.basicConfig(
     level=logging.INFO,
@@ -156,6 +172,15 @@ _attn_backend: str = "native"
 _quant: str = "bf16"
 _compiled: bool = False
 _encoder: str = "x264"
+# RUN-14 settings (see the docstring); off by default until measured.
+_gpu_frames: bool = os.getenv("LTX2_GPU_FRAMES", "0").strip() == "1"
+_pipe_format: str = os.getenv("LTX2_PIPE_FORMAT", "rgb24").strip().lower() or "rgb24"
+_x264_threads: int = int(os.getenv("LTX2_X264_THREADS", "0") or 0)
+if _pipe_format not in ("rgb24", "yuv420p"):
+    raise SystemExit(f"LTX2_PIPE_FORMAT must be rgb24 or yuv420p, not {_pipe_format!r}")
+if _pipe_format == "yuv420p" and not _gpu_frames:
+    # On the host the conversion costs seconds per clip (1.3-6.8 s measured), more than it saves.
+    raise SystemExit("LTX2_PIPE_FORMAT=yuv420p needs LTX2_GPU_FRAMES=1 (the planes are made on the GPU)")
 
 # Session: the reference image (PIL, seeds turn 1 and anchors) and the
 # tail of the last generated chunk (uint8 ndarray, shape (F, H, W, 3)).
@@ -524,7 +549,7 @@ def _pick_encoder() -> str:
         probe = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
         probe.close()
         try:
-            _encode_mp4(np.zeros((9, 160, 256, 3), np.uint8), 24, None, 48000, probe.name, codec="nvenc")
+            encode.encode_mp4(np.zeros((9, 160, 256, 3), np.uint8), 24, None, 48000, probe.name, codec="nvenc")
             return "nvenc"
         except Exception as exc:
             level = logger.warning if want == "nvenc" else logger.info
@@ -578,6 +603,9 @@ async def health():
         "quant": _quant,
         "compiled": _compiled,
         "encoder": _encoder,
+        "gpu_frames": _gpu_frames,
+        "pipe_format": _pipe_format,
+        "x264_threads": _x264_threads,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         "turn_count": session.get("turn_count", 0),
         "has_reference": "ref_image" in session,
@@ -664,7 +692,7 @@ def _run_pipeline(req: GenerateRequest) -> dict:
         num_frames=num_frames,
         frame_rate=FRAME_RATE,
         generator=generator,
-        output_type="np",
+        output_type="pt" if _gpu_frames else "np",
         return_dict=False,
         **_call_defaults,
     )
@@ -689,19 +717,28 @@ def _run_pipeline(req: GenerateRequest) -> dict:
     dt = time.monotonic() - t0
     logger.info("Turn %d: %s", turn, _stage_summary(dt))
 
-    # output_type="np" → float [0, 1], shape (B, F, H, W, C).
-    frames = video[0] if getattr(video, "ndim", 0) == 5 else video
-
     # uint8 [0, 255] once: the tail is the next turn's condition (the
     # pipeline maps conditions with `pixels / 127.5 - 1.0`, and the
     # single-frame CRF path rejects non-uint8), and the encoder takes the
-    # same array.
-    frames_u8 = (np.clip(frames, 0.0, 1.0) * 255.0).round().astype(np.uint8)
+    # same array. output_type "pt" (LTX2_GPU_FRAMES=1) is a GPU tensor,
+    # converted there; "np" is float [0, 1] (B, F, H, W, C) on the host.
+    t_post = time.monotonic()
+    yuv = None
+    try:
+        frames_u8, on_device = encode.frames_to_uint8(video, keep_on_device=True)
+        if _pipe_format == "yuv420p":
+            yuv = encode.yuv420p_planes(on_device)
+    except Exception:
+        if not torch.is_tensor(video):
+            raise
+        logger.exception("Turn %d: converting the frames on the GPU failed; converting on the host, piping RGB", turn)
+        frames_u8, yuv = encode.frames_to_uint8(video.float().cpu().numpy()), None
+    post_s = time.monotonic() - t_post
     tail = min(req.continuity_frames, frames_u8.shape[0])
     session["window"] = frames_u8[-tail:]
 
-    logger.info("Turn %d: generated in %.2fs, %s, %.1f GB VRAM",
-                turn, dt, list(frames.shape), torch.cuda.memory_allocated() / 1e9)
+    logger.info("Turn %d: generated in %.2fs, frames converted in %.2fs, %s, %.1f GB VRAM",
+                turn, dt, post_s, list(frames_u8.shape), torch.cuda.memory_allocated() / 1e9)
 
     audio_arg = None
     if audio is not None:
@@ -712,8 +749,8 @@ def _run_pipeline(req: GenerateRequest) -> dict:
         )
 
     # Captured under the lock: the next request clears the stage timers.
-    return {"frames": frames_u8, "audio": audio_arg, "turn": turn, "latency": dt,
-            "timings": _timings_compact()}
+    return {"frames": frames_u8, "yuv": yuv, "audio": audio_arg, "turn": turn, "latency": dt,
+            "post": post_s, "timings": _timings_compact() + f";post={post_s:.2f}"}
 
 
 def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
@@ -731,7 +768,8 @@ def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
             audio=audio_arg, audio_sample_rate=_audio_sample_rate if audio_arg is not None else None,
         )
     else:
-        audio_meta = _encode_mp4(frames_u8, int(FRAME_RATE), audio_arg, _audio_sample_rate, tmp.name, codec=_encoder)
+        audio_meta = encode.encode_mp4(frames_u8, int(FRAME_RATE), audio_arg, _audio_sample_rate, tmp.name,
+                                       codec=_encoder, yuv=r.get("yuv"), threads=_x264_threads)
     encode_s = time.monotonic() - t1
 
     duration_s = frames_u8.shape[0] / FRAME_RATE
@@ -745,6 +783,7 @@ def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
             "X-Turn": str(turn),
             "X-Latency-S": f"{dt:.2f}",
             "X-Encode-S": f"{encode_s:.2f}",
+            "X-Post-S": f"{r.get('post', 0.0):.2f}",
             **{f"X-Audio-{k}": v for k, v in audio_meta.items()},
             "X-Timings": r["timings"],
             "X-Num-Frames": str(frames_u8.shape[0]),
@@ -856,59 +895,6 @@ def _stage_summary(total: float) -> str:
 # ── Helpers ───────────────────────────────────────────────────────
 
 _FFMPEG = shutil.which("ffmpeg") is not None
-
-
-def _encode_mp4(frames_u8: np.ndarray, fps: int, audio: torch.Tensor | None,
-                sample_rate: int, path: str, codec: str = "x264") -> dict:
-    """Raw RGB frames piped into ffmpeg (h264_nvenc on the GPU, or libx264
-    on all cores), the audio waveform [channels, samples] muxed from a
-    temporary WAV. About ten times faster than the frame-by-frame PyAV
-    path on these boxes.
-
-    With LTX2_AUDIO_CEILING_LUFS set (AUD-03's candidate, experiment-only:
-    off unless an experiment sets it), the audio is padded to the video and
-    given one static, never-boosting gain to the ceiling and under -1 dBTP
-    (`audio_ceiling.py`); the measurements come back for the response
-    headers (X-Audio-LUFS, X-Audio-TP, X-Audio-Gain-dB)."""
-    n, h, w, _ = frames_u8.shape
-    wav = None
-    cmd = ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
-           "-s", f"{w}x{h}", "-r", str(fps), "-i", "-"]
-    if audio is not None:
-        wav = path + ".wav"
-        pcm = (audio.clamp(-1.0, 1.0).T.contiguous().numpy() * 32767.0).astype(np.int16)
-        with wave.open(wav, "wb") as f:
-            f.setnchannels(pcm.shape[1])
-            f.setsampwidth(2)
-            f.setframerate(int(sample_rate))
-            f.writeframes(pcm.tobytes())
-        cmd += ["-i", wav]
-    meta: dict = {}
-    ceiling = os.getenv("LTX2_AUDIO_CEILING_LUFS", "").strip()
-    if audio is not None and ceiling:
-        import audio_ceiling
-        lufs, peak = audio_ceiling.measure(wav)
-        gain = audio_ceiling.gain_db(lufs, peak, float(ceiling))
-        cmd += ["-af", audio_ceiling.audio_filter(gain, n / fps)]
-        meta = {"LUFS": f"{lufs:.2f}" if lufs is not None else "nan",
-                "TP": f"{peak:.2f}" if peak is not None else "nan", "Gain-dB": f"{gain:.2f}"}
-    if codec == "nvenc":
-        cmd += ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll", "-rc", "vbr", "-cq", "23",
-                "-pix_fmt", "yuv420p"]
-    else:
-        cmd += ["-c:v", "libx264", "-preset", os.getenv("LTX2_X264_PRESET", "ultrafast"), "-tune", "zerolatency",
-                "-crf", "20", "-pix_fmt", "yuv420p", "-threads", "0"]
-    if audio is not None:
-        cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
-    cmd += ["-movflags", "+faststart", path]
-    try:
-        subprocess.run(cmd, input=frames_u8.tobytes(), check=True, capture_output=True)
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"ffmpeg encode failed: {exc.stderr.decode(errors='replace')[-500:]}") from exc
-    finally:
-        if wav and os.path.exists(wav):
-            os.unlink(wav)
-    return meta
 
 
 def _snap_to_frame_grid(raw: int) -> int:

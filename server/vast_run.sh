@@ -18,6 +18,7 @@
 # LTX2_ATTN, LTX2_QUANT, LTX2_COMPILE, LTX2_ENCODER, ...; see server/ltx2_server.py). VAST_IMAGE and VAST_QUERY
 # pick the image and the offer: a B200 needs the CUDA 12.8 image (the default) and
 #   VAST_QUERY='gpu_name=B200 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true'
+# VAST_ENV passes container options (see `up`).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
@@ -45,7 +46,9 @@ server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA
 up() {
   local offer=${1:-$(pick_offer)}
   echo "renting offer $offer"
-  vastai create instance "$offer" --image "$IMAGE" --disk 200 --ssh --direct --label ar-ltx25 --raw \
+  # VAST_ENV reaches the container, e.g. VAST_ENV='-e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video' to ask
+  # for the video engine (h264_nvenc; RUN-14), which Vast containers lack by default.
+  vastai create instance "$offer" --image "$IMAGE" --disk 200 --ssh --direct --label ar-ltx25 --raw ${VAST_ENV:+--env "$VAST_ENV"} \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"), d; print(d["new_contract"])' > "$STATE/id"
   echo "instance $(cat "$STATE/id"): waiting for boot"
   for _ in $(seq 1 60); do [ "$(field actual_status)" = running ] && break; sleep 10; done
@@ -62,7 +65,7 @@ else:
 ' | { read -r h; read -r p; echo "$h" > "$STATE/host"; echo "$p" > "$STATE/port"; }
   echo "ssh target $(cat "$STATE/host"):$(cat "$STATE/port")"
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
-  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/audio_ceiling.py server/server_defaults.sh server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/server_defaults.sh server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
   ssh_cmd "chmod +x /root/remote_setup.sh; nohup env $(server_env) /root/remote_setup.sh > /root/setup.log 2>&1 &"
   ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"
@@ -82,7 +85,7 @@ wait_ready() {
 restart() {
   # Same box, new server process: switch any LTX2_* setting (variant, size, attention, quant, compile) without re-renting.
   # The weights are cached on the box, so this is load time only (a few minutes).
-  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/audio_ceiling.py server/server_defaults.sh "root@$(cat "$STATE/host"):/root/"
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/server_defaults.sh "root@$(cat "$STATE/host"):/root/"
   # Kill and start in separate ssh calls: with both in one command line the
   # kill pattern matches the shell running it (its argv holds the start command).
   ssh_cmd "pkill -f '[l]tx2_server.py' || true; sleep 2"
