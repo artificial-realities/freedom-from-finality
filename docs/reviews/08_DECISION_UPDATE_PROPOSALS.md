@@ -2,6 +2,16 @@
 
 Experiments of the final decision record (`docs/reviews/05_consolidated_decision_record.md`) that have reported. Each entry gives the result and a recommended disposition; the owner decides whether a gated row changes status. The decision record is not edited by the implementation loop, and no gated production behaviour has been implemented or enabled. Newest first.
 
+## GPU session 3: X-10, X-11, X-12, X-22, X-23, X-31 — 2026-09-24
+
+Report: `docs/reviews/experiments/session3.md`.
+
+- **RUN-10 → APPROVED with `ltxv_restart_recovery: "window"` as the default** (X-11: the scene survives a server restart; recovery +0.4 s). The reference stays the fallback before the first clip.
+- **LTX-15 (multi-shot):** controllable on the open model (6/6 requested cuts, 0/12 unrequested); adopting it needs a per-clip cut field for the Director and prompt rules — a product choice.
+- **RUN-11's asset swap:** keep the letterboxed square; the supplied master is a wide shot and the film opens on a zoom. The working tree's `legoman.png` is that master (uncommitted); `vast_run.sh run` would ship it.
+- **LTX-04:** keep the rules; X-22 saw no artefact reduction. **X-23:** do not adopt the clause.
+- **X-10:** renders stable over 300 clips; the three stalls are the Director's latency tail (calls of 6-14 s). Levers outside current rows: first-clip streaming (X-19/ARCH-12), planning the next beat earlier near a beat's end, a larger buffer, a faster Director model.
+
 ## After D-01: ARCH-01's remaining gap, and a lost viewer line — 2026-09-23
 
 Report: `docs/reviews/implementation_batches/BATCH_023.md`. Data: `logs/experiments/story-authority-d01/` (eight real-Director runs on X-07/X-08's harness, production code with ARCH-08/ARCH-09).
