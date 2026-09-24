@@ -9,7 +9,7 @@ The execution state of every decision in the final decision record. The record i
 - **Batch in progress:** none
 - **GPU spend:** ≈ $6.73 of the $30.00 authorised (record §2, Q8): one unreachable rental (BATCH_020, ≈ $0.68), GPU session 1 (BATCH_021, ≈ $3.00), GPU session 2 (BATCH_027, ≈ $3.05)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
-- **Owner decisions after the record:** `docs/reviews/08_OWNER_DECISIONS.md` (D-01..D-04, 2026-09-23): 5 rows to `APPROVED` (ARCH-08, ARCH-09, LTX-12, AUD-02, AUD-03), 7 to `REJECTED` (LTX-01, LTX-02, LTX-06, LTX-11, LTX-14, RUN-06, RUN-12), one new row `APPROVED` (RUN-14). The status column shows `record → decision`.
+- **Owner decisions after the record:** `docs/reviews/08_OWNER_DECISIONS.md` (D-01..D-11, 2026-09-23/24; D-01..D-04 summarised here): 5 rows to `APPROVED` (ARCH-08, ARCH-09, LTX-12, AUD-02, AUD-03), 7 to `REJECTED` (LTX-01, LTX-02, LTX-06, LTX-11, LTX-14, RUN-06, RUN-12), one new row `APPROVED` (RUN-14). The status column shows `record → decision`.
 
 **Execution states.** `NOT_STARTED` · `IN_PROGRESS` · `COMPLETED` (implemented and its required validation passed) · `BLOCKED` (cannot proceed or cannot be validated; the note says why) · `RESULT_READY` (experiment finished, owner review pending; never `COMPLETED` before owner approval) · `NOT_APPLICABLE` (rejected, deferred, or approved keep-as-is with scope "none").
 
@@ -109,9 +109,9 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | X-12 | blocking | RUN-11 asset swap | RUN-11 static checks; a 16:9 master | GPU (~10 min), session 2 | NOT_STARTED | 0 | — |
 | X-13 | blocking | AUD-03 value | session A clips (local); `scripts/audio_check.py` (done, BATCH_004; the ceiling arm needs the AUD-03 candidate encode) | local + listening H2 | RESULT_READY (offline); listening BLOCKED | 0 | −18: 13.8 LU, −20: 11.8 LU, 0 TP overs, 16/63 clips lowered, no quiet clip touched; preference needs listeners |
 | X-14 | conditional | AUD-09 | only if X-02 leaves audible gaps and AUD-09 is reopened | local + listening | NOT_STARTED | 0 | — |
-| X-15 | blocking | AUD-07; informs RUN-02 | X-18 candidate durations; LTX-05; AUD-06 | GPU (45-60 min) + listeners | NOT_STARTED | 0 | — |
-| X-18 | blocking | RUN-02 | RUN-01, RUN-05, RUN-08, LTX-09; multi-shape warm-up | GPU (60-90 min) | NOT_STARTED | 0 | — |
-| X-29 | blocking | AUD-07; validates LTX-05 voice use | LTX-05; a synthetic two-voice test story | GPU (30-45 min) + listeners | NOT_STARTED | 0 | — |
+| X-15 | blocking | AUD-07; informs RUN-02 | X-18 candidate durations; LTX-05; AUD-06 | GPU (45-60 min) + listeners | NOT_APPLICABLE (skipped, D-10) | 0 | — |
+| X-18 | blocking | RUN-02 | RUN-01, RUN-05, RUN-08, LTX-09; multi-shape warm-up | GPU (60-90 min) | NOT_APPLICABLE (skipped, D-10) | 0 | — |
+| X-29 | blocking | AUD-07; validates LTX-05 voice use | LTX-05; a synthetic two-voice test story | GPU (30-45 min) + listeners | NOT_APPLICABLE (skipped, D-10) | 0 | — |
 | X-31 | blocking | LTX-15 | RUN-05, LTX-09 | GPU (45-60 min) | NOT_STARTED | 0 | — |
 | X-22 | post-implementation | LTX-04 | LTX-04 landed | GPU | NOT_STARTED | 0 | — |
 | X-26 | post-implementation | ARCH-19 | ARCH-19 landed | LLM (+ GPU for identity) | IN_PROGRESS (LLM half run) | 0 | `docs/reviews/experiments/X-26.md`: new character registered and stable in state; permitted switch used; 2/24 re-asks, none policy; a must-appear character did not enter within 2 min of its condition; identity half needs the GPU |

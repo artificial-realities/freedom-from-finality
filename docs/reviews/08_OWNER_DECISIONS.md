@@ -22,6 +22,14 @@ The questions as asked, and the answers chosen (each was the recommended option)
 | D-07 | GPU session 2: how should I use it (about $26 left of the $30 cap)? | **Headroom + seam + live run now.** One box, about $5-8: measure RUN-14's settings, roll out the overlap seam if there's headroom, then a 60+ clip live run with scripted lines against RUN-04's gates. X-10..X-12, X-18, X-31 later, after their arms are prepared. | The phase-6 live verification runs now, before the remaining phase-3 experiments (X-10, X-11, X-12, X-15, X-18, X-29, X-31), by the owner's decision. |
 | D-08 | X-01 (is the LTX narrator one voice?) and X-13's listening half need at least 3 listeners for 25 blind audio pairs. Want a shareable web page for the test? | **Skip the test.** Keep LTX narration and −18 LUFS as decided; AUD-05 stays gated (TTS code stays). | X-01 and X-13's listening half are not run. AUD-05 stays `EXPERIMENT_REQUIRED` (native LTX narration remains the default; the external TTS path stays in the code). AUD-03's value stays −18 LUFS (D-03). |
 
+## 2026-09-24 — asked in the implementation session, answered by the owner
+
+| # | Question (as asked) | Answer | Rows and new status |
+|---|---|---|---|
+| D-09 | Next GPU work (about $23 left of the $30 cap). Which experiments should I prepare and run in session 3? | **No-judge experiments.** X-10 (30-min, 300-clip stability run with a fire-aware scripted viewer), X-11 (restart recovery: build the RUN-10 arm), X-31 (native multi-shot, if the installed pipeline supports it), plus X-22/X-23/X-26's GPU checks. About $4-6. | GPU session 3's scope. |
+| D-10 | X-18 (variable 4/6/8 s clip lengths) needs a human pacing preference, and X-15/X-29 (speech density, two-speaker dialogue) need listeners. Skip them like X-01? | **Skip them.** Keep fixed 6 s clips (RUN-02 stays gated) and add no speech limits (AUD-07 stays gated). | X-18, X-15, X-29 not run; RUN-02 and AUD-07 stay `EXPERIMENT_REQUIRED` (production keeps one 6-s shape and no speech rule). |
+| D-11 | X-12 compares today's letterboxed square reference with a 16:9 master of the same image. The Lego image is on a white background, so letterboxing with the border colour is nearly the same as a master. Skip it? | **I'll supply a 16:9 master.** Put a 16:9 version of legoman.png in stories/lego-void/ and it is tested in session 3. | X-12 runs in session 3 if the master is in `stories/lego-void/` by then. |
+
 ## New rows
 
 | ID | Decision | Recommended choice | Evidence | Risks / rollback | Depends on | Validation | Scope | Owner status |
