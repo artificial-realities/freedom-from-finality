@@ -126,6 +126,10 @@ class Config(BaseModel):
     # again next segment. At most one run is in flight at a time.
     showrunner_min_gap: int = 4
     stagnation_seconds: float = 90.0    # story seconds without structural change before pressure
+    # ARCH-08: a viewer's direction stays active (shaping the Director's beats,
+    # the card's candidate beats hidden, ARCH-09) until the next line or this
+    # many story seconds, whichever comes first.
+    viewer_momentum_seconds: float = 90.0
     # The steady-state buffer the just-in-time schedule keeps (RUN-03): each
     # render fires the render estimate plus this many seconds before its
     # clip is due on air, so a clip is ready about this long before it

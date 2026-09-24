@@ -101,7 +101,11 @@ class DirectorEngine:
             if config.showrunner_model else llm
         )
         self._showrunner_task: asyncio.Task | None = None
-        self._showrunner_meta: tuple[int, bool, str] | None = None  # (at_segment, force_replan, reason)
+        # (at_segment, force_replan, reason, triggered_at): `triggered_at` is the
+        # segment whose plan first raised the trigger (a held replan keeps the
+        # segment it was held since), which decides whether the card it lands
+        # may clear the viewer's momentum (ARCH-08).
+        self._showrunner_meta: tuple[int, bool, str, int] | None = None
         self._showrunner_notes: list[str] = []
         self._last_spawn: int = 0   # segment the last Showrunner run was spawned at
         # A replan the Director asked for (scene_done / needs_replan) that no
@@ -110,8 +114,8 @@ class DirectorEngine:
         # replan lands (ARCH-02).
         self._held_trigger: tuple[str, str, int] | None = None
         # The trigger this plan decided on, spawned at the beat's first clip
-        # after it is applied (ARCH-03): (reason, mode).
-        self._pending_spawn: tuple[str, str] | None = None
+        # after it is applied (ARCH-03): (reason, mode, triggered_at).
+        self._pending_spawn: tuple[str, str, int] | None = None
         # Fail-soft (RUN-09): the engine and world as they were before the
         # last emitted clip, its segment, and the Showrunner updates landed
         # since (a plan for the next clip may land one before the clip's
@@ -186,6 +190,19 @@ class DirectorEngine:
         self._showrunner_notes = []
 
         world.segment = seg
+        # ARCH-08: a viewer's direction stays active until the next line or
+        # for `viewer_momentum_seconds` of film, whichever comes first; while
+        # it is active the Director does not see the card's candidate beats
+        # (ARCH-09), which return when it expires.
+        if world.viewer_momentum:
+            age = world.seconds_since(world.viewer_momentum_segment)
+            if age >= self.config.viewer_momentum_seconds:
+                notes.append(f"viewer momentum expired: the direction of segment {world.viewer_momentum_segment} "
+                             f"is {age:.0f} s old")
+                self.timing.write("momentum_expired", turn=seg, since=world.viewer_momentum_segment,
+                                  age_s=round(age, 2))
+                world.viewer_momentum = ""
+                world.viewer_momentum_segment = 0
         text = (state.user_input or "").strip()
         if text:
             world.add_intervention(seg, text)
@@ -232,6 +249,12 @@ class DirectorEngine:
         self._pending_note = ""
 
         reason, mode = self._trigger(beat, forced_done)
+        # Where the trigger arose: this plan, or the plan a held replan was
+        # first asked at (`_trigger` raises a held one only when this beat
+        # raised no flag of its own).
+        triggered_at = seg
+        if reason and self._held_trigger is not None and not (beat.scene_done or beat.needs_replan):
+            triggered_at = self._held_trigger[2]
         if (beat.scene_done or beat.needs_replan) and self._held_trigger is None:
             # One-shot: remembered until a replan run takes it, so a flag
             # raised while a run is in flight or inside the gap is not lost.
@@ -245,7 +268,7 @@ class DirectorEngine:
             else:
                 # Spawned when this beat's first clip is emitted, after it is
                 # applied, so the snapshot and the window include it.
-                self._pending_spawn = (reason, mode)
+                self._pending_spawn = (reason, mode, triggered_at)
                 spawning = reason
         self._plan_notes = notes
         self._plan_meta = {"vo_open": vo_open, "pacing": pnote, "trigger": spawning, "forced": forced_done}
@@ -390,8 +413,9 @@ class DirectorEngine:
         self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
         self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
         self._held_trigger, self._beat_shape = snap["held_trigger"], snap["beat_shape"]
-        for update, at_segment, force_replan in landings:
-            apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan)
+        for update, at_segment, force_replan, triggered_at in landings:
+            apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan,
+                             triggered_at=triggered_at)
 
     def _cut_after_failure(self, snap: dict, reason: str) -> None:
         """The beat whose clip failed is cut there; the next plan starts from
@@ -484,9 +508,9 @@ class DirectorEngine:
         ))
         self._save()
         if first and self._pending_spawn is not None:
-            reason, mode = self._pending_spawn
+            reason, mode, triggered_at = self._pending_spawn
             self._pending_spawn = None
-            self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg)
+            self._spawn_showrunner(state, reason=reason, mode=mode, at_segment=seg, triggered_at=triggered_at)
 
         notes = self._plan_notes if first else []
         self._plan_notes = [] if first else self._plan_notes
@@ -544,7 +568,8 @@ class DirectorEngine:
             return ("compaction interval", "compact")
         return (None, "")
 
-    def _spawn_showrunner(self, state: StoryState, *, reason: str, mode: str, at_segment: int) -> None:
+    def _spawn_showrunner(self, state: StoryState, *, reason: str, mode: str, at_segment: int,
+                          triggered_at: int | None = None) -> None:
         assert self.world is not None
         snapshot = self.world.model_copy(deep=True)
         state_snapshot = state.model_copy(deep=True)
@@ -555,7 +580,8 @@ class DirectorEngine:
                 config=self.config, reason=reason, mode=mode,
             )
 
-        self._showrunner_meta = (at_segment, mode == "replan", reason)
+        self._showrunner_meta = (at_segment, mode == "replan", reason,
+                                 at_segment if triggered_at is None else triggered_at)
         self._showrunner_task = asyncio.create_task(_task())
         self._last_spawn = at_segment
         if mode == "replan":
@@ -593,7 +619,8 @@ class DirectorEngine:
         task, meta = self._showrunner_task, self._showrunner_meta
         if task is None:
             return
-        at_segment, force_replan, reason = meta or (self.world.segment if self.world else 0, False, "?")
+        seg0 = self.world.segment if self.world else 0
+        at_segment, force_replan, reason, triggered_at = meta or (seg0, False, "?", seg0)
         if not task.done():
             self._showrunner_notes.append(
                 f"showrunner ({reason}, spawned at segment {at_segment}): still running; continuing with the current plan",
@@ -606,7 +633,8 @@ class DirectorEngine:
             logger.exception("Showrunner task failed; continuing with the current plan")
             self._showrunner_notes.append("showrunner: task failed; plan unchanged")
             return
-        self._land(update, at_segment=at_segment, force_replan=force_replan, reason=reason, landed_at=seg)
+        self._land(update, at_segment=at_segment, force_replan=force_replan, reason=reason, landed_at=seg,
+                   triggered_at=triggered_at)
 
     async def _join_showrunner(self) -> None:
         """Wait for the in-flight run and land it. Only `drain` (the end of a
@@ -621,10 +649,13 @@ class DirectorEngine:
             logger.exception("Showrunner task failed; continuing with the current plan")
             self._showrunner_notes.append("showrunner: task failed; plan unchanged")
             return
-        at_segment, force_replan, reason = meta or (self.world.segment if self.world else 0, False, "?")
-        self._land(update, at_segment=at_segment, force_replan=force_replan, reason=reason)
+        seg0 = self.world.segment if self.world else 0
+        at_segment, force_replan, reason, triggered_at = meta or (seg0, False, "?", seg0)
+        self._land(update, at_segment=at_segment, force_replan=force_replan, reason=reason,
+                   triggered_at=triggered_at)
 
-    def _land(self, update, *, at_segment: int, force_replan: bool, reason: str, landed_at: int | None = None) -> None:
+    def _land(self, update, *, at_segment: int, force_replan: bool, reason: str, landed_at: int | None = None,
+              triggered_at: int | None = None) -> None:
         assert self.world is not None
         if update is None:
             self._showrunner_notes.append(f"showrunner ({reason}): no update (parse failure)")
@@ -638,8 +669,9 @@ class DirectorEngine:
                 )
                 self.world.scene_started = at_segment + 1
             return
-        landed = apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan)
-        self._landed_since.append((update, at_segment, force_replan))
+        landed = apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan,
+                                  triggered_at=triggered_at)
+        self._landed_since.append((update, at_segment, force_replan, triggered_at))
         if any(n.startswith("scene ") for n in landed):
             self._held_trigger = None   # a new card answers any replan still held
         card = self.world.plan.scene

@@ -114,7 +114,18 @@ def format_locations(world: WorldModel) -> str:
     return "\n".join(lines) if lines else "(none)"
 
 
-def format_plan(world: WorldModel, config: Config) -> str:
+def viewer_direction_active(world: WorldModel, current_input: str = "") -> bool:
+    """A viewer's direction is active while this beat answers a line or the
+    last absorbed line's momentum has not expired (ARCH-08)."""
+    return bool((current_input or "").strip() or world.viewer_momentum)
+
+
+def format_plan(world: WorldModel, config: Config, *, hide_candidates: bool = False) -> str:
+    """The arc and the scene card. The Director's copy hides the card's
+    candidate beats while a viewer's direction is active (ARCH-09): the card
+    is the menu for the quiet stretches, and a visible menu pulled the film
+    back from the viewer's direction in X-07/X-08. The Showrunner always sees
+    its own candidates."""
     out: list[str] = []
     if world.plan.arc:
         out.append("Arc:")
@@ -135,7 +146,10 @@ def format_plan(world: WorldModel, config: Config) -> str:
         out.append(f"  tension: {card.tension}")
         out.append(f"  exit condition: {card.exit_condition}")
         out.append(f"  intensity: {card.intensity}")
-        if card.candidate_beats:
+        if card.candidate_beats and hide_candidates:
+            out.append("  candidate beats: hidden while the viewer's direction is active; "
+                       "they come back when it expires")
+        elif card.candidate_beats:
             out.append("  candidate beats (options, not a script):")
             out.extend(f"    - {b}" for b in card.candidate_beats)
     return "\n".join(out)

@@ -409,8 +409,15 @@ def redundant_note(body: str, ent: Entity, world: WorldModel, update: Showrunner
 
 def apply_showrunner(
     world: WorldModel, update: ShowrunnerUpdate, *, at_segment: int, force_replan: bool,
+    triggered_at: int | None = None,
 ) -> list[str]:
-    """Land a Showrunner update: summaries, notes, pruning, plan."""
+    """Land a Showrunner update: summaries, notes, pruning, plan.
+
+    `triggered_at` is the segment whose plan raised the run's trigger
+    (default: `at_segment`). A new card clears the viewer's momentum only
+    when that is after the momentum's segment (ARCH-08): the replan a
+    viewer's own line provokes, spawned at once or held by the gap and
+    spawned later, does not erase that line."""
     notes: list[str] = []
 
     text = update.scene_summary.strip()
@@ -472,8 +479,10 @@ def apply_showrunner(
         world.plan.scene = card
         world.scene_started = at_segment + 1
         world.last_change = max(world.last_change, at_segment)
-        world.viewer_momentum = ""
-        world.viewer_momentum_segment = 0
+        origin = at_segment if triggered_at is None else triggered_at
+        if world.viewer_momentum and origin > world.viewer_momentum_segment:
+            world.viewer_momentum = ""
+            world.viewer_momentum_segment = 0
         notes.append(f"scene {card.id} opened: {card.goal}")
 
     world.showrunner_runs += 1

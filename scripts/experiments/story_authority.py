@@ -5,7 +5,9 @@ scripted viewer lines in every arm, recorded so a judge can classify every
 beat afterwards (`judge_authority.py`). The arms are evaluation-only
 patches; production code is untouched.
 
-    base              production behaviour (X-07 "momentum on", X-08 "full")
+    base              production behaviour (X-07 "momentum on", X-08 "full"; since
+                      D-01 on 2026-09-23 that includes ARCH-08's scoped reset and
+                      expiry and ARCH-09's hidden candidates)
     momentum_off      X-07: the viewer-momentum block never reaches the Director
     memory_only       X-08 E2: the Director sees no arc and no scene card; the
                       Showrunner still compacts, notes and prunes
@@ -144,8 +146,11 @@ def recorder(path: Path, arm: str):
 
     async def recorded(*, world, state, **kwargs):
         card = world.plan.scene
+        # Production hides the candidates while a direction is active (D-01,
+        # ARCH-09, since 2026-09-23); before that `base` always showed them.
         seen_candidates = bool(card and card.candidate_beats) and not (
-            arm == "memory_only" or (arm == "hide_candidates" and world.viewer_momentum))
+            arm == "memory_only" or (arm == "hide_candidates" and world.viewer_momentum)
+            or (arm == "base" and context.viewer_direction_active(world, state.user_input)))
         row = {
             "arm": arm, "segment": state.turn_number, "answers": (state.user_input or "").strip(),
             "card": ({"id": card.id, "goal": card.goal, "candidates": list(card.candidate_beats),

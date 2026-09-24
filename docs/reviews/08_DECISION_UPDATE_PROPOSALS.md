@@ -2,6 +2,13 @@
 
 Experiments of the final decision record (`docs/reviews/05_consolidated_decision_record.md`) that have reported. Each entry gives the result and a recommended disposition; the owner decides whether a gated row changes status. The decision record is not edited by the implementation loop, and no gated production behaviour has been implemented or enabled. Newest first.
 
+## After D-01: ARCH-01's remaining gap, and a lost viewer line — 2026-09-23
+
+Report: `docs/reviews/implementation_batches/BATCH_023.md`. Data: `logs/experiments/story-authority-d01/` (eight real-Director runs on X-07/X-08's harness, production code with ARCH-08/ARCH-09).
+
+- **ARCH-01 (still BLOCKED).** With the scoped reset, the expiry and the hidden candidates in, beats that follow a card older than the viewer's active direction fell from 7 (five runs) to 3 (eight runs, two of them), and early-clearing snap-backs from 7 to 2. The three left return to the old card's *goal*, 50-60 s after the viewer's line, with the candidates hidden ("he gets sleepy and tries to build himself a bed" → the captain card). **Proposal:** while a direction is active, show the card's goal as paused in the Director's plan section too (for example "Scene 2 (paused while the viewer's direction is active): goal …"), so nothing in the plan section competes with the direction; the Showrunner's copy unchanged. A prompt-context change of the ARCH-09 kind, validated on the same harness.
+- **A failed Director call loses the viewer's line (new; no row covers it).** When the call that answers a line fails (here OpenAI connection timeouts, 2 of 8 runs), the engine holds the picture for one clip and the line is never answered: the viewer's direction silently disappears. **Proposal:** keep the line pending when the answering call fails and answer it at the next plan (a validator re-ask already exists; this is the network-failure path); a test with a backend that fails once. Small, deterministic, in `src/graph/director_engine.py` and `src/eval/runner.py`.
+
 ## X-03, X-04, X-05, X-06 → LTX-12's shape, RUN-04, LTX-11, LTX-01, LTX-06, LTX-02, LTX-14 (GPU session 1) — 2026-09-23
 
 Report: `docs/reviews/experiments/X-03-X-06.md`. Data: `logs/experiments/gpu1/` (405 clips, every request and header). One H100 SXM box, 67 minutes, ≈ $3.00 (≈ $3.68 of the $30 cap spent in total).
