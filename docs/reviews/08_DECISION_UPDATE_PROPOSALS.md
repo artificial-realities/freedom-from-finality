@@ -2,6 +2,14 @@
 
 Experiments of the final decision record (`docs/reviews/05_consolidated_decision_record.md`) that have reported. Each entry gives the result and a recommended disposition; the owner decides whether a gated row changes status. The decision record is not edited by the implementation loop, and no gated production behaviour has been implemented or enabled. Newest first.
 
+## X-19 → ARCH-12: first-clip streaming — 2026-09-24
+
+Report: `docs/reviews/experiments/X-19.md`.
+
+- **Defer ARCH-12 (the record's "not now").** Over 50 answer calls with today's Director, the streamed first clip closes at 1.99 s (median), against 2.66 s for the whole call: 0.6-0.9 s saved per answer. All 50 streamed replies are valid.
+- The change is not small: `BeatPlan`'s field order, a streaming backend, and the engine emitting clip 1 before the beat is whole (so clip 1 needs its own check, since a re-ask cannot take back an emitted clip).
+- The film already passes every gate without it. Adopt it only if the buffer is lowered to land lines sooner.
+
 ## GPU session 4: RUN-17, LTX-15, RUN-16 — 2026-09-24
 
 Report: `docs/reviews/experiments/session4.md`. RUN-17 and RUN-16 met their own criteria and are adopted (512×288 with strict 16:9 references; gpt-5.4-mini as the Director).

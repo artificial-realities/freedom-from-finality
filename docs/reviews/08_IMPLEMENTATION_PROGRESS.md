@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_038 (ledger reconciliation), 2026-09-24
+- **Latest completed batch:** BATCH_039 (X-19), 2026-09-24
 - **Batch in progress:** none
 - **GPU spend:** ≈ $12.6 of the $30.00 authorised (record §2, Q8): one unreachable rental (BATCH_020, ≈ $0.68), GPU sessions 1 (≈ $3.00), 2 (≈ $3.05), 3 (BATCH_031, ≈ $3.55) and 4 (BATCH_037, ≈ $2.3, estimated)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -30,7 +30,7 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-09 | EXPERIMENT_REQUIRED → APPROVED (D-01, extended by D-05) | 3→4 | COMPLETED | X-08, ARCH-02, ARCH-03 | BATCH_017, BATCH_023, BATCH_026 | `test_the_director_sees_the_card_paused_while_a_direction_is_active`; D-05 runs (`logs/experiments/story-authority-d05/`): returns to the card 2/9, early-clearing card beats 0, movement after the last line 1.13/0.76 per minute (pre-D-01 level) | The Director's plan section pauses the whole card while a direction is active (D-05); the Showrunner's copy whole. |
 | ARCH-10 | APPROVED | 2+* | COMPLETED | RUN-01 | BATCH_015, BATCH_017 | prompt test; X-07/X-08 runs: 91/224/15/1 beats of 1/2/3/4 clips, mean 10.3 s | Cap 4; guidance in seconds from the shape. |
 | ARCH-11 | APPROVED | 1* | COMPLETED | none | BATCH_011, BATCH_017 | `test_an_answer_beat_is_capped_and_told_so`; X-07/X-08 base runs: 13/13 answer beats ≤ 2 clips, answer calls 4.22 s mean (max 6.05), others 3.51 s | The reading is taken; the expected 0.3-0.5 s saving is not visible against the day's variation (recorded, not claimed). |
-| ARCH-12 | EXPERIMENT_REQUIRED | 3→4 | NOT_STARTED | X-19 | — | — | Gated by X-19 (optional experiment, required before this row). |
+| ARCH-12 | EXPERIMENT_REQUIRED | 3→4 | RESULT_READY | X-19 | BATCH_039 | X-19 (`docs/reviews/experiments/X-19.md`): 50 answer calls, streamed replies 50/50 valid, clip 1 closed at 1.99 s median (the whole call 2.66 s), 0.6-0.9 s saved per answer | Proposal: defer (the record's "not now"); the saving is modest with gpt-5.4-mini and the film passes every gate without it. |
 | ARCH-13 | APPROVED | — | NOT_APPLICABLE | ARCH-02, ARCH-03 | — | — | Approved keep-as-is (no change to the card; scope none). Cards exist in the engine; lifecycle fixes are ARCH-02/03. |
 | ARCH-14 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; checked: nothing reads `current_act` beyond display (BATCH_008 claim table) | `ARCHITECTURE.md`: the arc orients both roles; the code enforces nothing from it. |
 | ARCH-15 | APPROVED | — | NOT_APPLICABLE | none | — | — | Approved keep-as-is (forced scene closure unchanged; scope none). Verified present: `DirectorEngine.plan` forces `scene_done` past `scene_seconds`. |
@@ -120,7 +120,8 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | X-26 | post-implementation | ARCH-19 | ARCH-19 landed | LLM (+ GPU for identity) | IN_PROGRESS (LLM half run; GPU half BLOCKED: no reference image for the lighthouse fixture) | 0 | `docs/reviews/experiments/X-26.md`; the GPU half needs a lighthouse reference image |
 | X-23 | post-implementation | "no vocal sound" clause | — | GPU | RESULT_READY | ≈ 0.2 | the clause changes nothing it is for (words heard 12 vs 15 in 9 clips each); do not adopt |
 | Live run | post-implementation | RUN-04 gates | phases 0-5 (run early by D-07) | GPU, session 2 | COMPLETED | ≈ 0.5 | BATCH_027: 64 clips, every measurable gate passes; seams pass in the browser; 1 of 9 lines near a fire |
-| X-16, X-17, X-19, X-21, X-24, X-27, X-30 | optional / later | X-19 → ARCH-12; X-21 only if X-06 fails (not triggered: X-06 found text holds the style; LTX-14 rejected, D-02); X-27 only if X-18 selects a menu | — | varies | NOT_STARTED | 0 | — |
+| X-19 | optional (required before ARCH-12) | ARCH-12 | the ARCH-12 arm as evaluation code | OpenAI calls only | RESULT_READY | 0 | `docs/reviews/experiments/X-19.md`: clip 1 at 1.99 s median against 2.66 s for the whole call; 50/50 valid; defer ARCH-12 |
+| X-16, X-17, X-21, X-24, X-27, X-30 | optional / later | X-21 only if X-06 fails (not triggered: X-06 found text holds the style; LTX-14 rejected, D-02); X-27 only if X-18 selects a menu | — | varies | NOT_STARTED | 0 | — |
 
 ## GPU spend
 
@@ -174,9 +175,11 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_036 | 2026-09-24 | RUN-16 (D-14) | RESULT_READY (gpt-5.4-mini recommended; live check on GPU session 4) | `implementation_batches/BATCH_036.md` |
 | BATCH_037 | 2026-09-24 | RUN-16, RUN-17 (adopted), LTX-15 (render check) | COMPLETED; LTX-15 RESULT_READY (≈ $2.3) | `implementation_batches/BATCH_037.md` |
 | BATCH_038 | 2026-09-24 | LTX-15 (D-16), AUD-01, AUD-05, AUD-07, RUN-02 (reconciliation) | COMPLETED (ledger only) | `implementation_batches/BATCH_038.md` |
+| BATCH_039 | 2026-09-24 | X-19 (ARCH-12) | OWNER_REVIEW_REQUIRED (RESULT_READY) | `implementation_batches/BATCH_039.md` |
 
 ## Reconciliation notes
 
+- 2026-09-24 (BATCH_039 close): X-19 run (OpenAI calls only): first-clip streaming saves 0.6-0.9 s per answer with valid replies; ARCH-12 `RESULT_READY`, proposal to defer. Every row the record and the owner's decisions make executable now has a result or its code; what remains waits for the owner (RUN-15, ARCH-12) or an asset (X-26's GPU half).
 - 2026-09-24 (BATCH_038): the owner's D-16 (Lego stays continuous; LTX-15 `COMPLETED` as a story option) and D-17 (the floor drift left for now) recorded. Four rows reconciled with D-08/D-10: AUD-01, AUD-05, AUD-07 and RUN-02 read `NOT_STARTED`/`BLOCKED` though their gating experiments were skipped by the owner; now `NOT_APPLICABLE` with the reason. Open: RUN-15 (owner review of its result), ARCH-12 (X-19, required by phase 3, runnable without a GPU: next), X-26's GPU half (a lighthouse reference image), X-14 (only if AUD-09 is reopened), the optional experiments of record §4.3.
 - 2026-09-24 (BATCH_037 close): GPU session 4 (≈ $2.3; ≈ $12.6 of $30). RUN-17 (512×288, strict 16:9 references) and RUN-16 (gpt-5.4-mini) adopted and `COMPLETED`; the baseline is film B. LTX-15 `RESULT_READY`: cuts are controllable but cost picture; the Lego story stays one continuous take. Open for the owner: RUN-15 and LTX-15's proposals, the environment drift over long films, X-26's GPU half (a lighthouse reference), X-19/ARCH-12.
 - 2026-09-24 (BATCH_034 close): LTX-15 built as a story option and tested headless with the real Director (the first wording drew no cuts; the final one 6 in 43 clips under the story's guidance); the Lego story stays one continuous take until the render check on GPU session 4.

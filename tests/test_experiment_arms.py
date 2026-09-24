@@ -50,3 +50,30 @@ async def _deadline_case():
     assert policy and policy[0]["floors"]["render"] > 0 and policy[0]["tau_s"] > 0
     assert all(line.id is not None for line in sim.lines)
     assert sim.measured["film"]["lines_landed"] == 1
+
+
+def test_x19_finds_the_first_clip_in_a_streamed_reply():
+    """X-19 (ARCH-12's experiment): the scanner reports the first clip the
+    moment its object closes in the streamed text, however the text is
+    chunked, and is not fooled by braces, brackets, quotes or a "clips" key
+    inside strings; the evaluation-only schema has exactly BeatPlan's
+    fields, with `clips` after the ones the first clip needs."""
+    import json
+    import random
+    from scripts.experiments.x19_streaming import FirstClip, StreamedBeatPlan
+    from src.story.schemas import BeatPlan, ClipSpec
+    fields = list(StreamedBeatPlan.model_fields)
+    assert set(fields) == set(BeatPlan.model_fields)
+    assert fields.index("clips") > max(fields.index(f) for f in ("voiceover", "intervention", "thread_ops", "delivered_request"))
+    plan = StreamedBeatPlan(intent='he says "clips": {no} [really]', framing="medium", voiceover='a \\"quoted\\" line with } and ]',
+                            clips=[ClipSpec(action='He {jumps} over "the [box]"', end_state="done \\ ok"),
+                                   ClipSpec(action="second", end_state="x")])
+    text = plan.model_dump_json()
+    for seed in range(50):
+        rng, scan, got, i = random.Random(seed), FirstClip(), None, 0
+        while i < len(text):
+            k = rng.randint(1, 9)
+            found = scan.feed(text[i:i + k])
+            i += k
+            got = got or found
+        assert json.loads(got) == json.loads(plan.clips[0].model_dump_json()) and scan.full == text
