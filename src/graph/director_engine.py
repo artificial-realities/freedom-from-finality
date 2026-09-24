@@ -349,7 +349,13 @@ class DirectorEngine:
     def _beat_status(self) -> str:
         # The re-seed note stays until a plan has been answered (a cancelled
         # call is restarted with it).
-        return self._reseed_note + self._beat_status_plain()
+        status = self._reseed_note + self._beat_status_plain()
+        world = self.world
+        if world is not None and world.perspective.cuts and world.shot:
+            # Where cuts are allowed the shot can change between beats, so
+            # the next beat is told which one the picture is in (LTX-15).
+            status += f" The picture is in this shot: {world.shot}."
+        return status
 
     def _beat_status_plain(self) -> str:
         if self._pending_note:
@@ -747,7 +753,7 @@ class DirectorEngine:
         state.current_shot = Shot(
             i2v_prompt=prompt,
             on_screen=on_screen_names,
-            camera=beat.framing,
+            camera=world.shot or beat.framing,
             motion=clip.camera_motion,
             end_frame_description=clip.end_state,
             duration_seconds=duration,

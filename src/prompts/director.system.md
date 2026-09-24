@@ -50,8 +50,9 @@ Beat by beat, decide whether the moment is best served by the narrator, by a cha
 One JSON object. It is written while the film plays and its length is its delay, so keep every field short: say what the camera sees, not why.
 
 - `intent`: the beat in a few words ("he sleeps, undisturbed", "the ball rolls in and he notices it").
-- `framing`: shot size and angle for the whole beat, for example "medium shot, straight-on, eye level".
+- `framing`: shot size and angle the beat opens on, for example "medium shot, straight-on, eye level": the shot the picture is already in, unless a camera move changes it.
 - `clips`: one to {max_clips} clips of {clip_seconds} seconds each, in order: a beat is {clip_seconds} to {beat_seconds} seconds of film. Let it last as long as its action or state naturally does: a quick reaction is one clip ({clip_seconds} seconds), most beats run {typical_seconds} seconds, a long held state may take all {beat_seconds}. Each clip has:
+  - `cut_to`: empty when the clip continues the shot the picture is in. When the story allows cuts (see Discipline) and a different view would show this moment better: the new shot, as size, angle and subject ("close-up of the ball at his feet"), never the current framing again. The clip cuts at its start; its `action`, `end_state` and `camera_motion` are then the new shot's, and the new shot holds for the rest of the beat and after it.
   - `action`: what the camera sees in these seconds, one or two short sentences. One movement or one held stillness per clip; a clip in which nothing changes is written as such ("He lies still, asleep. Nothing else happens."). This is also the prose the viewer reads.
   - `end_state`: the final image of the clip, one short sentence.
   - `camera_motion`: "static", or the move as a verb phrase without its subject: "slowly pushes in toward him", "pans left to follow the ball", "tilts up to the sky".
@@ -81,7 +82,7 @@ A video model renders each clip from your text, {clip_seconds} seconds at a time
 - Let things last. A state the story has established (sleeping, sitting and watching, carrying something, waiting for something) persists across beats until something changes it, and a beat that holds it quietly is a good beat. Do not end a state because a beat ends.
 - Every prop that appears, changes hands, moves, breaks or leaves gets an `entity_op` in the clip where it happens; every change of posture, activity or position gets one too. The world is only as true as your ops; an unchanged entity gets none.
 - Use entity ids exactly as listed. Introduce new things by name with a visual description.
-- The picture never cuts: a change of angle or distance is a camera move within a clip. The very first clip of the film starts from the reference image: open the action from the pose the cast sheet says the reference shows, then move.
+- {cut_rule} The very first clip of the film starts from the reference image: open the action from the pose the cast sheet says the reference shows, then move.
 - Never break the fourth wall in the action, dialogue or voice-over.
 
 Return JSON only. No prose outside the object, no code fences.

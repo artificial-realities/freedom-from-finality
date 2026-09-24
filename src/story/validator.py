@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass, field
 
 from src.models.story import Voice
+from src.story.compiler import shot_before
 from src.story.schemas import BeatPlan, EntityOp, ShowrunnerUpdate
 from src.story.world import MAX_NOTES, Entity, SceneCard, Summary, Thread, WorldModel, slugify
 
@@ -168,6 +169,15 @@ def _short_look(look: str) -> str:
     return " ".join(words[:SHORT_LOOK_WORDS]).rstrip(" ,;:")
 
 
+def _same_shot(a: str, b: str) -> bool:
+    """Two shot descriptions that name the same shot: equal once case,
+    punctuation and articles are set aside."""
+    def norm(text: str) -> str:
+        words = re.sub(r"[^a-z0-9 ]", " ", text.lower()).split()
+        return " ".join(w for w in words if w not in ("a", "an", "the"))
+    return norm(a) == norm(b)
+
+
 def _owed_item(world: WorldModel, segment: int):
     """The deferred request recorded at `segment`: the id the Director
     reads in "Earlier requests still owed" and names in
@@ -181,8 +191,10 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     presence from its `on_screen`, its dialogue filter. The first clip
     also lands the beat's thread ops and the viewer disposition.
 
-    Normalises the clip: `on_screen` references become entity ids and
-    invalid dialogue is dropped.
+    Normalises the clip: `on_screen` references become entity ids,
+    invalid dialogue is dropped, and a cut the story does not allow (or
+    one on the film's first clip) is dropped; the world's shot follows the
+    beat's framing and the clip's cut.
     """
     r = Report()
     clip = beat.clips[index]
@@ -303,6 +315,26 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
         d for d in clip.dialogue
         if (sp := world.resolve(d.speaker)) is not None and sp.kind == "character" and sp.speaks
     ]
+
+    # The shot (LTX-15): a cut is kept only where the story allows cuts and
+    # never on the film's first clip, which opens from the reference image.
+    cut = " ".join(clip.cut_to.split()).rstrip(".")
+    if cut and not world.perspective.cuts:
+        r.warnings.append(f"cut to '{cut}' dropped: this story is one continuous take")
+        cut = ""
+    elif cut and not world.events:
+        r.warnings.append(f"cut to '{cut}' dropped: the film's first clip opens from the reference image")
+        cut = ""
+    elif cut and _same_shot(cut, shot_before(beat, index)):
+        # The Director restating the framing in `cut_to` is not a cut.
+        r.warnings.append(f"cut to '{cut}' dropped: it is the shot the clip already opens on")
+        cut = ""
+    clip.cut_to = cut
+    if cut:
+        world.shot = cut
+        r.applied.append(f"cut to {cut}")
+    elif index == 0 and beat.framing.strip():
+        world.shot = " ".join(beat.framing.split()).rstrip(".")
 
     if index == 0:
         for top in beat.thread_ops:

@@ -75,11 +75,15 @@ class Perspective(BaseModel):
     ("third-person", "first-person", "observer", …), the perspectives a
     beat may switch to, and when a switch is right. The Director declares
     a switch in `BeatPlan.perspective`; the validator refuses one the story
-    does not allow."""
+    does not allow. `cuts` (LTX-15): whether a clip may cut to a new shot
+    (`ClipSpec.cut_to`), with `cutting` as the story's guidance on when;
+    without it the film is one continuous take and a cut is dropped."""
 
     default: str = "third-person"
     allowed: list[str] = Field(default_factory=list)
     switching: str = ""
+    cuts: bool = False
+    cutting: str = ""
 
     def permits(self, perspective: str) -> bool:
         key = perspective_key(perspective)

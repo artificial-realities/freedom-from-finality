@@ -24,6 +24,7 @@ from src.state.story_state import StoryState
 from src.story.context import (
     format_cast,
     format_cast_rules,
+    format_cut_rule,
     format_gates,
     format_interventions,
     format_locations,
@@ -97,6 +98,7 @@ async def run(
         visual_style=state.visual_style or "(none)",
         cast=format_cast(world),
         cast_rules=format_cast_rules(world),
+        cut_rule=format_cut_rule(world),
         locations=format_locations(world),
         narrator=format_narrator(state.narrator, state.tone_guidelines),
         clip_seconds=seconds_label(clip_seconds),

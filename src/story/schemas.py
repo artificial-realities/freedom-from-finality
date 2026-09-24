@@ -68,8 +68,15 @@ class DialogueLine(BaseModel):
 class ClipSpec(BaseModel):
     """One clip of a beat: the next few seconds of continuous picture.
     `action` is the only prose the film has; the transcript, the player
-    and the Showrunner's log all read it."""
+    and the Showrunner's log all read it.
 
+    `cut_to` (LTX-15, only where the story allows cuts; "" = the clip
+    continues the shot): the shot the clip cuts to, at its start; the
+    clip's action, end state and camera move then belong to that shot,
+    which holds after the clip until a camera move or another cut. It
+    comes first so the Director decides the shot before writing in it."""
+
+    cut_to: str = ""
     action: str
     end_state: str
     camera_motion: str = "static"
@@ -82,6 +89,9 @@ class ClipSpec(BaseModel):
         text = " ".join(self.action.split())
         if text and text[-1] not in ".!?":
             text += "."
+        cut = " ".join(self.cut_to.split()).rstrip(".")
+        if cut:
+            text = f"Cut to {cut}. {text}".strip()
         return text
 
 

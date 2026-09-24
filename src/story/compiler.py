@@ -11,7 +11,10 @@ which it enters the picture (introduced, or back after an absence), and
 an entering entity is never listed as already on screen, because the
 conditioning frames do not have it. Later clips carry the blueprint's
 short visual anchor and each character's short look, which hold framing
-and identity over long chains. When the model changes, this file
+and identity over long chains. A clip that cuts (LTX-15, where the story
+allows it) opens on the shot the picture is in and says "The view cuts to
+…" before its action, LTX-2.5's convention for a cut in prose; the clips
+after it open on the new shot. When the model changes, this file
 changes; the schemas do not.
 """
 
@@ -148,6 +151,28 @@ def narration(line: str, narrator: Narrator) -> str:
 DESCRIBED_IN_FULL = 6   # entities described with a look; the rest by name only
 
 
+def shot_before(beat: BeatPlan, index: int) -> str:
+    """The shot clip `index` of `beat` opens on: the beat's framing, or the
+    last cut of an earlier clip in the beat (LTX-15)."""
+    shot = beat.framing
+    for clip in beat.clips[:index]:
+        if clip.cut_to.strip():
+            shot = clip.cut_to
+    return shot
+
+
+_DETERMINERS = ("a", "an", "the", "his", "her", "its", "their", "our", "one", "another", "this", "that")
+
+
+def _with_article(shot: str) -> str:
+    """ "close-up of the ball" → "a close-up of the ball"; a shot that
+    already opens with a determiner is kept."""
+    first = shot.split()[0].lower() if shot.split() else ""
+    if not first or first in _DETERMINERS:
+        return shot
+    return ("an " if first[0] in "aeiou" else "a ") + shot
+
+
 def previous_picture(world: WorldModel, segment_no: int) -> set[str] | None:
     """The entities in the picture at the end of the previous clip: that
     clip's `on_screen` plus whatever entered during it (introduced then),
@@ -186,10 +211,16 @@ def compile_clip(
     parts: list[str] = []
     if clip.ambient_sound.strip():
         parts.append(_sentence(clip.ambient_sound))
-    framing = " ".join(beat.framing.split()).rstrip(".") or "medium shot"
+    framing = " ".join(shot_before(beat, index).split()).rstrip(".") or "medium shot"
     if (perspective_key(beat.perspective) or perspective_key(world.perspective.default)) == "first-person":
         framing = f"first-person point of view, {framing}"
-    parts.append(_sentence(f"{framing}; {camera_clause(clip.camera_motion)}"))
+    cut = " ".join(clip.cut_to.split()).rstrip(".")
+    if cut:
+        # The clip opens on the shot the picture is in and cuts at once;
+        # the camera move belongs to the new shot (LTX-15).
+        parts.append(_sentence(framing))
+    else:
+        parts.append(_sentence(f"{framing}; {camera_clause(clip.camera_motion)}"))
 
     seen: set[str] = set()
     ents: list[Entity] = []
@@ -241,6 +272,8 @@ def compile_clip(
             if ent.reference_pose:
                 parts.append(f"The shot opens with {ent.name} {ent.reference_pose.strip().rstrip('.')}, then the action begins.")
                 break
+    if cut:
+        parts.append(_sentence(f"The view cuts to {_with_article(cut)}; {camera_clause(clip.camera_motion)}"))
     if entering:
         parts.append("Entering the picture during this clip: " + "; ".join(entering_name(e) for e in entering) + ".")
     if clip.action.strip():

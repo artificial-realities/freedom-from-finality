@@ -109,6 +109,20 @@ def format_cast_rules(world: WorldModel) -> str:
     return "\n".join(out)
 
 
+def format_cut_rule(world: WorldModel) -> str:
+    """The story's editing (LTX-15), for the Director's system prompt: one
+    continuous take, or cuts as a choice with the story's guidance."""
+    persp = world.perspective
+    if not persp.cuts:
+        return ("The picture never cuts: a change of angle or distance is a camera move within a clip, "
+                "and `cut_to` stays empty.")
+    guide = f" {' '.join(persp.cutting.split())}" if persp.cutting.strip() else ""
+    return ("This story allows cuts: besides camera moves, a clip may cut to a different shot (`cut_to`) when a new "
+            "view shows the moment better, such as a detail, a reveal, or a new angle on a changed situation. At most "
+            "one cut per clip, never on the film's first clip. A cut changes only the view: everyone and everything "
+            "keeps its place, posture and holdings, and the new shot continues the same moment." + guide)
+
+
 def format_locations(world: WorldModel) -> str:
     lines = [f"- `{e.id}`: {e.name}. {e.description}" for e in world.by_kind("location")]
     return "\n".join(lines) if lines else "(none)"
