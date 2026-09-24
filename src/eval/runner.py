@@ -390,10 +390,14 @@ async def run_play(
 
     turn_number = 0
     line_no = 0
+    carried = ""        # a line whose answering Director call failed (ARCH-20)
     try:
         while True:
             turn_number += 1
             user_input = await ui.prompt_for_input()
+            if carried:
+                user_input = " ".join(x for x in (carried, user_input) if x.strip())
+                carried = ""
             state.turn_number = turn_number
             state.user_input = user_input
             line = user_input.strip()
@@ -412,6 +416,10 @@ async def run_play(
                 result = await graph.ainvoke(state)
                 state = _coerce_state(result)
                 _log_emit(timing, graph, turn_number)
+                if line and getattr(graph, "last_plan_fallback", False):
+                    carried = user_input
+                    timing.write("line_requeued", turn=turn_number, lines=[line_no],
+                                 reason="the Director call that answered it failed")
                 if line:
                     timing.write("line_landed", turn=turn_number, lines=[line_no])
 
@@ -788,7 +796,7 @@ async def run_live(
             """Ask the Director for the next beat from `text`. A line that
             arrives while the call runs cancels it, and the call restarts
             with everything the viewer typed."""
-            nonlocal state, planned_text
+            nonlocal state, planned_text, carry_text
             while True:
                 state.user_input = text
                 t0 = time.monotonic()
@@ -799,6 +807,17 @@ async def run_live(
                     waiter.cancel()
                     await call
                     _learn("director", time.monotonic() - t0)
+                    if getattr(graph, "last_plan_fallback", False):
+                        # ARCH-20: the call answering the line failed and the
+                        # picture holds for a clip; the line is not dropped:
+                        # the engine took its record back, and it joins the
+                        # next plan.
+                        carry_text = " ".join(x for x in (text, carry_text) if x)
+                        timing.write("line_requeued", turn=state.turn_number, lines=list(plan_lines),
+                                     reason="the Director call that answered them failed")
+                        player.status("the Director could not answer just now; your line goes into the next beat")
+                        planned_text = ""
+                        return
                     beat_lines[:] = plan_lines
                     plan_lines.clear()
                     planned_text = text

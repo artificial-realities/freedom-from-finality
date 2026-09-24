@@ -113,6 +113,8 @@ class DirectorEngine:
         # raises it again at every plan until a replan run spawns or a
         # replan lands (ARCH-02).
         self._held_trigger: tuple[str, str, int] | None = None
+        # The last plan answered a viewer line with a failed Director call (ARCH-20).
+        self.last_plan_fallback: bool = False
         # The trigger this plan decided on, spawned at the beat's first clip
         # after it is applied (ARCH-03): (reason, mode, triggered_at).
         self._pending_spawn: tuple[str, str, int] | None = None
@@ -230,9 +232,17 @@ class DirectorEngine:
         director_s = time.monotonic() - called
         notes.extend(dnotes)
         fallback = beat is None
+        # Whether this plan answered a viewer line and the Director's call
+        # failed: the loop then keeps the line for the next plan (ARCH-20).
+        self.last_plan_fallback = fallback and bool(text)
+        if self.last_plan_fallback:
+            # Taken back before the held clip is emitted, which would record
+            # it as deferred; the next plan records and answers it once.
+            world.drop_pending_interventions(seg)
         if beat is None:
             beat = self._fallback_beat()
-            notes.append("director: call failed; holding the picture for one clip")
+            notes.append("director: call failed; holding the picture for one clip"
+                         + ("; the viewer's line is answered at the next plan" if text else ""))
         beat.clips = beat.clips[: director_agent.clip_cap(self.config, text)]
         if not vo_open:
             beat.voiceover = ""

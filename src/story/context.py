@@ -120,12 +120,13 @@ def viewer_direction_active(world: WorldModel, current_input: str = "") -> bool:
     return bool((current_input or "").strip() or world.viewer_momentum)
 
 
-def format_plan(world: WorldModel, config: Config, *, hide_candidates: bool = False) -> str:
-    """The arc and the scene card. The Director's copy hides the card's
-    candidate beats while a viewer's direction is active (ARCH-09): the card
-    is the menu for the quiet stretches, and a visible menu pulled the film
-    back from the viewer's direction in X-07/X-08. The Showrunner always sees
-    its own candidates."""
+def format_plan(world: WorldModel, config: Config, *, paused: bool = False) -> str:
+    """The arc and the scene card. The Director's copy pauses the card while
+    a viewer's direction is active (ARCH-09, D-01 and D-05): the card is the
+    plan for the quiet stretches, and in X-07/X-08 and BATCH_023 a visible
+    menu, then a visible goal, pulled the film back from the viewer's
+    direction. It returns, whole, when the direction expires. The Showrunner
+    always sees its own card."""
     out: list[str] = []
     if world.plan.arc:
         out.append("Arc:")
@@ -137,6 +138,12 @@ def format_plan(world: WorldModel, config: Config, *, hide_candidates: bool = Fa
     card = world.plan.scene
     if card is None:
         out.append("Scene card: (none)")
+    elif paused:
+        out.append(
+            f"Scene {card.id} (opened at segment {card.opened_at}, "
+            f"running {world.scene_seconds():.0f} s of about {config.scene_seconds:.0f} s): "
+            "paused while the viewer's direction is active; it resumes when the direction expires"
+        )
     else:
         out.append(
             f"Scene {card.id} (opened at segment {card.opened_at}, "
@@ -146,10 +153,7 @@ def format_plan(world: WorldModel, config: Config, *, hide_candidates: bool = Fa
         out.append(f"  tension: {card.tension}")
         out.append(f"  exit condition: {card.exit_condition}")
         out.append(f"  intensity: {card.intensity}")
-        if card.candidate_beats and hide_candidates:
-            out.append("  candidate beats: hidden while the viewer's direction is active; "
-                       "they come back when it expires")
-        elif card.candidate_beats:
+        if card.candidate_beats:
             out.append("  candidate beats (options, not a script):")
             out.extend(f"    - {b}" for b in card.candidate_beats)
     return "\n".join(out)

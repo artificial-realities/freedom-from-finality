@@ -3,8 +3,8 @@ the scene card while it is active. A card clears the direction only if
 its Showrunner run was triggered after the line, so the replan the line
 itself provokes (spawned at once, or held by the gap and spawned later)
 does not erase it; the direction expires after `viewer_momentum_seconds`
-of film (ARCH-08). While it is active the Director does not see the
-card's candidate beats; the Showrunner always does (ARCH-09)."""
+of film (ARCH-08). While it is active the Director sees the scene card
+paused (ARCH-09 with D-05); the Showrunner always sees it whole."""
 
 from __future__ import annotations
 
@@ -97,15 +97,18 @@ async def test_the_direction_expires_after_its_story_seconds():
     assert block not in by_segment[5] and f'segment 2: "{LINE}" → absorbed' in by_segment[5], "expired; still handled"
 
 
-async def test_the_director_does_not_see_candidates_while_a_direction_is_active():
+async def test_the_director_sees_the_card_paused_while_a_direction_is_active():
+    """D-01 hid the candidates; D-05 pauses the whole card (goal, tension,
+    exit condition, candidates) until the direction expires."""
     engine, stub, state = await _film(
         [_beat("wake"), _answer(), _beat("sail")], {2: LINE}, 6, viewer_momentum_seconds=13.0)
-    hidden = "candidate beats: hidden while the viewer's direction is active"
+    paused = "paused while the viewer's direction is active"
     by_segment = dict(zip(range(1, 7), stub.director_prompts))
-    assert "card 1 idea A" in by_segment[1] and hidden not in by_segment[1], "quiet film: the menu is shown"
-    assert hidden in by_segment[2] and "card 1 idea A" not in by_segment[2], "the answer beat"
-    assert hidden in by_segment[3], "the direction is active"
-    assert "card 1 idea A" in by_segment[5] and hidden not in by_segment[5], "expired: the menu is back"
+    shown = lambda s: "goal: card 1" in by_segment[s] and "card 1 idea A" in by_segment[s]  # noqa: E731
+    assert shown(1) and paused not in by_segment[1], "quiet film: the card is shown"
+    for s in (2, 3, 4):
+        assert paused in by_segment[s] and "goal: card 1" not in by_segment[s] and "idea A" not in by_segment[s], s
+    assert shown(5) and paused not in by_segment[5], "expired: the card is back, whole"
 
 
 def test_the_showrunner_always_sees_its_candidates():
@@ -115,8 +118,9 @@ def test_the_showrunner_always_sees_its_candidates():
     world.viewer_momentum, world.viewer_momentum_segment = LINE, 3
     cfg = Config(name="t", llm_backend="mock", model="m")
     assert viewer_direction_active(world) and viewer_direction_active(world, "") is True
-    assert "idea A" in format_plan(world, cfg), "the Showrunner's copy (the default)"
-    assert "idea A" not in format_plan(world, cfg, hide_candidates=True)
+    assert "idea A" in format_plan(world, cfg) and "goal: g" in format_plan(world, cfg), "the Showrunner's copy (the default)"
+    paused = format_plan(world, cfg, paused=True)
+    assert "idea A" not in paused and "goal: g" not in paused and "paused while the viewer's direction is active" in paused
     world.viewer_momentum = ""
     assert not viewer_direction_active(world) and viewer_direction_active(world, "go left")
 

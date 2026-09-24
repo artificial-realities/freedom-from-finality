@@ -108,7 +108,7 @@ async def run(
     user_prompt = load_prompt(
         USER_PATH,
         segment=state.turn_number,
-        plan=format_plan(world, config, hide_candidates=viewer_direction_active(world, state.user_input)),
+        plan=format_plan(world, config, paused=viewer_direction_active(world, state.user_input)),
         world_now=format_world_now(world),
         threads=format_threads(world),
         interventions=format_interventions(world, state.user_input),

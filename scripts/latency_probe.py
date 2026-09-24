@@ -176,6 +176,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repeat", type=int, default=2, help="clips per length (the first is a cut, the rest continue)")
     ap.add_argument("--warm", type=int, default=0, metavar="N", help="N renders of one shape, compared with the baseline")
     ap.add_argument("--prompts", type=Path, default=None, help="a replay_compiler.py run output to take prompts from")
+    ap.add_argument("--frames", type=int, default=0, help="--warm: this frame count instead of the baseline's shape")
+    ap.add_argument("--overlap", type=int, default=0,
+                    help="--warm: frames at each clip's head that the overlap seam does not air (D-03: 9 of 153); "
+                         "the ratio is then over the aired frames")
     ap.add_argument("--baseline", type=Path, default=BASELINE)
     ap.add_argument("--tolerance", type=float, default=0.03, help="allowed rise over the baseline's ratios")
     ap.add_argument("--seed", type=int, default=1234)
@@ -219,8 +223,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.warm:
         baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
-        frames = snap_to_frame_grid(int(args.seconds.split(",")[0]) * fps) if args.seconds \
-            else int(baseline["shape"]["render_frames"])
+        frames = args.frames or (snap_to_frame_grid(int(args.seconds.split(",")[0]) * fps) if args.seconds
+                                 else int(baseline["shape"]["render_frames"]))
         prompts = prompts_from_file(args.prompts) if args.prompts else builtin_prompts(story)
         warm_after = int(baseline["cold_warm"]["warm_after_clips"])
         rows: list[dict] = []
@@ -233,13 +237,17 @@ def main(argv: list[str] | None = None) -> int:
                 (out / "probe.json").write_text(json.dumps(result, indent=2))
                 return 1
             row.update({"index": i, "cut": cut, "warm": i >= warm_after, "prompt_words": len(prompts[i % len(prompts)].split())})
+            if args.overlap and row["frames"]:
+                # The overlap seam airs the new frames only (D-03): the ratio the schedule lives by.
+                row["aired_s"] = round((row["frames"] - args.overlap) / fps, 4)
+                row["ratio"] = round(row["wall_s"] / row["aired_s"], 4)
             rows.append(row)
             (out / f"warm_{i:02d}_{'cut' if cut else 'cont'}.mp4").write_bytes(body)
             print(f"warm #{i:2d} {'cut ' if cut else 'cont'}{' (warm-up)' if i < warm_after else ''}: generate "
                   f"{row['generate_s']:.1f}s + encode {row['encode_s']:.1f}s = wall {row['wall_s']:.2f}s for a "
                   f"{row['clip_s']:.2f}s clip → {row['ratio']:.3f}x  [{row['timings']}]", flush=True)
         comparison = compare_warm(rows, baseline, tolerance=args.tolerance)
-        result.update({"mode": "warm", "frames": frames, "prompts": str(args.prompts) if args.prompts else "builtin",
+        result.update({"mode": "warm", "frames": frames, "overlap": args.overlap, "prompts": str(args.prompts) if args.prompts else "builtin",
                        "baseline": {"path": str(args.baseline), "label": baseline.get("label")},
                        "rows": rows, "comparison": comparison})
         (out / "probe.json").write_text(json.dumps(result, indent=2))
