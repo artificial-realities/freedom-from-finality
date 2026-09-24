@@ -224,8 +224,30 @@ def test_reference_is_fitted_to_the_render_frame():
             raise AssertionError("strict must refuse a square reference for a 16:9 frame")
         except ReferenceRefused as exc:
             assert "strict" in str(exc)
-        png, notes = fit_reference(master, 960, 544, fit="strict")
-        assert notes == [], "strict accepts a master at the render aspect"
+        try:
+            fit_reference(master, 960, 544, fit="strict")
+            raise AssertionError("strict (RUN-17) refuses a master 2.8 % off the render aspect")
+        except ReferenceRefused as exc:
+            assert "1920x1080" not in str(exc) and "x1080" in str(exc)
+        # RUN-17: a reference at the render aspect to the pixel is resized
+        # whole, no crop and no padding: 1672x941 (the owner's master) and
+        # 1920x1080 at the 512x288 standard, its edges kept.
+        for size in ((1672, 941), (1920, 1080), (768, 432)):
+            exact = _png(Path(d) / f"exact-{size[0]}.png", size, "red")
+            png, notes = fit_reference(exact, 512, 288, fit="strict")
+            img = Image.open(io.BytesIO(png)).convert("RGB")
+            assert img.size == (512, 288) and notes == [], (size, notes)
+        edge = Image.new("RGB", (1920, 1080), "white")
+        for x in range(1920):
+            edge.putpixel((x, 0), (0, 0, 255))              # a blue top row: cropped by a cover, kept here
+        edge.save(Path(d) / "edge.png")
+        png, _ = fit_reference(Path(d) / "edge.png", 512, 288, fit="strict")
+        assert Image.open(io.BytesIO(png)).convert("RGB").getpixel((256, 0))[2] > 150
+        try:
+            fit_reference(_png(Path(d) / "near.png", (1672, 930), "red"), 512, 288, fit="strict")
+            raise AssertionError("11 px off 16:9 is refused under strict")
+        except ReferenceRefused as exc:
+            assert "1920x1080" in str(exc)
 
         framed = _png(Path(d) / "framed.png", (500, 500), "white", noisy_border=True)
         _, notes = fit_reference(framed, 960, 544)
@@ -262,7 +284,7 @@ def test_reference_is_checked_before_the_run_renders():
         records = [json.loads(line) for line in (Path(d) / "timing.jsonl").read_text().splitlines()]
     pad, cover, refused, later = records
     assert pad["event"] == "reference" and pad["fit"] == "pad" and pad["size"] == [640, 352] and pad["warnings"]
-    assert cover["fit"] == "cover" and cover["warnings"] == []
+    assert cover["fit"] == "exact" and cover["warnings"] == []
     assert "strict" in refused["refused"]
     assert later["checked"] is False
     try:

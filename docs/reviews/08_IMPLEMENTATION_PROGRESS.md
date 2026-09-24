@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_034 (LTX-15), 2026-09-24
+- **Latest completed batch:** BATCH_035 (RUN-17 preparation), 2026-09-24
 - **Batch in progress:** none
 - **GPU spend:** ≈ $10.28 of the $30.00 authorised (record §2, Q8): one unreachable rental (BATCH_020, ≈ $0.68), GPU sessions 1 (≈ $3.00), 2 (≈ $3.05) and 3 (BATCH_031, ≈ $3.55)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -70,7 +70,7 @@ The execution state of every decision in the final decision record. The record i
 | RUN-14 | APPROVED (D-04, new row in `08_OWNER_DECISIONS.md`) | 4* | COMPLETED | RUN-05, RUN-13 | BATCH_024, BATCH_027 | GPU session 2 arms: 153-frame wall p95 0.890 → 0.666 (A3: GPU frames + YUV + 8 threads), 0.691 with the ceiling; live run of GPU session 2 (`logs/live-box/session2/`, BATCH_027): p95 0.689, max 0.696, encode 0.49 s, client 0.03 s | A3 is the server's default (`server_defaults.sh`); NVENC not granted by Vast (`VAST_ENV` ignored). 145 frames not re-probed on the new settings. |
 | RUN-15 | APPROVED (D-14, new row in `08_OWNER_DECISIONS.md`) | 4* | RESULT_READY | ARCH-06, RUN-07 | BATCH_033 | JIT simulation, real runs' Director calls resampled (`scripts/experiments/plan_early.py`): X-10's Director stalls 5 → 4 quiet, 40 → 41 with lines; session 2's 0 → 0 quiet (lowest margin 2.42 → 4.43 s), 0 → 1 (0.5 s) with lines; paired steering unchanged (X-10) or 1.17 s sooner on average (session 2); `test_the_next_beat_is_planned_as_soon_as_the_last_clip_is_out` | `plan_early: true` by default. "Fewer stalls with the X-10 tail" not met: at X-10's speed the old start already fell at the last emit. Proposal in `08_DECISION_UPDATE_PROPOSALS.md`. |
 | RUN-16 | APPROVED (D-14, new row in `08_OWNER_DECISIONS.md`) | 4* | NOT_STARTED | none | — | — | A faster Director model, compared headless (latency, re-asks, the story-authority readings). |
-| RUN-17 | APPROVED (D-15, new row in `08_OWNER_DECISIONS.md`), gated on its GPU check | 4* | NOT_STARTED | RUN-11 | — | — | One standard frame size, 512×288; strict 16:9 references. |
+| RUN-17 | APPROVED (D-15, new row in `08_OWNER_DECISIONS.md`), gated on its GPU check | 4* | IN_PROGRESS | RUN-11 | BATCH_035 | `tests/test_i2v.py::test_reference_is_fitted_to_the_render_frame` (strict: exact 16:9 taken whole, others refused) | Prepared: `strict` is the standard's exact rule; GPU session 4's arms (`session4_prepare.py`); a medium-shot 16:9 candidate reference cropped from the owner's master (not committed). Adoption (server 512×288, live config `strict`, a 16:9 story reference) after the check. |
 | AUD-01 | APPROVED | — | NOT_STARTED | none | — | — | Approved direction with no direct code scope; realised through AUD-04/05/06/07. Validation needs X-01 (listeners) and X-15/X-29 (GPU). |
 | AUD-02 | EXPERIMENT_REQUIRED → APPROVED (D-03) | 3→4 | COMPLETED | LTX-12, RUN-01, AUD-03 | BATCH_019, BATCH_025, BATCH_027 | live run of GPU session 2 (`logs/live-box/session2/`, BATCH_027): seam gates pass on its clips (0 duplicate frames, dip 0.0 %, swap p95 6.5 ms, 0 reloads); audio: 0 clips above −18 LUFS, 0 true-peak overs, narrated-to-next 13.45 LU; seam step and holes fail as accepted by D-03 | Live since `1ac0f09` (the page's overlap crossfade); `seam: "fade"` is the way back. |
 | AUD-03 | EXPERIMENT_REQUIRED → APPROVED (D-03) | 3→4 | COMPLETED | LTX-12, AUD-02 | BATCH_019, BATCH_021, BATCH_025, BATCH_027 | live run of GPU session 2 (`logs/live-box/session2/`, BATCH_027): seam gates pass on its clips (0 duplicate frames, dip 0.0 %, swap p95 6.5 ms, 0 reloads); audio: 0 clips above −18 LUFS, 0 true-peak overs, narrated-to-next 13.45 LU; seam step and holes fail as accepted by D-03 | Live since `1ac0f09` (the −18 LUFS ceiling and padding); `seam: "fade"` is the way back. |
@@ -169,6 +169,7 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_032 | 2026-09-24 | RUN-10 (D-12) | COMPLETED | `implementation_batches/BATCH_032.md` |
 | BATCH_033 | 2026-09-24 | RUN-15 (D-14) | RESULT_READY (on by default; the stall half of its validation holds only with a fast Director) | `implementation_batches/BATCH_033.md` |
 | BATCH_034 | 2026-09-24 | LTX-15 (D-13) | COMPLETED headless (the render check waits for GPU session 4) | `implementation_batches/BATCH_034.md` |
+| BATCH_035 | 2026-09-24 | RUN-17 (D-15), preparation | COMPLETED as preparation (the adoption waits for GPU session 4) | `implementation_batches/BATCH_035.md` |
 
 ## Reconciliation notes
 

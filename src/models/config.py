@@ -84,13 +84,14 @@ class Config(BaseModel):
     # before the first clip, or when the tail cannot be read (the Director is
     # then told the picture was reset).
     ltxv_restart_recovery: str = "window"
-    # How the seed image is fitted to the render frame. A reference within
-    # 5 % of the server's aspect ratio is cover-resized (an authored master
-    # at the render aspect is the intended case). Outside it, "pad"
-    # letterboxes it with a warning (so a square reference is not cropped),
-    # "strict" refuses to start, "none" sends the file unchanged. The fill
-    # is a colour name, or "auto" to continue the image's own border colour
-    # so no seam is introduced.
+    # How the seed image is fitted to the render frame. "strict" (RUN-17,
+    # D-15: one standard size) takes only a reference at the render aspect
+    # to the pixel and resizes it whole, and refuses to start otherwise.
+    # "pad": a reference within 5 % of the server's aspect is cover-resized,
+    # one outside it letterboxed with a warning (so a square reference is
+    # not cropped). "none" sends the file unchanged. The fill is a colour
+    # name, or "auto" to continue the image's own border colour so no seam
+    # is introduced.
     i2v_reference_fit: str = "pad"
     i2v_reference_fill: str = "auto"
     # Negative prompt sent with every clip ("" → the server's default). Only

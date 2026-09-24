@@ -217,7 +217,8 @@ class LtxvI2V(I2VBackend):
         _, notes = fit_reference(path, width, height, fit=self.reference_fit, fill=self.reference_fill)
         for note in notes:
             logger.warning("Reference image %s: %s", path, note)
-        mode = "cover" if within_aspect(path, width, height) else "pad"
+        mode = ("exact" if self.reference_fit == "strict"
+                else "cover" if within_aspect(path, width, height) else "pad")
         return {"checked": True, "fit": mode, "size": [width, height], "warnings": notes}
 
     # ── Rendering ────────────────────────────────────────────────────
@@ -393,6 +394,13 @@ def within_aspect(path: Path | str, width: int, height: int) -> bool:
     return abs(ratio - 1.0) <= ASPECT_TOLERANCE
 
 
+def exact_aspect(src_w: int, src_h: int, width: int, height: int) -> bool:
+    """The render aspect to the pixel: the reference's height is its width
+    at the render aspect, within one pixel of rounding (1920x1080 or
+    1672x941 for a 512x288 frame, not 1672x930)."""
+    return abs(src_h - src_w * height / width) <= 1.0
+
+
 def border_sd(img: Image.Image, band: int = 4) -> float:
     """Spread of the outer `band` pixels (the standard deviation per
     channel, averaged): 0 for a uniform background."""
@@ -408,17 +416,32 @@ def fit_reference(
     path: Path | str, width: int, height: int, *, fit: str = "pad", fill: str = "auto",
 ) -> tuple[bytes, list[str]]:
     """The reference fitted to a `width`x`height` render frame, as PNG
-    bytes, and what is wrong with it. Within `ASPECT_TOLERANCE` of the
-    render aspect it is cover-resized (an authored master at the render
-    aspect, the intended case); outside it `fit="pad"` letterboxes it with
-    a warning (and a second warning when the border is too uneven for the
-    fill to continue it), `fit="strict"` raises `ReferenceRefused`. A
-    reference smaller than the render frame is upscaled with a warning."""
+    bytes, and what is wrong with it. `fit="strict"` (RUN-17, D-15: one
+    standard size) takes a reference at the render aspect to the pixel
+    (`exact_aspect`) and resizes it whole, no crop and no padding, and
+    raises `ReferenceRefused` for any other. Otherwise, within
+    `ASPECT_TOLERANCE` of the render aspect it is cover-resized (an
+    authored master near the render aspect); outside it `fit="pad"`
+    letterboxes it with a warning (and a second warning when the border is
+    too uneven for the fill to continue it). A reference smaller than the
+    render frame is upscaled with a warning."""
     notes: list[str] = []
     with Image.open(path) as img:
         img.load()
         src_w, src_h = img.size
         ratio = (src_w / src_h) / (width / height)
+        if fit == "strict":
+            if not exact_aspect(src_w, src_h, width, height):
+                raise ReferenceRefused(
+                    f"{src_w}x{src_h} is not at the render aspect {width}x{height} (to the pixel); reference_fit is "
+                    f"strict: supply the reference at that aspect, e.g. {round(1080 * width / height)}x1080")
+            if src_w < width or src_h < height:
+                notes.append(f"{src_w}x{src_h} is smaller than the render size {width}x{height}; upscaled")
+            rgb = Image.alpha_composite(
+                Image.new("RGBA", img.size, "white"), img.convert("RGBA")).convert("RGB")
+            buf = io.BytesIO()
+            rgb.resize((width, height), Image.LANCZOS).save(buf, format="PNG")
+            return buf.getvalue(), notes
         if abs(ratio - 1.0) <= ASPECT_TOLERANCE:
             if src_w < width or src_h < height:
                 notes.append(f"{src_w}x{src_h} is smaller than the render size {width}x{height}; upscaled")
@@ -433,8 +456,6 @@ def fit_reference(
             out.save(buf, format="PNG")
             return buf.getvalue(), notes
         off = f"aspect {src_w}x{src_h} is {abs(ratio - 1.0):.0%} off the render aspect {width}x{height}"
-        if fit == "strict":
-            raise ReferenceRefused(f"{off}; reference_fit is strict (supply a master at the render aspect)")
         notes.append(f"{off}; letterboxed (supply a master at the render aspect to avoid it)")
         sd = border_sd(img)
         if sd > BORDER_SD_LIMIT:

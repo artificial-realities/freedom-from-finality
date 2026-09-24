@@ -150,12 +150,13 @@ def prepare(out: Path) -> dict:
 
 # ── Run ──────────────────────────────────────────────────────────────
 
-def _reference(server: str, image: str | None = None) -> str:
+def _reference(server: str, image: str | None = None, fit: str = "pad") -> str:
     """The reference as the run sends it: the story's seed image, or an
-    arm's own (`arm.json` "reference", a path from the repo root; X-12)."""
+    arm's own (`arm.json` "reference", a path from the repo root; X-12),
+    fitted the arm's way (`arm.json` "fit"; RUN-17's arms are "strict")."""
     health = requests.get(f"{server}/health", timeout=10).json()
     path = str(REPO / image) if image else Story.from_json(STORY).seed_image
-    png, notes = fit_reference(path, int(health["width"]), int(health["height"]))
+    png, notes = fit_reference(path, int(health["width"]), int(health["height"]), fit=fit)
     return base64.b64encode(png).decode()
 
 
@@ -215,9 +216,15 @@ def run(server: str, out: Path, only: list[str] | None) -> None:
             continue      # x03av only on request, after the restart with the ceiling
         for folder in sorted((out / exp).iterdir()):
             if (folder / "arm.json").exists():
+                spec = json.loads((folder / "arm.json").read_text())
+                # An arm for another render size waits for a server at that
+                # size (RUN-17: the 512x288 arms run after the restart).
+                if spec.get("size") and list(spec["size"]) != [int(health["width"]), int(health["height"])]:
+                    print(f"{exp}/{folder.name}: skipped, for {spec['size'][0]}x{spec['size'][1]}", flush=True)
+                    continue
                 t0 = time.monotonic()
-                own = json.loads((folder / "arm.json").read_text()).get("reference")
-                render_arm(server, folder, _reference(server, own) if own else reference)
+                own, fit = spec.get("reference"), spec.get("fit", "pad")
+                render_arm(server, folder, _reference(server, own, fit) if (own or fit != "pad") else reference)
                 print(f"{exp}/{folder.name}: {time.monotonic() - t0:.0f} s", flush=True)
 
 
