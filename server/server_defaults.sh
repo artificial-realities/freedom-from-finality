@@ -16,5 +16,9 @@ export LTX2_COMPILE=${LTX2_COMPILE:-1}
 export LTX2_WIDTH=${LTX2_WIDTH:-640}
 export LTX2_HEIGHT=${LTX2_HEIGHT:-352}
 export LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-145,145,145}
-# Render-time headroom (RUN-14, server/encode.py): LTX2_GPU_FRAMES=1, LTX2_PIPE_FORMAT=yuv420p and
-# LTX2_X264_THREADS stay at the code's defaults (off, rgb24, 0) until a GPU session has measured them.
+# Render-time headroom (RUN-14, server/encode.py), measured on GPU session 2 (2026-09-24, H100 SXM, 153 frames
+# over the 144 aired): wall p95 0.890 on the old path; frames converted on the GPU 0.706; + YUV piped 0.682;
+# + 8 x264 threads 0.666 (16: 0.673). NVENC stays unavailable in Vast containers (the video capability is not granted).
+export LTX2_GPU_FRAMES=${LTX2_GPU_FRAMES:-1}
+export LTX2_PIPE_FORMAT=${LTX2_PIPE_FORMAT:-yuv420p}
+export LTX2_X264_THREADS=${LTX2_X264_THREADS:-8}

@@ -75,7 +75,7 @@ def test_one_duration_field():
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         assert shape_main(["configs/director.live.yaml"]) == 0
-    assert out.getvalue().strip() == "145,145,145"
+    assert out.getvalue().strip() == "153,153,153", "the live config's overlap shape (D-03), warmed three times"
     vast = Path("server/vast_run.sh").read_text()
     assert "LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-$(warm_frames)}" in vast and "src.i2v.shape" in vast
 

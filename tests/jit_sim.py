@@ -36,6 +36,7 @@ from unittest import mock
 from src.eval import runner
 from src.i2v.replay import ReplayI2V
 from src.llm.mock_backend import MockBackend, _segment_number, _viewer_line
+from src.i2v.shape import ShapeRegistry
 from src.models.config import Config
 from src.models.story import Story
 from src.playback.player import Playable, Player
@@ -280,9 +281,12 @@ async def simulate(
     validator re-ask), seeded the same way."""
     render = render or baseline_render()
     director = director or baseline_director()
-    shape = baseline()["shape"]
     story = Story.from_json(STORY)
     real = Config.from_yaml(config)
+    # The clip files the run renders have the config's selected shape (with
+    # `seam: "overlap"` 153 frames, 144 of them held).
+    selected = ShapeRegistry.from_config(real).default
+    shape = {"render_frames": selected.render_frames, "fps": selected.fps}
     player = SimPlayer(scale=scale, lines=list(lines))
     attempts: dict[int, int] = {}
 
@@ -308,7 +312,7 @@ async def simulate(
 
     async def known_length(path) -> float:
         # ffprobe takes ~30 ms, which would count `scale` times over.
-        return clip_length()
+        return selected.render_seconds
 
     with tempfile.TemporaryDirectory() as d:
         replay = Path(d) / "replay"

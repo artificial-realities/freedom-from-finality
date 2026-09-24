@@ -41,7 +41,7 @@ def test_the_server_warms_the_overlap_shape():
         out = subprocess.run([sys.executable, "-m", "src.i2v.shape", str(cfg)], capture_output=True, text=True, check=True)
         assert out.stdout.strip() == "153,153,153"
         live = Config.from_yaml("configs/director.live.yaml")
-        assert (live.seam, live.audio_ceiling_lufs) == ("fade", None), "rolled out after RUN-14's GPU check"
+        assert (live.seam, live.audio_ceiling_lufs) == ("overlap", -18), "rolled out after RUN-14's GPU check"
         assert Config.from_yaml(cfg).audio_ceiling_lufs == -18
     vast = Path("server/vast_run.sh").read_text()
     assert "config_ceiling" in vast and "LTX2_AUDIO_CEILING_LUFS=$v" in vast, "the server's ceiling comes from the config"
