@@ -243,11 +243,17 @@ def _figure(frame) -> dict:
             "yellow": round(float(yellow), 3), "red": round(float(red), 3), "blue": round(float(blue), 3)}
 
 
-def _seams(paths: list[Path], hidden: int) -> list[dict]:
-    """Per seam: the picture's jump where the player joins the clips (the
-    last shown frame of N and the first of N+1), over N's median
-    frame-to-frame change; and how closely N+1's first frames repeat N's
-    tail (the overlap the window conditions on)."""
+def _seams(paths: list[Path], hidden: int, window: int = 9) -> list[dict]:
+    """Per seam, over N's median frame-to-frame change:
+
+    - `jump`: the last shown frame of N (the file's last, or `hidden`
+      frames before it) against the first of N+1: a player that plays
+      each file whole, as today's does.
+    - `join`: the overlap player's cut (LTX-12): N's frame n − w − 1, the
+      last it shows, against N+1's frame 0, which repeats N's frame n − w.
+      One frame of motion when the window reproduces the tail.
+    - `overlap_error_mean`: how closely N+1's first w frames repeat N's
+      last w (the tail the window conditions on)."""
     import numpy as np
     clips = [_frames(p).astype(np.float32) for p in paths]
     out = []
@@ -255,9 +261,16 @@ def _seams(paths: list[Path], hidden: int) -> list[dict]:
         last = a[len(a) - 1 - hidden]
         jump = float(np.abs(last - b[0]).mean())
         motion = float(np.median(np.abs(np.diff(a, axis=0)).mean(axis=(1, 2, 3))))
-        overlap = [float(np.abs(b[k] - a[len(a) - 9 + k]).mean()) for k in range(min(9, len(b)))]
+        w = min(window, len(a) - 1, len(b))
+        join = float(np.abs(a[len(a) - w - 1] - b[0]).mean())
+        # N's own frame steps just before the cut: a join no larger than these is not a spike.
+        steps = np.abs(np.diff(a[max(0, len(a) - w - 5):len(a) - w], axis=0)).mean(axis=(1, 2, 3))
+        local = float(np.median(steps)) if len(steps) else motion
+        overlap = [float(np.abs(b[k] - a[len(a) - w + k]).mean()) for k in range(w)]
         out.append({"seam": n + 1, "jump": round(jump, 2), "motion": round(motion, 2),
                     "jump_over_motion": round(jump / motion, 2) if motion else None,
+                    "join": round(join, 2), "join_over_motion": round(join / motion, 2) if motion else None,
+                    "local_motion": round(local, 2), "join_over_local": round(join / local, 2) if local else None,
                     "overlap_error_mean": round(statistics.mean(overlap), 2)})
     return out
 
@@ -315,14 +328,16 @@ def analyse(out: Path) -> dict:
                 "lufs": [round(v, 1) if v is not None else None for v, _ in loud],
                 "true_peak": [round(v, 1) if v is not None else None for _, v in loud],
                 "audio_minus_video_ms": av,
-                "seams": _seams(paths, hidden=spec["window"] if spec["frames"] > 145 else 0),
+                "seams": _seams(paths, hidden=spec["window"] if spec["frames"] > 145 else 0, window=spec["window"]),
                 "sha256": [r["sha256"] for r in rows],
             }
             _sheet(paths, folder / "sheet.png")
             report[f"{exp_dir.name}/{folder.name}"] = entry
             print(f"{exp_dir.name}/{folder.name:14} ratio p50 {entry['ratio_p50']} p95 {entry['ratio_p95']} "
                   f"max {entry['ratio_max']}; box drift max {max(drift):.3f}; colour drift max {max(colour):.3f}; "
-                  f"seam jump/motion median {statistics.median(s['jump_over_motion'] or 0 for s in entry['seams']):.2f}")
+                  f"seam jump/motion median {statistics.median(s['jump_over_motion'] or 0 for s in entry['seams']):.2f}, "
+                  f"join/local median {statistics.median(s['join_over_local'] or 0 for s in entry['seams']):.2f} "
+                  f"max {max(s['join_over_local'] or 0 for s in entry['seams']):.2f}")
     rerun, first = report.get("ltx09/rerun"), report.get("x05/labels-s0")
     if rerun and first:
         import numpy as np

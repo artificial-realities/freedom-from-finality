@@ -2,6 +2,24 @@
 
 Experiments of the final decision record (`docs/reviews/05_consolidated_decision_record.md`) that have reported. Each entry gives the result and a recommended disposition; the owner decides whether a gated row changes status. The decision record is not edited by the implementation loop, and no gated production behaviour has been implemented or enabled. Newest first.
 
+## X-03, X-04, X-05, X-06 → LTX-12's shape, RUN-04, LTX-11, LTX-01, LTX-06, LTX-02, LTX-14 (GPU session 1) — 2026-09-23
+
+Report: `docs/reviews/experiments/X-03-X-06.md`. Data: `logs/experiments/gpu1/` (405 clips, every request and header). One H100 SXM box, 67 minutes, ≈ $3.00 (≈ $3.68 of the $30 cap spent in total).
+
+- **Results.**
+  - **X-05:** the caption-prose compiler is equal to today's labelled compiler on identity, framing and action legibility over three seeds, and 22 % *longer* on the Lego blueprint (154 words against 126); on one seed it painted frowning brows on two clips. The criterion ("equal or better … with fewer words") is not met.
+  - **X-06:** none of the four shortened anchors (none, style clause, identity invariants, both) is free of drift by clip 12: each adds hair pieces or printed shirts on two of three seeds ("both" also a studded baseplate on one); today's full anchor shows none on six chains. The words the candidates drop ("bare yellow head", "plain red torso") are the ones that keep those parts away.
+  - **X-04:** the steered action lands at the same point in windows 1, 9 and 17; 9 is the only window with neither a seam jump nor a raised join floor.
+  - **X-03:** 153 frames cost +0.23 s per clip (5.16 s against 4.93 s median) and are slightly cheaper per second of new picture; the overlap cut sits at the codec floor except where the picture breaks (one dissolved breakdance); audio is 31.7 ms (145) and 3.3 ms (153) short of the video and exactly aligned with AUD-03's padding. On this box **both shapes miss p95 ≤ 0.85 on the wall clock** (0.880, 0.912) and pass server-side (0.819, 0.847); RUN-13's warm probe on today's shape: p50 0.813 (pass), p95 0.848 and max 0.857 (fail against session A + 3 %, pass RUN-04's absolute gates). Encode (1.1 s, CPU libx264) and client overhead (0.3 s) are 1.4 s of the 4.9 s.
+  - **LTX-09:** reruns reproduce, 81 of 81 clips byte-identical on one server; not across a server restart (recorded).
+- **Proposed dispositions.**
+  - **LTX-01 and LTX-06 → REJECTED as the default** (the `compiler: prose` flag stays off). Owner's call whether `src/story/compiler_prose.py` stays as an experiment arm; the loop recommends removing it (one compiler) unless a new model or story reopens the comparison.
+  - **LTX-02 → close with today's anchor text** (no candidate form holds); a future shortening keeps "bare"/"plain" and is re-tested.
+  - **LTX-14 → close** (text holds the style; X-21 not triggered).
+  - **LTX-11 → close at 9 frames** (no change).
+  - **LTX-12 / AUD-02 / AUD-03:** if the seam design is approved, its render shape is **153 frames** with AUD-03's padding; X-03's latency criterion is not met on this box by either shape, so the seam design should wait until the tail headroom is recovered. The candidates for that are outside the model and outside every current row (the encoder's settings on the box's CPU or an NVENC-capable image; the client's 0.3 s per clip); a new row is needed to work on them. X-02's open question (the seam-step criterion against LTX's clip-to-clip silence) still stands.
+  - **RUN-04:** the gates stand; the next live run on a similar box would likely fail p95 on the wall clock. The owner may want the headroom work above before the phase-6 live run.
+
 ## X-02 and X-13 → LTX-12, AUD-02, AUD-03, RUN-12 (and AUD-09's reopening) — 2026-09-23
 
 Report: `docs/reviews/experiments/X-02-X-13.md`. Data: `logs/experiments/x02/`, `logs/experiments/x13/`.

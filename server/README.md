@@ -34,7 +34,7 @@ python main.py play --config configs/director.live.yaml --player web
 server/vast_run.sh up                                                        # ~5-20 min, prints "server ready"; H100 SXM/NVL, fp8 + compile + 640x352 by default
 server/vast_run.sh run                                                       # the film on the box; open http://127.0.0.1:8765/  (Ctrl+C stops it)
 server/vast_run.sh pull                                                      # the run's transcript, world model and clips → logs/live-box/
-LTX2_QUANT=fp8 LTX2_COMPILE=1 LTX2_WIDTH=768 LTX2_HEIGHT=416 server/vast_run.sh restart   # any LTX2_* setting, same box
+LTX2_QUANT=fp8 LTX2_COMPILE=1 LTX2_WIDTH=768 LTX2_HEIGHT=416 server/vast_run.sh restart   # any LTX2_* setting, same box; unset ones keep server/server_defaults.sh
 python scripts/latency_probe.py --label sxm-fp8-768                          # seconds per clip second for this setting
 server/vast_run.sh run configs/director.live.yaml                            # the web player at http://127.0.0.1:8765/, clips into logs/live/
 server/vast_run.sh down                                                      # always, or the meter keeps running
