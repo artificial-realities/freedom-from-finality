@@ -156,7 +156,9 @@ class LtxvI2V(I2VBackend):
         if rate != registry.default.fps:
             raise UnregisteredShape(f"the server renders at {rate:g} fps; the shapes were built for {registry.default.fps:g}")
         registry.check_warm(health.get("warm_frames"))
-        return {"frames": registry.frames, "warm_frames": sorted(set(health["warm_frames"]))}
+        # The loudness ceiling only when the server reports one (an older server does not).
+        ceiling = {"audio_ceiling_lufs": health["audio_ceiling_lufs"]} if "audio_ceiling_lufs" in health else {}
+        return {"frames": registry.frames, "warm_frames": sorted(set(health["warm_frames"])), **ceiling}
 
     @property
     def size(self) -> tuple[int, int]:

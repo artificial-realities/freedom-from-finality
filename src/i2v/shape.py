@@ -42,10 +42,11 @@ class UnregisteredShape(ValueError):
 
 
 class ClipShape(BaseModel):
-    """One clip's length in frames. Today the whole rendered file is
-    delivered (the player shows its first `overlap_frames`, which repeat
-    the previous clip's tail); the seam design under LTX-12 would deliver
-    fewer without another derivation."""
+    """One clip's length in frames. With `seam: "fade"` the whole rendered
+    file is delivered (the player shows its first `overlap_frames`, which
+    repeat the previous clip's tail); with `seam: "overlap"` (LTX-12) the
+    render carries the overlap on top of the delivered frames and the
+    player cuts where the next clip's repeated head begins."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -69,6 +70,20 @@ class ClipShape(BaseModel):
         8k + 1 grid at `fps`, all of it delivered."""
         frames = snap_to_frame_grid(round(seconds * fps))
         return cls(fps=fps, render_frames=frames, overlap_frames=overlap_frames, delivered_frames=frames)
+
+    @classmethod
+    def overlapped(cls, seconds: float, *, fps: float = DEFAULT_FPS, overlap_frames: int) -> "ClipShape":
+        """The overlap seam's shape (LTX-12, D-03): about `seconds` of new
+        picture plus the `overlap_frames` that repeat the previous clip's
+        tail, rendered on the 8k + 1 grid; the new frames are delivered
+        (6 s at 24 fps with a 9-frame window: 153 rendered, 144 delivered)."""
+        render = snap_to_frame_grid(round(seconds * fps) + overlap_frames)
+        return cls(fps=fps, render_frames=render, overlap_frames=overlap_frames,
+                   delivered_frames=render - overlap_frames)
+
+    @property
+    def overlap_seconds(self) -> float:
+        return self.overlap_frames / self.fps
 
     def record(self) -> dict:
         """The shape as the timing log and the transcript keep it."""
@@ -98,11 +113,16 @@ class ShapeRegistry:
     def from_config(cls, config, *, fps: float = DEFAULT_FPS) -> "ShapeRegistry":
         """The config's `clip_seconds` as the default shape and its
         `extra_clip_seconds` as experiment shapes, at the server's `fps`,
-        with the continuity window as the overlap."""
+        with the continuity window as the overlap: delivered whole with
+        `seam: "fade"`, rendered on top of the delivered frames with
+        `seam: "overlap"`."""
         overlap = int(getattr(config, "ltxv_continuity_frames", 0) or 0)
-        default = ClipShape.from_seconds(config.clip_seconds, fps=fps, overlap_frames=overlap)
-        extra = [ClipShape.from_seconds(s, fps=fps, overlap_frames=overlap)
-                 for s in getattr(config, "extra_clip_seconds", []) or []]
+        if getattr(config, "seam", "fade") == "overlap":
+            make = lambda s: ClipShape.overlapped(s, fps=fps, overlap_frames=overlap)  # noqa: E731
+        else:
+            make = lambda s: ClipShape.from_seconds(s, fps=fps, overlap_frames=overlap)  # noqa: E731
+        default = make(config.clip_seconds)
+        extra = [make(s) for s in getattr(config, "extra_clip_seconds", []) or []]
         return cls(default, extra)
 
     @property

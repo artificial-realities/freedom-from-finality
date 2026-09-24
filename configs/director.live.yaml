@@ -24,6 +24,12 @@ clip_seconds: 6                          # the one clip shape: 145 frames at 24 
 ltxv_server_url: "http://localhost:8000"
 ltxv_continuity_strength: 1.0
 ltxv_continuity_frames: 9
+# The overlap seam (D-03: LTX-12 / AUD-02 / AUD-03), rolled out after RUN-14's GPU check: the server
+# renders 153 frames (144 new + the 9 repeated), the page cuts where the repeat begins and crossfades
+# the sound over it, and the server keeps each clip under -18 LUFS with its audio padded to the video.
+# vast_run.sh reads both lines (the warm shape and the ceiling). Until then: the fade seam, 145 frames.
+# seam: "overlap"
+# audio_ceiling_lufs: -18
 # Identity anchor: the reference image as a guiding keyframe at the end of
 # every clip. Off: the 2026-09-15 sweep showed identity holds without it on
 # the distilled recipe, and an end anchor suppresses the closing action.

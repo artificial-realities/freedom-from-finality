@@ -125,9 +125,12 @@ def _shapes_for(config: Config, i2v: I2VBackend | None) -> ShapeRegistry:
     return ShapeRegistry.from_config(config, fps=i2v.frame_rate if i2v is not None else DEFAULT_FPS)
 
 
-def _check_shapes(i2v: I2VBackend | None, shapes: ShapeRegistry, timing: TimingLog) -> None:
+def _check_shapes(i2v: I2VBackend | None, shapes: ShapeRegistry, timing: TimingLog,
+                  config: Config | None = None) -> None:
     """Refuse the run before anything renders when the renderer has not
-    warmed every registered shape (RUN-08); the verdict goes to the log."""
+    warmed every registered shape (RUN-08); the verdict goes to the log.
+    A server whose loudness ceiling differs from the config's (AUD-03) is
+    run, with a warning: the film plays either way."""
     if i2v is None:
         return
     try:
@@ -137,6 +140,11 @@ def _check_shapes(i2v: I2VBackend | None, shapes: ShapeRegistry, timing: TimingL
         raise
     if verdict:
         timing.write("shapes", **verdict)
+        if config is not None and "audio_ceiling_lufs" in verdict:
+            want, have = config.audio_ceiling_lufs, verdict["audio_ceiling_lufs"]
+            if (want is None) != (have is None) or (want is not None and abs(want - have) > 0.05):
+                logger.warning("The server's loudness ceiling is %s; the config asks for %s", have, want)
+                timing.write("ceiling_mismatch", config=want, server=have)
 
 
 def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog) -> None:
@@ -367,7 +375,7 @@ async def run_play(
     timing = _start_timing(config, story, session_id, session_dir, loop="play", shapes=shapes)
     seed_image: str = seed_image_for(config, story)
     _check_reference(i2v, seed_image, timing)
-    _check_shapes(i2v, shapes, timing)
+    _check_shapes(i2v, shapes, timing, config)
     graph = build_graph(
         config.graph, llm=llm, config=config, tts=tts,
         session_dir=session_dir, timing=timing, shapes=shapes,
@@ -496,7 +504,7 @@ async def run_live(
         jit_margin=JIT_MARGIN_S, time_scale=player.time_scale,
     )
     _check_reference(i2v, seed_image_for(config, story), timing)
-    _check_shapes(i2v, shapes, timing)
+    _check_shapes(i2v, shapes, timing, config)
     graph = build_graph(
         config.graph, llm=llm, config=config, tts=tts,
         session_dir=session_dir, timing=timing, shapes=shapes,
@@ -638,6 +646,12 @@ async def run_live(
                 return False
         if video_path:
             item.path = video_path
+            # The overlap seam (D-03): the clip's head repeats the previous
+            # clip's tail, over which the page cuts and crossfades, unless the
+            # clip was seeded from the reference (the run's first, or a server
+            # restart's), which repeats nothing.
+            if config.seam == "overlap" and not i2v.last_render.get("reference"):
+                item.overlap_seconds = shape.overlap_seconds
             if audio:
                 muxed = await mux_audio_into_video(
                     video_path=video_path, audio_path=audio,
@@ -1068,6 +1082,7 @@ def _playable(state: StoryState) -> Playable:
         scene=state.context_brief,
         beat=state.current_beat_intent,
         clip=state.current_clip,
+        speech=state.current_speech,
     )
 
 

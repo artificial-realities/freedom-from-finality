@@ -57,9 +57,9 @@ class WebPlayer(Player):
         super().__init__(time_scale=time_scale)
         self.host = host
         self.port = port
-        # How the page joins clips: "fade" (production: a 250 ms crossfade of
-        # two elements) or "overlap" (AUD-02 / LTX-12's candidate, X-02 only:
-        # a pool of three elements, the picture cut at the outgoing clip's
+        # How the page joins clips (the config's `seam`): "fade" (a 250 ms
+        # crossfade of two elements) or "overlap" (AUD-02 / LTX-12, D-03: a
+        # pool of three elements, the picture cut at the outgoing clip's
         # media time where the next clip's overlap begins, an equal-power
         # audio crossfade over the overlap).
         if seam not in ("fade", "overlap"):

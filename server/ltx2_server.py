@@ -606,6 +606,9 @@ async def health():
         "gpu_frames": _gpu_frames,
         "pipe_format": _pipe_format,
         "x264_threads": _x264_threads,
+        # AUD-03: the loudness ceiling this server applies (None = off).
+        "audio_ceiling_lufs": float(os.environ["LTX2_AUDIO_CEILING_LUFS"])
+        if os.getenv("LTX2_AUDIO_CEILING_LUFS", "").strip() else None,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         "turn_count": session.get("turn_count", 0),
         "has_reference": "ref_image" in session,

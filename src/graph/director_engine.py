@@ -726,6 +726,7 @@ class DirectorEngine:
         state.current_intervention_reason = beat.intervention_reason if first else ""
         state.current_beat_intent = beat.intent
         state.current_clip = f"{self._clip_index + 1}/{len(beat.clips)}"
+        state.current_speech = bool(voiceover.strip() or clip.dialogue)
         here = world.current_location()
         state.world_state = {
             "protagonist_location": here.id if here else "",

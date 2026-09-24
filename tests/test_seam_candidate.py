@@ -42,7 +42,7 @@ def test_the_ceiling_measures_like_the_audio_check():
         assert abs(after - -18.0) < 0.5 and after_peak <= -1.0, (after, after_peak)
 
 
-def test_the_player_seam_mode_is_fade_unless_an_experiment_asks():
+def test_the_player_seam_mode_is_fade_unless_the_config_asks():
     assert WebPlayer(port=0).seam == "fade"
     assert WebPlayer(port=0, seam="overlap")._snapshot()["seam"] == "overlap"
     try:

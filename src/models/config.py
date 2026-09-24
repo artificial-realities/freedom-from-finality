@@ -50,6 +50,20 @@ class Config(BaseModel):
     # More shapes, registered (and required warm on the server) so an
     # experiment can select them (X-18); the production policy never does.
     extra_clip_seconds: list[float] = Field(default_factory=list)
+    # How clips meet (LTX-12 / AUD-02 / AUD-03, D-03). "fade": each file plays
+    # whole, its first `ltxv_continuity_frames` repeating the previous clip's
+    # tail, and the page crossfades the elements' opacity. "overlap": the
+    # server renders the clip's seconds plus the window (6 s → 144 + 9 = 153
+    # frames) and the viewer is given the 144 new ones: the page cuts to the
+    # next clip where its repeated head begins (no opacity fade) and
+    # crossfades the sound over it; hold, story clock and Director read 6.0 s.
+    # Rolled out with the server's loudness ceiling after RUN-14's GPU check.
+    seam: str = "fade"
+    # The server's loudness ceiling for the run (AUD-03): LUFS, with the audio
+    # padded to the video and kept under -1 dBTP; None = off. `vast_run.sh`
+    # passes it to the server as LTX2_AUDIO_CEILING_LUFS; the client warns
+    # when the server's differs. D-03: -18 with `seam: "overlap"`.
+    audio_ceiling_lufs: float | None = None
     # The reference image the first clip is rendered from. "" → the story's
     # `seed_image` (`stories/<story>/story.json`); set here only for a story
     # without one.
@@ -183,6 +197,12 @@ class Config(BaseModel):
                 slack = data.pop("render_slack_seconds")
                 data.setdefault("buffer_seconds", slack + LEGACY_SLACK_TO_BUFFER)
         return data
+
+    @model_validator(mode="after")
+    def _known_seam(self):
+        if self.seam not in ("fade", "overlap"):
+            raise ValueError(f"seam must be 'fade' or 'overlap', not {self.seam!r}")
+        return self
 
     @model_validator(mode="before")
     @classmethod

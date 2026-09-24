@@ -52,7 +52,9 @@ class ReplayI2V(I2VBackend):
             await asyncio.sleep(self.delay)
         src = self.clips[self._next % len(self.clips)]
         self._next += 1
-        self.last_render = {"source": src.name, "delay": self.delay}
+        # The first clip served stands in for the run's reference-seeded render
+        # (as the LTX client records it): it repeats no previous tail.
+        self.last_render = {"source": src.name, "delay": self.delay, "reference": self._next == 1}
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out = self.output_dir / f"turn_{turn:04d}_{stamp}.mp4"
         try:

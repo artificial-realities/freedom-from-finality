@@ -41,7 +41,10 @@ ssh_cmd() { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "$(cat "$STA
 # (RUN-08): the client refuses to start without them, so they are never typed twice. LTX2_WARMUP_FRAMES in the
 # environment wins; AR_CONFIG picks the config (default the live one).
 warm_frames() { python3 -W ignore::RuntimeWarning -m src.i2v.shape "${AR_CONFIG:-configs/director.live.yaml}"; }
-server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-$(warm_frames)} $(env | grep '^LTX2_' | grep -v '^LTX2_WARMUP_FRAMES=' | tr '\n' ' ')"; }
+# The loudness ceiling (AUD-03) comes from the same config (`audio_ceiling_lufs`) unless set here.
+config_ceiling() { python3 -W ignore -c "import sys; from src.models.config import Config; v = Config.from_yaml(sys.argv[1]).audio_ceiling_lufs; print('' if v is None else v)" "${AR_CONFIG:-configs/director.live.yaml}"; }
+ceiling_env() { local v=${LTX2_AUDIO_CEILING_LUFS:-$(config_ceiling)}; [ -n "$v" ] && echo "LTX2_AUDIO_CEILING_LUFS=$v"; true; }
+server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-$(warm_frames)} $(ceiling_env) $(env | grep '^LTX2_' | grep -v -e '^LTX2_WARMUP_FRAMES=' -e '^LTX2_AUDIO_CEILING_LUFS=' | tr '\n' ' ')"; }
 
 up() {
   local offer=${1:-$(pick_offer)}

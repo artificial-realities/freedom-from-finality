@@ -38,6 +38,10 @@ class StoryState(BaseModel):
     current_intervention_reason: str = ""
     current_beat_intent: str = ""   # the beat this clip belongs to, in a few words
     current_clip: str = ""          # "2/3": the clip's place in its beat
+    # Whether the clip carries speech (its beat's voice-over, or dialogue):
+    # the overlap seam brings such a clip's sound in at once instead of
+    # crossfading its first syllable (AUD-02).
+    current_speech: bool = False
     current_shape: ClipShape | None = None   # the clip's selected shape (RUN-01): what is rendered and held
     turn_notes: str = ""  # engine-specific markdown appended to the transcript
 

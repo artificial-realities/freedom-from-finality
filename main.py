@@ -68,7 +68,7 @@ async def cmd_play(args: argparse.Namespace) -> None:
     if args.player is not None or config.live:
         if args.player == "web":
             from src.web import WebPlayer
-            player = WebPlayer(host=args.host, port=args.port)
+            player = WebPlayer(host=args.host, port=args.port, seam=config.seam)
         else:
             player = TerminalPlayer()
         await run_live(config=config, story=story, log_dir=args.log_dir,
