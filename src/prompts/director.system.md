@@ -63,7 +63,7 @@ One JSON object. It is written while the film plays and its length is its delay,
 - `thread_ops`: for `open`, `thread` is one sentence describing the setup, promise or gag, plus a `kind`; for `pay_off` and `drop`, `thread` is the thread id such as `t1`.
 - `intervention`: `none` when there was no viewer input; otherwise `absorbed`, `deferred` or `declined`, with a one-line `intervention_reason`.
 - `perspective`: empty, unless this beat switches to a perspective the story allows (see its rules).
-- `delivered_request`: when this beat delivers an earlier request listed under "Earlier requests still owed", that request's segment number; otherwise 0.
+- `delivered_request`: when this beat delivers an earlier request listed under "Earlier requests still owed", that request's segment number; otherwise 0. A beat that answers this beat's own viewer input leaves it 0 (`intervention` records that); with no requests owed it is always 0.
 - `scene_done`: true when the scene's exit condition has been met. Say so as soon as it is true.
 - `needs_replan`: true when the plan no longer fits what has happened.
 

@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_027 (GPU session 2: RUN-14, the seam rollout, the live run), 2026-09-24
+- **Latest completed batch:** BATCH_028 (ARCH-07 prompt clarification), 2026-09-24
 - **Batch in progress:** none
 - **GPU spend:** ≈ $6.73 of the $30.00 authorised (record §2, Q8): one unreachable rental (BATCH_020, ≈ $0.68), GPU session 1 (BATCH_021, ≈ $3.00), GPU session 2 (BATCH_027, ≈ $3.05)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -25,7 +25,7 @@ The execution state of every decision in the final decision record. The record i
 | ARCH-04 | APPROVED | 0* | COMPLETED | none | BATCH_008 | Docs; the claim checked against `_run_showrunner_now` and the prompts (BATCH_008 claim table) | `ARCHITECTURE.md` bootstrap step: the only synchronous run and the only route for `short_term_narrative`; why it stays synchronous. |
 | ARCH-05 | APPROVED | 1 | COMPLETED | ARCH-03 | BATCH_010 | `test_stagnation_rungs_have_one_owner_each` | `REQUIRED_AT = 1.5` (Director), `SHOWRUNNER_REPLAN_AT = 2.0` (trigger and the compact-mode judgement); docs name both. |
 | ARCH-06 | APPROVED | 1 | COMPLETED | none | BATCH_011 | `tests/test_jit.py::test_a_second_line_after_the_answer_is_joined` (fails on the old runner); suite 80/80 | `runner._answer`: a line after the answer returned but before it played is joined, the earlier intervention dropped, one plan. RUN-06/X-09 touch the same branch. |
-| ARCH-07 | APPROVED | 1 | COMPLETED | none | BATCH_011 | `tests/test_story.py::test_a_deferred_request_is_resolved_by_identity` | `BeatPlan.delivered_request` (segment; 0 = none); resolved by identity; the `deferred[-1]` guess is gone (one owed + absorbed still resolves it). |
+| ARCH-07 | APPROVED | 1 | COMPLETED | none | BATCH_011, BATCH_028 | `tests/test_story.py::test_a_deferred_request_is_resolved_by_identity` | `BeatPlan.delivered_request` (segment; 0 = none); resolved by identity; the `deferred[-1]` guess is gone (one owed + absorbed still resolves it). BATCH_028: the prompt leaves it 0 on a beat answering its own line (the live run's 9 warnings gone). |
 | ARCH-08 | EXPERIMENT_REQUIRED → APPROVED (D-01) | 3→4 | COMPLETED | X-07, ARCH-03 | BATCH_017, BATCH_023 | `tests/test_story_authority.py` (7; mutations caught); real Director, 8 runs (`logs/experiments/story-authority-d01/`): no line's own replan cleared its direction, early-clearing card beats 7 → 2, five 90-s expiries | Reset keyed to where the run's trigger arose (a held replan keeps its `since`), the faithful reading of "spawned after" on the ARCH-02/03 engine (BATCH_023 explains); `viewer_momentum_seconds: 90`. |
 | ARCH-09 | EXPERIMENT_REQUIRED → APPROVED (D-01, extended by D-05) | 3→4 | COMPLETED | X-08, ARCH-02, ARCH-03 | BATCH_017, BATCH_023, BATCH_026 | `test_the_director_sees_the_card_paused_while_a_direction_is_active`; D-05 runs (`logs/experiments/story-authority-d05/`): returns to the card 2/9, early-clearing card beats 0, movement after the last line 1.13/0.76 per minute (pre-D-01 level) | The Director's plan section pauses the whole card while a direction is active (D-05); the Showrunner's copy whole. |
 | ARCH-10 | APPROVED | 2+* | COMPLETED | RUN-01 | BATCH_015, BATCH_017 | prompt test; X-07/X-08 runs: 91/224/15/1 beats of 1/2/3/4 clips, mean 10.3 s | Cap 4; guidance in seconds from the shape. |
@@ -157,7 +157,8 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_024 | 2026-09-23 | RUN-14 (preparation) | COMPLETED as preparation (RUN-14 awaits GPU session 2; commit `9d675bd`) | `implementation_batches/BATCH_024.md` |
 | BATCH_025 | 2026-09-23 | LTX-12, AUD-02, AUD-03 | COMPLETED as built (rollout after RUN-14, D-03; commit `6488585`) | `implementation_batches/BATCH_025.md` |
 | BATCH_026 | 2026-09-23 | ARCH-09 (D-05), ARCH-20 (D-06) | COMPLETED (commit `d14f142`) | `implementation_batches/BATCH_026.md` |
-| BATCH_027 | 2026-09-24 | RUN-14, LTX-12, AUD-02, AUD-03 (rollout), RUN-04, ARCH-01 | COMPLETED (≈ $3.05) | `implementation_batches/BATCH_027.md` |
+| BATCH_027 | 2026-09-24 | RUN-14, LTX-12, AUD-02, AUD-03 (rollout), RUN-04, ARCH-01 | COMPLETED (≈ $3.05; commit `55a0602`) | `implementation_batches/BATCH_027.md` |
+| BATCH_028 | 2026-09-24 | ARCH-07 (prompt) | COMPLETED | `implementation_batches/BATCH_028.md` |
 
 ## Reconciliation notes
 
