@@ -23,6 +23,7 @@ def build_i2v_backend(
     seed_key: str = "",
     anchor_strength: float = 0.0,
     anchor_index: int = -1,
+    restart_recovery: str = "reference",
     replay_dir: str = "",
     replay_delay: float = 0.0,
     **_extra,
@@ -45,6 +46,7 @@ def build_i2v_backend(
             seed_key=seed_key,
             anchor_strength=anchor_strength,
             anchor_index=anchor_index,
+            restart_recovery=restart_recovery,
         )
     if key == "replay":
         if not replay_dir:

@@ -77,6 +77,11 @@ class Config(BaseModel):
     ltxv_continuity_strength: float = 1.0
     # Trailing frames of the previous chunk used as the condition.
     ltxv_continuity_frames: int = 9
+    # After a server restart (RUN-10, X-11 only; experiment-gated, off by
+    # default): "reference" re-seeds the next clip from the reference image,
+    # which resets costume and position; "window" sends the last clip's tail
+    # frames so the restarted server continues the picture.
+    ltxv_restart_recovery: str = "reference"
     # How the seed image is fitted to the render frame. A reference within
     # 5 % of the server's aspect ratio is cover-resized (an authored master
     # at the render aspect is the intended case). Outside it, "pad"
@@ -202,6 +207,8 @@ class Config(BaseModel):
     def _known_seam(self):
         if self.seam not in ("fade", "overlap"):
             raise ValueError(f"seam must be 'fade' or 'overlap', not {self.seam!r}")
+        if self.ltxv_restart_recovery not in ("reference", "window"):
+            raise ValueError(f"ltxv_restart_recovery must be 'reference' or 'window', not {self.ltxv_restart_recovery!r}")
         return self
 
     @model_validator(mode="before")

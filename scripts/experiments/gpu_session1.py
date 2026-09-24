@@ -150,10 +150,12 @@ def prepare(out: Path) -> dict:
 
 # ── Run ──────────────────────────────────────────────────────────────
 
-def _reference(server: str) -> str:
+def _reference(server: str, image: str | None = None) -> str:
+    """The reference as the run sends it: the story's seed image, or an
+    arm's own (`arm.json` "reference", a path from the repo root; X-12)."""
     health = requests.get(f"{server}/health", timeout=10).json()
-    story = Story.from_json(STORY)
-    png, notes = fit_reference(story.seed_image, int(health["width"]), int(health["height"]))
+    path = str(REPO / image) if image else Story.from_json(STORY).seed_image
+    png, notes = fit_reference(path, int(health["width"]), int(health["height"]))
     return base64.b64encode(png).decode()
 
 
@@ -206,13 +208,16 @@ def run(server: str, out: Path, only: list[str] | None) -> None:
           f"{health.get('width')}x{health.get('height')} warm {health.get('warm_frames')}")
     reference = _reference(server)
     order = ["x05", "ltx09", "x06", "x04", "x03", "x03av"]
+    # Later sessions' experiments in the same arm format run when named (--only).
+    order += [x for x in (only or []) if x not in order]
     for exp in order:
         if (only and exp not in only) or (not only and exp == "x03av") or not (out / exp).is_dir():
             continue      # x03av only on request, after the restart with the ceiling
         for folder in sorted((out / exp).iterdir()):
             if (folder / "arm.json").exists():
                 t0 = time.monotonic()
-                render_arm(server, folder, reference)
+                own = json.loads((folder / "arm.json").read_text()).get("reference")
+                render_arm(server, folder, _reference(server, own) if own else reference)
                 print(f"{exp}/{folder.name}: {time.monotonic() - t0:.0f} s", flush=True)
 
 

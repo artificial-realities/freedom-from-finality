@@ -21,6 +21,7 @@ import hashlib
 import io
 import logging
 import statistics
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -57,6 +58,7 @@ RENDER_HEADERS: dict[str, tuple[str, type]] = {
     "X-Has-Audio": ("has_audio", str),
     "X-Variant": ("variant", str),
     "X-Encoder": ("encoder", str),
+    "X-Session-Epoch": ("session_epoch", str),   # a new value after a server restart (RUN-10)
     # AUD-03's candidate (the server's LTX2_AUDIO_CEILING_LUFS; experiment only)
     "X-Audio-LUFS": ("audio_lufs", float),
     "X-Audio-TP": ("audio_tp", float),
@@ -84,8 +86,15 @@ class LtxvI2V(I2VBackend):
         seed_key: str = "",
         anchor_strength: float = 0.0,
         anchor_index: int = -1,
+        restart_recovery: str = "reference",
     ) -> None:
         self.server_url = server_url.rstrip("/")
+        # After a server restart: re-seed from the reference, or send the last
+        # clip's tail so the picture continues (RUN-10, X-11 only).
+        if restart_recovery not in ("reference", "window"):
+            raise ValueError(f"restart_recovery must be 'reference' or 'window', not {restart_recovery!r}")
+        self.restart_recovery = restart_recovery
+        self._last_clip: str | None = None
         self.continuity_strength = continuity_strength
         self.continuity_frames = continuity_frames
         # Identity anchor: the server also conditions on the reference image
@@ -117,6 +126,13 @@ class LtxvI2V(I2VBackend):
         # silently disagree about the frame rate or the render size.
         self._frame_rate: float | None = None
         self._size: tuple[int, int] | None = None
+
+    def _tail_frames(self, path: str, count: int) -> list[str]:
+        try:
+            return _tail_frames_png(path, count, self.size)
+        except Exception:
+            logger.exception("Could not read the last clip's tail from %s; re-seeding from the reference", path)
+            return []
 
     @property
     def last_latency_s(self) -> float | None:
@@ -256,11 +272,19 @@ class LtxvI2V(I2VBackend):
         url = f"{self.server_url}/generate"
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
 
-        # Server lost its session (restart / reset) — re-seed and retry once.
+        # Server lost its session (restart / reset): re-seed and retry once,
+        # from the reference or (RUN-10's arm) from the last clip's tail.
         if resp.status_code == 400 and "reference_image" in resp.text:
-            logger.warning("LTX-2.5 server lost state — re-seeding reference")
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
-            self.last_render = {**self.last_render, "reference": True, "reseeded": True}
+            window = (self._tail_frames(self._last_clip, self.continuity_frames)
+                      if self.restart_recovery == "window" and self._last_clip else [])
+            if window:
+                logger.warning("LTX-2.5 server lost state — restoring the window from the last clip's tail")
+                payload["window_frames"] = window
+                self.last_render = {**self.last_render, "reference": False, "restored": len(window)}
+            else:
+                logger.warning("LTX-2.5 server lost state — re-seeding reference")
+                self.last_render = {**self.last_render, "reference": True, "reseeded": True}
             resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
 
         self.last_render = {**self.last_render, "status": resp.status_code,
@@ -277,6 +301,7 @@ class LtxvI2V(I2VBackend):
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = self.output_dir / f"turn_{turn:04d}_{stamp}.mp4"
         out_path.write_bytes(resp.content)
+        self._last_clip = str(out_path)
 
         logger.info(
             "LTX-2.5 turn %d rendered in %ss + %ss encode (%ss clip, audio=%s) → %s",
@@ -290,6 +315,20 @@ class LtxvI2V(I2VBackend):
         if resp.headers.get("X-Timings"):
             logger.info("LTX-2.5 turn %d timings: %s", turn, resp.headers["X-Timings"])
         return str(out_path)
+
+
+def _tail_frames_png(path: str, count: int, size: tuple[int, int]) -> list[str]:
+    """The last `count` frames of a clip as base64 PNGs at `size`."""
+    w, h = size
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-sseof", "-1.5", "-i", path, "-vf", f"scale={w}:{h}",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
+    frames = raw and [raw[i:i + w * h * 3] for i in range(0, len(raw), w * h * 3)]
+    out = []
+    for frame in (frames or [])[-count:]:
+        buf = io.BytesIO()
+        Image.frombytes("RGB", (w, h), frame).save(buf, format="PNG")
+        out.append(base64.b64encode(buf.getvalue()).decode())
+    return out
 
 
 def render_headers(headers) -> dict:

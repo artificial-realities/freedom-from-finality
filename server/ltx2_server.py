@@ -185,6 +185,9 @@ if _pipe_format == "yuv420p" and not _gpu_frames:
 # Session: the reference image (PIL, seeds turn 1 and anchors) and the
 # tail of the last generated chunk (uint8 ndarray, shape (F, H, W, 3)).
 session: dict = {}
+# This process's identity: a restart gives a new one (/health, X-Session-Epoch),
+# so a client can tell a restarted server from a reset session (RUN-10).
+SESSION_EPOCH = os.urandom(4).hex()
 _lock = asyncio.Lock()
 
 
@@ -203,6 +206,10 @@ class GenerateRequest(BaseModel):
     # `anchor_index` (latent frames; -1 = last) with this strength. 0 = off.
     anchor_strength: float = Field(default=0.0, ge=0.0, le=1.0)
     anchor_index: int = -1
+    # RUN-10's arm (X-11 only): after a restart, the client's copy of the last
+    # clip's tail (base64 PNGs); the session continues from it instead of the
+    # reference, so costume and position survive the restart.
+    window_frames: list[str] | None = None
 
 
 # ── Startup ───────────────────────────────────────────────────────
@@ -607,6 +614,7 @@ async def health():
         "pipe_format": _pipe_format,
         "x264_threads": _x264_threads,
         # AUD-03: the loudness ceiling this server applies (None = off).
+        "session_epoch": SESSION_EPOCH,
         "audio_ceiling_lufs": float(os.environ["LTX2_AUDIO_CEILING_LUFS"])
         if os.getenv("LTX2_AUDIO_CEILING_LUFS", "").strip() else None,
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
@@ -642,6 +650,10 @@ def _run_pipeline(req: GenerateRequest) -> dict:
     elif req.reference_image is not None:
         session["ref_image"] = _decode_image(req.reference_image)
         logger.info("Reference image replaced mid-session")
+    if req.window_frames and session.get("window") is None and not req.reset_window:
+        frames = [np.asarray(_decode_image(f).resize((WIDTH, HEIGHT))) for f in req.window_frames]
+        session["window"] = np.stack(frames).astype(np.uint8)
+        logger.info("Session window restored from %d frames of the client's last clip (RUN-10)", len(frames))
 
     session["turn_count"] += 1
     turn = session["turn_count"]
@@ -784,6 +796,7 @@ def _encode_response(req: GenerateRequest, r: dict) -> FileResponse:
         filename=f"turn_{turn:04d}.mp4",
         headers={
             "X-Turn": str(turn),
+            "X-Session-Epoch": SESSION_EPOCH,
             "X-Latency-S": f"{dt:.2f}",
             "X-Encode-S": f"{encode_s:.2f}",
             "X-Post-S": f"{r.get('post', 0.0):.2f}",
