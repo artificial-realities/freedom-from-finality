@@ -138,7 +138,7 @@ def test_the_client_checks_the_server_s_warm_shapes():
                 except UnregisteredShape as exc:
                     assert words in str(exc), (words, str(exc))
         with _Health([145]) as http:
-            client._synthesize_sync("stories/lego-void/legoman.png", "p", 1, one.default)
+            client._synthesize_sync("stories/lego-void/legoman-16x9.png", "p", 1, one.default)
         assert http.posts[0]["num_frames"] == 145, "the request carries the shape's frames"
 
 

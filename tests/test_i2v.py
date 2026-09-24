@@ -9,12 +9,18 @@ from PIL import Image
 from src.i2v.ltxv import letterbox_reference
 from src.i2v.shape import ClipShape
 
+# Any real reference will do where a test only needs an image to send.
+REFERENCE = "stories/lego-void/legoman-16x9.png"
+
 
 def test_letterbox_reference_auto_fill_matches_border():
+    import tempfile
+    from pathlib import Path
     from src.i2v.ltxv import border_color
-    src = Image.open("stories/lego-void/legoman.png")
-    bc = border_color(src)
-    png = letterbox_reference("stories/lego-void/legoman.png", 768, 512, fill="auto")
+    with tempfile.TemporaryDirectory() as d:
+        square = _square(Path(d) / "square.png")
+        bc = border_color(Image.open(square))
+        png = letterbox_reference(square, 768, 512, fill="auto")
     img = Image.open(io.BytesIO(png)).convert("RGB")
     px = img.load()
     assert px[5, 5] == bc, "padding continues the image's own background"
@@ -22,7 +28,10 @@ def test_letterbox_reference_auto_fill_matches_border():
 
 
 def test_letterbox_reference_keeps_whole_subject():
-    png = letterbox_reference("stories/lego-void/legoman.png", 768, 512, fill="white")
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as d:
+        png = letterbox_reference(_square(Path(d) / "square.png"), 768, 512, fill="white")
     img = Image.open(io.BytesIO(png)).convert("RGB")
     assert img.size == (768, 512)
     px = img.load()
@@ -77,11 +86,11 @@ def test_ltxv_payload_carries_anchor_and_reference(monkeypatch=None):
             i2v = ltxv.LtxvI2V(server_url="http://x", output_dir=d, anchor_strength=0.95, anchor_index=-1)
             assert i2v.size == (960, 544), "render size probed from /health"
             assert ClipShape.from_seconds(5, fps=i2v.frame_rate).render_frames == 121
-            p1 = i2v._synthesize_sync("stories/lego-void/legoman.png", "p1", 1, ClipShape.from_seconds(5))
-            p2 = i2v._synthesize_sync("stories/lego-void/legoman.png", "p2", 2, ClipShape.from_seconds(7))
+            p1 = i2v._synthesize_sync(REFERENCE, "p1", 1, ClipShape.from_seconds(5))
+            p2 = i2v._synthesize_sync(REFERENCE, "p2", 2, ClipShape.from_seconds(7))
             assert p1 and p2 and Path(p1).exists()
             plain = ltxv.LtxvI2V(server_url="http://x", output_dir=d)
-            plain._synthesize_sync("stories/lego-void/legoman.png", "p3", 1, ClipShape.from_seconds(5))
+            plain._synthesize_sync(REFERENCE, "p3", 1, ClipShape.from_seconds(5))
     finally:
         ltxv.requests.get, ltxv.requests.post = orig_get, orig_post
 
@@ -158,12 +167,12 @@ def test_render_seed_is_derived_from_the_key_and_the_segment():
         __import__("hashlib").sha256(b"director-ltxv_live_20260918_145552:1").digest()[:4], "big")
     with tempfile.TemporaryDirectory() as d, _FakeHTTP() as http:
         keyed = LtxvI2V(server_url="http://x", output_dir=d, seed_key="sess")
-        keyed._synthesize_sync("stories/lego-void/legoman.png", "a", 1, ClipShape.from_seconds(6))
+        keyed._synthesize_sync(REFERENCE, "a", 1, ClipShape.from_seconds(6))
         assert keyed.last_render["seed"] == derive_seed("sess", 1)
-        keyed._synthesize_sync("stories/lego-void/legoman.png", "b", 2, ClipShape.from_seconds(6))
+        keyed._synthesize_sync(REFERENCE, "b", 2, ClipShape.from_seconds(6))
         rerun = LtxvI2V(server_url="http://x", output_dir=d, seed_key="sess")
-        rerun._synthesize_sync("stories/lego-void/legoman.png", "a", 1, ClipShape.from_seconds(6))
-        LtxvI2V(server_url="http://x", output_dir=d)._synthesize_sync("stories/lego-void/legoman.png", "c", 1, ClipShape.from_seconds(6))
+        rerun._synthesize_sync(REFERENCE, "a", 1, ClipShape.from_seconds(6))
+        LtxvI2V(server_url="http://x", output_dir=d)._synthesize_sync(REFERENCE, "c", 1, ClipShape.from_seconds(6))
     first, second, again, unkeyed = http.posts
     assert first["seed"] == derive_seed("sess", 1) and second["seed"] == derive_seed("sess", 2)
     assert again["seed"] == first["seed"], "a rerun under the same key reproduces the noise"
