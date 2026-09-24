@@ -77,11 +77,13 @@ class Config(BaseModel):
     ltxv_continuity_strength: float = 1.0
     # Trailing frames of the previous chunk used as the condition.
     ltxv_continuity_frames: int = 9
-    # After a server restart (RUN-10, X-11 only; experiment-gated, off by
-    # default): "reference" re-seeds the next clip from the reference image,
-    # which resets costume and position; "window" sends the last clip's tail
-    # frames so the restarted server continues the picture.
-    ltxv_restart_recovery: str = "reference"
+    # After a server restart (RUN-10, D-12): "window" (default) sends the last
+    # clip's tail frames so the restarted server continues the picture (X-11:
+    # the scene survives, +0.4 s); "reference" re-seeds from the reference
+    # image, which resets costume and position. The reference is used anyway
+    # before the first clip, or when the tail cannot be read (the Director is
+    # then told the picture was reset).
+    ltxv_restart_recovery: str = "window"
     # How the seed image is fitted to the render frame. A reference within
     # 5 % of the server's aspect ratio is cover-resized (an authored master
     # at the render aspect is the intended case). Outside it, "pad"

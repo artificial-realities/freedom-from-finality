@@ -23,7 +23,7 @@ def build_i2v_backend(
     seed_key: str = "",
     anchor_strength: float = 0.0,
     anchor_index: int = -1,
-    restart_recovery: str = "reference",
+    restart_recovery: str = "window",
     replay_dir: str = "",
     replay_delay: float = 0.0,
     **_extra,

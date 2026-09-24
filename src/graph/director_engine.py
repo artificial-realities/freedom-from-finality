@@ -134,6 +134,10 @@ class DirectorEngine:
         self._last_end_state: str = ""      # the image the last emitted clip ends on
         self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
         self._pending_note: str = ""        # how the previous beat ended, for the next call
+        # A renderer restart that re-seeded the picture from the reference
+        # (RUN-10's fallback: the last clip's tail could not be restored), for
+        # the next call only.
+        self._reseed_note: str = ""
 
     # ── The one-call form ───────────────────────────────────────────
 
@@ -230,6 +234,7 @@ class DirectorEngine:
             beat_status=self._beat_status(), clip_seconds=self.shapes.default.delivered_seconds,
         )
         director_s = time.monotonic() - called
+        self._reseed_note = ""
         notes.extend(dnotes)
         fallback = beat is None
         # Whether this plan answered a viewer line and the Director's call
@@ -330,7 +335,23 @@ class DirectorEngine:
         )
         return dropped
 
+    def note_reseed(self, segment: int) -> None:
+        """The renderer restarted and segment `segment` was rendered from the
+        reference image, not from the picture before it (RUN-10's fallback):
+        the next plan is told, since what the world model says is on screen
+        is no longer in the picture."""
+        hero = self.world.entities.get(self.world.protagonist) if self.world else None
+        name = hero.name if hero else "the protagonist"
+        self._reseed_note = (f"At segment {segment} the renderer restarted and the picture was re-seeded from the "
+                             f"reference image: {name} is back in the reference pose and nothing else from before is "
+                             "in the picture. Bring back in this beat whatever the story needs on screen. ")
+
     def _beat_status(self) -> str:
+        # The re-seed note stays until a plan has been answered (a cancelled
+        # call is restarted with it).
+        return self._reseed_note + self._beat_status_plain()
+
+    def _beat_status_plain(self) -> str:
         if self._pending_note:
             return self._pending_note
         if self._last_beat is not None:

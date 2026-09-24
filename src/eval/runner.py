@@ -663,6 +663,11 @@ async def run_live(
             # restart's), which repeats nothing.
             if config.seam == "overlap" and not i2v.last_render.get("reference"):
                 item.overlap_seconds = shape.overlap_seconds
+            if i2v.last_render.get("reseeded"):
+                # A restart the client could not restore from the last clip's
+                # tail (RUN-10): the Director hears the picture was reset.
+                timing.write("reseeded", turn=item.turn)
+                graph.note_reseed(item.turn)
             if audio:
                 muxed = await mux_audio_into_video(
                     video_path=video_path, audio_path=audio,

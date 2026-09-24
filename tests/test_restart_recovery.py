@@ -1,8 +1,8 @@
-"""RUN-10's arm (X-11 only, off by default): after a server restart the
-client either re-seeds from the reference (today) or, with
-`ltxv_restart_recovery: "window"`, sends the last clip's tail frames so the
-restarted server continues the picture. A clip restored from the window is
-a continuation (the overlap seam still applies); a re-seeded one is not."""
+"""RUN-10 (D-12): after a server restart the client sends the last clip's
+tail frames so the restarted server continues the picture (the default,
+`ltxv_restart_recovery: "window"`), or re-seeds from the reference. A clip
+restored from the window is a continuation (the overlap seam still
+applies); a re-seeded one is not, and the Director is told."""
 
 from __future__ import annotations
 
@@ -96,9 +96,10 @@ def test_the_default_re_seeds_from_the_reference():
     assert renders[-1]["reference"] is True and renders[-1]["reseeded"] is True
 
 
-def test_the_arm_is_off_by_default_and_named_values_only():
-    assert Config(name="t", llm_backend="mock", model="m").ltxv_restart_recovery == "reference"
-    assert Config.from_yaml("configs/director.live.yaml").ltxv_restart_recovery == "reference"
+def test_the_window_is_the_default_and_named_values_only():
+    assert Config(name="t", llm_backend="mock", model="m").ltxv_restart_recovery == "window"
+    assert Config.from_yaml("configs/director.live.yaml").ltxv_restart_recovery == "window"
+    assert ltxv.LtxvI2V(server_url="http://x").restart_recovery == "window"
     for bad in (lambda: Config(name="t", llm_backend="mock", model="m", ltxv_restart_recovery="latest"),
                 lambda: ltxv.LtxvI2V(server_url="http://x", restart_recovery="latest")):
         try:
@@ -106,3 +107,29 @@ def test_the_arm_is_off_by_default_and_named_values_only():
             raise AssertionError("an unknown recovery is refused")
         except ValueError:
             pass
+
+
+async def test_the_director_hears_of_a_reseed():
+    """When the picture was re-seeded from the reference anyway, the next
+    plan's picture section says so, once."""
+    from src.graph.director_engine import DirectorEngine
+    from src.state.story_state import StoryState
+    from src.models.story import Story
+    from tests.test_story_authority import Recording
+    from tests.test_showrunner_clock import _beat, _engine
+    engine, _, state = _engine([])
+    stub = Recording([_beat("wake")])
+    engine.llm = engine.llm_director = engine.llm_showrunner = stub
+    for seg in (1, 2):
+        state.turn_number = seg
+        if not engine.has_next_clip():
+            await engine.plan(state)
+        await engine.emit(state)
+    engine.note_reseed(2)
+    for seg in (3, 4):
+        state.turn_number = seg
+        if not engine.has_next_clip():
+            await engine.plan(state)
+        await engine.emit(state)
+    said = [p for p in stub.director_prompts if "re-seeded from the reference image" in p]
+    assert len(said) == 1 and "At segment 2" in said[0] and "Lego Man is back in the reference pose" in said[0]

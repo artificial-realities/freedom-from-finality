@@ -86,11 +86,11 @@ class LtxvI2V(I2VBackend):
         seed_key: str = "",
         anchor_strength: float = 0.0,
         anchor_index: int = -1,
-        restart_recovery: str = "reference",
+        restart_recovery: str = "window",
     ) -> None:
         self.server_url = server_url.rstrip("/")
-        # After a server restart: re-seed from the reference, or send the last
-        # clip's tail so the picture continues (RUN-10, X-11 only).
+        # After a server restart: send the last clip's tail so the picture
+        # continues (RUN-10, default), or re-seed from the reference.
         if restart_recovery not in ("reference", "window"):
             raise ValueError(f"restart_recovery must be 'reference' or 'window', not {restart_recovery!r}")
         self.restart_recovery = restart_recovery
