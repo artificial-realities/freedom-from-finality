@@ -5,7 +5,7 @@ The execution state of every decision in the final decision record. The record i
 - **Decision record:** `docs/reviews/05_consolidated_decision_record.md` — "FINAL (2026-09-22)"
 - **Record SHA-256:** `1d2674087649f77943169f5fcdda88c0a6eac07372b8526ddf103f658a2e8054` (the working-tree file at ledger creation; the FINAL edit is uncommitted on top of HEAD `42ddda8`)
 - **Ledger created:** 2026-09-22, session 1 of the Prompt 08 loop
-- **Latest completed batch:** BATCH_028 (ARCH-07 prompt clarification), 2026-09-24
+- **Latest completed batch:** BATCH_029 (fire-aware scripted viewer for X-10), 2026-09-24
 - **Batch in progress:** none
 - **GPU spend:** ≈ $6.73 of the $30.00 authorised (record §2, Q8): one unreachable rental (BATCH_020, ≈ $0.68), GPU session 1 (BATCH_021, ≈ $3.00), GPU session 2 (BATCH_027, ≈ $3.05)
 - **Owner statuses (from the record):** 46 `APPROVED`, 18 `EXPERIMENT_REQUIRED`, 2 `DEFERRED`, 1 `REJECTED`, 0 `PENDING` — re-counted from the register at creation (67 rows)
@@ -158,7 +158,8 @@ States as for decisions. Only experiments named in the record are listed; X-20, 
 | BATCH_025 | 2026-09-23 | LTX-12, AUD-02, AUD-03 | COMPLETED as built (rollout after RUN-14, D-03; commit `6488585`) | `implementation_batches/BATCH_025.md` |
 | BATCH_026 | 2026-09-23 | ARCH-09 (D-05), ARCH-20 (D-06) | COMPLETED (commit `d14f142`) | `implementation_batches/BATCH_026.md` |
 | BATCH_027 | 2026-09-24 | RUN-14, LTX-12, AUD-02, AUD-03 (rollout), RUN-04, ARCH-01 | COMPLETED (≈ $3.05; commit `55a0602`) | `implementation_batches/BATCH_027.md` |
-| BATCH_028 | 2026-09-24 | ARCH-07 (prompt) | COMPLETED | `implementation_batches/BATCH_028.md` |
+| BATCH_028 | 2026-09-24 | ARCH-07 (prompt) | COMPLETED (commits `f85d7de`, `7d059d7`) | `implementation_batches/BATCH_028.md` |
+| BATCH_029 | 2026-09-24 | X-10 preparation (fire-aware viewer) | COMPLETED | `implementation_batches/BATCH_029.md` |
 
 ## Reconciliation notes
 

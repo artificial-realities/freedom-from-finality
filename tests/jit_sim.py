@@ -54,7 +54,7 @@ _spec.loader.exec_module(bench)
 # Timing-log fields in the loop's seconds; everything else (`wall`, media
 # `duration`, story `seconds`) is left alone when the log is scaled back.
 SCALED_FIELDS = ("t", "into", "margin", "due_in", "render_s", "hold", "waited", "plan_s", "director_s",
-                 "needs_s", "left_s")
+                 "needs_s", "left_s", "in_s")
 
 
 def baseline() -> dict:

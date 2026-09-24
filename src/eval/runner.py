@@ -56,6 +56,8 @@ MAX_CONSECUTIVE_FAILURES = 3
 P95_WINDOW = 20
 ADMISSION_TAU_S = 1.0
 BASELINE_PATH = Path(__file__).resolve().parents[2] / "benchmarks" / "runtime" / "baseline.json"
+# A `fire_due` record is written again only when the due moment moves by more than this.
+FIRE_DUE_STEP_S = 0.2
 
 
 def _baseline_floors() -> dict[str, float]:
@@ -853,6 +855,8 @@ async def run_live(
             player.status(f"the Director is writing segment {turn}")
             await _plan(text)
 
+        fire_due: dict[int, float] = {}
+
         async def _listen(turn: int) -> None:
             """Wait for the just-in-time moment of segment `turn`, taking the
             viewer's lines as they come: a line cuts the beat short and
@@ -865,6 +869,12 @@ async def run_live(
                 if need is None:
                     break  # building the lead: as fast as possible
                 fire_at = need - _render_estimate() - config.buffer_seconds
+                if abs(fire_due.get(turn, float("inf")) - fire_at) > FIRE_DUE_STEP_S:
+                    # When this segment's render is due to fire (the record's wall
+                    # time plus `in_s`): a scripted viewer can time a line against
+                    # it (X-10); written again only if the moment moves.
+                    fire_due[turn] = fire_at
+                    timing.write("fire_due", turn=turn, in_s=round(fire_at - time.monotonic(), 4))
                 if graph.has_next_clip():
                     wait_until = fire_at
                     player.status(f"listening for your input before segment {turn}")

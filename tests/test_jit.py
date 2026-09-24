@@ -76,6 +76,13 @@ async def test_the_live_schedule_holds_the_picture_under_adversarial_lines():
     for turn in steady:
         assert margins[turn] >= buffer - TOLERANCE, (turn, margins[turn], buffer)
     assert abs(statistics.median(margins[t] for t in steady) - buffer) <= TOLERANCE, [margins[t] for t in steady]
+
+    # The loop announces each fire (`fire_due`, for a scripted viewer, X-10):
+    # the last announcement for a steady clip names when it fired.
+    due = {}
+    for r in sim.of("fire_due"):
+        due[r["turn"]] = r["t"] + r["in_s"]
+    assert all(abs(due[t] - fires[t]["t"]) <= TOLERANCE for t in steady), [(t, due.get(t), fires[t]["t"]) for t in steady]
     assert buffer - TOLERANCE >= 1.0, "the steady buffer clears the 1 s minimum-margin gate"
 
     # Every line was sent, reached the screen, and was not dropped.

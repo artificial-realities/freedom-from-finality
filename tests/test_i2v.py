@@ -186,6 +186,14 @@ def test_the_runner_keys_seeds_to_the_session():
     assert old.ltxv_seed_key == ""
 
 
+def _square(path):
+    """A 380 x 381 white reference with a figure-sized block in the middle."""
+    img = Image.new("RGB", (380, 381), "white")
+    img.paste((200, 30, 30), (140, 60, 240, 330))
+    img.save(path)
+    return path
+
+
 def test_reference_is_fitted_to_the_render_frame():
     """RUN-11: within 5 % of the render aspect the reference is
     cover-resized (no padding); outside it `pad` letterboxes with a
@@ -205,7 +213,8 @@ def test_reference_is_fitted_to_the_render_frame():
         png, notes = fit_reference(small, 960, 544)
         assert Image.open(io.BytesIO(png)).size == (960, 544) and any("smaller than the render size" in n for n in notes)
 
-        square = "stories/lego-void/legoman.png"
+        # A square reference like the Lego story's original (380 x 381, before the owner's 16:9 master).
+        square = _square(Path(d) / "square.png")
         png, notes = fit_reference(square, 960, 544, fit="pad")
         assert Image.open(io.BytesIO(png)).size == (960, 544)
         assert "letterboxed" in notes[0], notes
@@ -235,19 +244,20 @@ def test_reference_is_checked_before_the_run_renders():
     from src.util.timing_log import TimingLog
     with tempfile.TemporaryDirectory() as d:
         timing = TimingLog(Path(d) / "timing.jsonl")
+        square = str(_square(Path(d) / "square.png"))
         with _FakeHTTP(size=(640, 352)):
-            _check_reference(LtxvI2V(server_url="http://x", output_dir=d), "stories/lego-void/legoman.png", timing)
+            _check_reference(LtxvI2V(server_url="http://x", output_dir=d), square, timing)
             master = _png(Path(d) / "m.png", (1280, 704))
             _check_reference(LtxvI2V(server_url="http://x", output_dir=d, reference_fit="strict"), master, timing)
             try:
                 _check_reference(LtxvI2V(server_url="http://x", output_dir=d, reference_fit="strict"),
-                                 "stories/lego-void/legoman.png", timing)
+                                 square, timing)
                 raise AssertionError("strict must stop the run")
             except ReferenceRefused:
                 pass
         with _FakeHTTP(up=False):
-            _check_reference(LtxvI2V(server_url="http://x", output_dir=d), "stories/lego-void/legoman.png", timing)
-        _check_reference(None, "stories/lego-void/legoman.png", timing)
+            _check_reference(LtxvI2V(server_url="http://x", output_dir=d), square, timing)
+        _check_reference(None, square, timing)
         timing.close()
         records = [json.loads(line) for line in (Path(d) / "timing.jsonl").read_text().splitlines()]
     pad, cover, refused, later = records
