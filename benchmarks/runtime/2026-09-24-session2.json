@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "label": "session2-2026-09-24",
+  "updated": "2026-09-24",
+  "provenance": "Measured: the phase-6 live run of GPU session 2 (BATCH_027; decision record RUN-04), `scripts/bench_report.py --json` on its timing.jsonl, the seams by `scripts/seam_check.py` on its clips in headless Chromium (overlap mode, 24 clips). It replaces the reconstructed session-A record, kept as benchmarks/runtime/2026-09-18-session-a.json.",
+  "identity": {
+    "session": "director-ltxv_live_20260924_021234",
+    "transcript": "logs/live-box/session2/director-ltxv_live_20260924_021234.md",
+    "revision": "1ac0f09",
+    "dirty": false,
+    "config": "configs/director.live.yaml",
+    "story": "Lego Man in the White Void"
+  },
+  "hardware": {
+    "gpu": "NVIDIA H100 80GB HBM3 (SXM), Vast offer 28160519",
+    "cpu": "Intel Xeon Gold 6448Y, 128 threads",
+    "driver": "560.35.03",
+    "client_on_box": true,
+    "note": "The client ran on the box next to the server (vast_run.sh run)."
+  },
+  "recipe": {
+    "model": "Lightricks/LTX-2.5-Diffusers",
+    "variant": "distilled",
+    "sampling": "8 sigmas, unguided",
+    "quant": "fp8 (torchao dynamic, per row)",
+    "compile": "regional torch.compile",
+    "attention": "sdpa",
+    "encoder": "libx264 ultrafast",
+    "offload": "gpu",
+    "prompt_enhancer": false,
+    "frames": "converted to uint8 on the GPU (LTX2_GPU_FRAMES=1)",
+    "pipe": "planar YUV 4:2:0 to ffmpeg (LTX2_PIPE_FORMAT=yuv420p)",
+    "x264_threads": 8,
+    "audio_ceiling_lufs": -18
+  },
+  "shape": {
+    "width": 640,
+    "height": 352,
+    "fps": 24,
+    "render_frames": 153,
+    "overlap_frames": 9,
+    "delivered_frames": 144,
+    "delivered_seconds": 6.0,
+    "seam": "overlap",
+    "continuity_strength": 1.0,
+    "anchor_strength": 0.0,
+    "seed": "derived per session and segment (LTX-09)"
+  },
+  "cold_warm": {
+    "server_warmup_frames": [
+      153,
+      153,
+      153
+    ],
+    "warm_after_clips": 3,
+    "note": "Warm clips are counted from the fourth render of the film (review 03 §9.1); a cold fp8 compile of one shape took 182-226 s, 23-36 s from the inductor cache on the same box."
+  },
+  "stages": {
+    "server": {
+      "text_s": 0.098,
+      "conditions_s": 0.115,
+      "transformer_s": 2.424,
+      "forwards": 8,
+      "vae_decode_s": 0.6,
+      "vocoder_s": 0.08,
+      "generate_s": 3.385,
+      "post_s": 0.112,
+      "encode_s": 0.494,
+      "client_overhead_s": 0.033
+    },
+    "note": "Means over the warm renders, from the X-Timings / X-Latency-S / X-Encode-S / X-Post-S headers in render_done."
+  },
+  "renders": {
+    "n": 61,
+    "render_s": {
+      "mean": 4.0236,
+      "sd": 0.0563,
+      "p95": 4.1322,
+      "max": 4.1736
+    },
+    "ratio": {
+      "mean": 0.6706,
+      "p50": 0.6692,
+      "p95": 0.6887,
+      "max": 0.6956
+    },
+    "slope_ms_per_clip": -0.8791,
+    "mid_film_compiles": 0,
+    "ratio_note": "render wall over the 6.0 s aired (144 of 153 frames)"
+  },
+  "director": {
+    "model": "gpt-4.1",
+    "service_tier": "priority",
+    "n": 40,
+    "seconds": {
+      "mean": 2.7982,
+      "sd": 0.7223,
+      "p95": 4.0401,
+      "max": 5.3493
+    }
+  },
+  "film": {
+    "clips": 64,
+    "stalls": 0,
+    "min_queue_margin_s": 3.4283,
+    "steering_s": [
+      11.48,
+      9.66,
+      13.4,
+      15.6,
+      11.38,
+      15.52,
+      13.49,
+      9.65,
+      11.34
+    ],
+    "steering_note": "Line receipt to its clip on air (timing.jsonl); 9 scripted lines, 1 within 1 s of a fire.",
+    "first_picture_s": 15.2428
+  },
+  "seams": {
+    "swap_ms": "p95 6.47 ms (headless Chromium 151, 24 clips)",
+    "reloads_on_playing": 0,
+    "duplicate_frames_per_seam": 0,
+    "crossfade_dip": 0.0,
+    "hold_minus_media_ms": 0.0
+  },
+  "gates": {
+    "source": "Decision record RUN-04 (APPROVED) and review 03 §9.3; warm-up rule from §9.1.",
+    "render_ratio_p50": {
+      "max": 0.82
+    },
+    "render_ratio_p95": {
+      "max": 0.85
+    },
+    "render_ratio_max": {
+      "max": 0.92
+    },
+    "render_slope_ms_per_clip": {
+      "max": 1.0,
+      "min_clips": 150
+    },
+    "mid_film_compiles": {
+      "max": 0,
+      "factor": 3.0
+    },
+    "stalls": {
+      "max": 0,
+      "threshold_s": 0.05
+    },
+    "min_queue_margin_s": {
+      "min": 1.0
+    },
+    "steering_p50_s": {
+      "max": 12.5
+    },
+    "steering_p95_s": {
+      "max": 16.0
+    },
+    "first_picture_s": {
+      "max": 25.0
+    },
+    "swap_p95_ms": {
+      "max": 50.0
+    },
+    "reloads_on_playing": {
+      "max": 0
+    },
+    "hold_minus_media_ms": {
+      "max": 5.0
+    },
+    "duplicate_frames_per_seam": {
+      "max": 0,
+      "measured_by": "scripts/seam_check.py (RUN-13 part c)"
+    },
+    "crossfade_dip": {
+      "max": 0.05,
+      "measured_by": "scripts/seam_check.py (RUN-13 part c)"
+    }
+  }
+}

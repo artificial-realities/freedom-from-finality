@@ -73,7 +73,7 @@ def test_seed_image_comes_from_the_story():
     `i2v_seed_image` is only the fallback for a story without one."""
     from src.eval.runner import seed_image_for
     story = Story.from_json("stories/lego-void")
-    assert story.seed_image.endswith("stories/lego-void/legoman.png") and Path(story.seed_image).exists()
+    assert story.seed_image.endswith("stories/lego-void/legoman-16x9.png") and Path(story.seed_image).exists()
     assert Config(name="t", graph="director", llm_backend="mock", model="mock").i2v_seed_image == ""
     assert seed_image_for(_config(), story) == story.seed_image
     assert seed_image_for(_config(i2v_seed_image="elsewhere.png"), story) == story.seed_image, "the story wins"

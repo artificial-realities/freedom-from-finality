@@ -1,22 +1,22 @@
 {
   "schema": 1,
-  "label": "session2-2026-09-24",
+  "label": "session4b-2026-09-24",
   "updated": "2026-09-24",
-  "provenance": "Measured: the phase-6 live run of GPU session 2 (BATCH_027; decision record RUN-04), `scripts/bench_report.py --json` on its timing.jsonl, the seams by `scripts/seam_check.py` on its clips in headless Chromium (overlap mode, 24 clips). It replaces the reconstructed session-A record, kept as benchmarks/runtime/2026-09-18-session-a.json.",
+  "provenance": "Measured: live film B of GPU session 4 (BATCH_037; RUN-17's standard size and RUN-16's Director), `scripts/bench_report.py --json` on its timing.jsonl, the seams by `scripts/seam_check.py` on 24 of its clips in headless Chromium (overlap mode, the 9 repeated frames hidden). It replaces session 2's record (640x352, gpt-4.1), kept as benchmarks/runtime/2026-09-24-session2.json; session A's as 2026-09-18-session-a.json.",
   "identity": {
-    "session": "director-ltxv_live_20260924_021234",
-    "transcript": "logs/live-box/session2/director-ltxv_live_20260924_021234.md",
-    "revision": "1ac0f09",
+    "session": "director-ltxv-standard-54mini_live_20260924_174949",
+    "transcript": "logs/live-box/session4b/director-ltxv-standard-54mini_live_20260924_174949.md",
+    "revision": "ca109e0",
     "dirty": false,
-    "config": "configs/director.live.yaml",
-    "story": "Lego Man in the White Void"
+    "config": "logs/experiments/gpu4/director.live-standard-54mini.yaml (= configs/director.live.yaml after BATCH_037)",
+    "story": "Lego Man in the White Void (the 16:9 reference; the Lego story with guided cuts for this film)"
   },
   "hardware": {
-    "gpu": "NVIDIA H100 80GB HBM3 (SXM), Vast offer 28160519",
-    "cpu": "Intel Xeon Gold 6448Y, 128 threads",
-    "driver": "560.35.03",
+    "gpu": "NVIDIA H100 80GB HBM3 (SXM), Vast offer 48704113",
+    "cpu": "Intel Xeon Platinum 8568Y+",
+    "driver": "610.57.04",
     "client_on_box": true,
-    "note": "The client ran on the box next to the server (vast_run.sh run)."
+    "note": "The client ran on the box next to the server. This box rendered 640x352 at ratio p50 0.810 (session 2's box: 0.669): a slower host, so the 512x288 ratios here are conservative."
   },
   "recipe": {
     "model": "Lightricks/LTX-2.5-Diffusers",
@@ -34,8 +34,8 @@
     "audio_ceiling_lufs": -18
   },
   "shape": {
-    "width": 640,
-    "height": 352,
+    "width": 512,
+    "height": 288,
     "fps": 24,
     "render_frames": 153,
     "overlap_frames": 9,
@@ -57,71 +57,72 @@
   },
   "stages": {
     "server": {
-      "text_s": 0.098,
-      "conditions_s": 0.115,
-      "transformer_s": 2.424,
+      "text_s": 0.126,
+      "conditions_s": 0.149,
+      "transformer_s": 1.541,
       "forwards": 8,
-      "vae_decode_s": 0.6,
-      "vocoder_s": 0.08,
-      "generate_s": 3.385,
+      "vae_decode_s": 0.462,
+      "vocoder_s": 0.082,
+      "generate_s": 2.448,
       "post_s": 0.112,
-      "encode_s": 0.494,
-      "client_overhead_s": 0.033
+      "encode_s": 0.887,
+      "client_overhead_s": 0.04
     },
     "note": "Means over the warm renders, from the X-Timings / X-Latency-S / X-Encode-S / X-Post-S headers in render_done."
   },
   "renders": {
     "n": 61,
     "render_s": {
-      "mean": 4.0236,
-      "sd": 0.0563,
-      "p95": 4.1322,
-      "max": 4.1736
+      "mean": 3.4866,
+      "sd": 0.1356,
+      "p95": 3.6958,
+      "max": 3.8054
     },
     "ratio": {
-      "mean": 0.6706,
-      "p50": 0.6692,
-      "p95": 0.6887,
-      "max": 0.6956
+      "mean": 0.5811,
+      "p50": 0.5757,
+      "p95": 0.616,
+      "max": 0.6342
     },
-    "slope_ms_per_clip": -0.8791,
+    "slope_ms_per_clip": 1.5064,
     "mid_film_compiles": 0,
     "ratio_note": "render wall over the 6.0 s aired (144 of 153 frames)"
   },
   "director": {
-    "model": "gpt-4.1",
+    "model": "gpt-5.4-mini",
+    "reasoning_effort": "none",
     "service_tier": "priority",
-    "n": 40,
+    "n": 31,
     "seconds": {
-      "mean": 2.7982,
-      "sd": 0.7223,
-      "p95": 4.0401,
-      "max": 5.3493
+      "mean": 3.2923,
+      "sd": 0.663,
+      "p95": 4.1992,
+      "max": 4.6649
     }
   },
   "film": {
     "clips": 64,
     "stalls": 0,
-    "min_queue_margin_s": 3.4283,
+    "min_queue_margin_s": 2.3095,
     "steering_s": [
-      11.48,
-      9.66,
-      13.4,
-      15.6,
-      11.38,
-      15.52,
-      13.49,
-      9.65,
-      11.34
+      11.31,
+      9.6,
+      13.42,
+      9.69,
+      11.35,
+      9.57,
+      13.41,
+      9.56,
+      11.44
     ],
-    "steering_note": "Line receipt to its clip on air (timing.jsonl); 9 scripted lines, 1 within 1 s of a fire.",
-    "first_picture_s": 15.2428
+    "steering_note": "Line receipt to its clip on air (timing.jsonl); 9 scripted lines at +0.5, +2.3 and +4.5 s into a segment.",
+    "first_picture_s": 13.8412
   },
   "seams": {
-    "swap_ms": "p95 6.47 ms (headless Chromium 151, 24 clips)",
+    "swap_ms": "p95 6.74 ms (headless Chromium 151, 24 clips)",
     "reloads_on_playing": 0,
     "duplicate_frames_per_seam": 0,
-    "crossfade_dip": 0.0,
+    "crossfade_dip": 0.0006,
     "hold_minus_media_ms": 0.0
   },
   "gates": {

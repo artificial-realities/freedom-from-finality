@@ -44,7 +44,7 @@
   "narrative_premise": "A minifigure alone in a white void does whatever comes to mind — dance, play, try tricks, fail, try again. Props and bits come and go. The fun comes from callbacks: the soccer ball from early on reappears, the hat changes, gags escalate. Earnest, warm, physical-comedy humor. Never cynical.",
   "long_term_narrative": "Bits escalate in absurdity across the session, and props introduced earlier are remembered and revisited — the longer the session goes, the more the minifigure's world of accumulated toys and running gags has to build on.",
   "short_term_narrative": "The minifigure wakes up in the empty white space, tests a few moves, and quickly discovers the first prop — something to play with. Props should start appearing within the first minute; the void is boring without them.",
-  "seed_image": "legoman.png",
+  "seed_image": "legoman-16x9.png",
   "protagonist": "Lego Man",
   "cast_policy": {
     "dynamic_characters": false,

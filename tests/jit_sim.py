@@ -41,6 +41,7 @@ from src.models.config import Config
 from src.models.story import Story
 from src.playback.player import Playable, Player
 from src.story.world import WorldModel
+from src.util.timing_log import TimingLog
 
 REPO = Path(__file__).resolve().parent.parent
 BASELINE_PATH = REPO / "benchmarks" / "runtime" / "baseline.json"
@@ -159,6 +160,7 @@ class SimPlayer(Player):
         self.starts: dict[int, float] = {}               # turn → monotonic time on air
         self.fires: dict[int, float] = {}                # turn → monotonic time its render fired
         self.positions: dict[int, tuple[int, int]] = {}  # turn → (clip, clips in its beat)
+        self.dues: dict[int, float] = {}                 # turn → monotonic time its fire is announced for
         self.answered: list[str] = []                    # viewer text each played clip answered
 
     # What the loop tells the player.
@@ -175,9 +177,15 @@ class SimPlayer(Player):
         if line is not None and line.into_clip is not None and item.turn == line.after_clip:
             asyncio.get_running_loop().call_later(line.into_clip / self.time_scale, self._send, line)
         if line is not None and line.before_fire is not None:
+            # Aimed at the loop's own announcement of the fire two clips on
+            # (`fire_due`, as scripts/steer.py's fire-aware lines are, X-10);
+            # without one, at the median fire phase so far.
+            due = self.dues.get(item.turn + 2)
             phase = self._fire_phase()
-            if phase is not None:
-                wait = phase - line.before_fire / self.time_scale
+            wait = (due - time.monotonic() if due is not None
+                    else phase if phase is not None else None)
+            if wait is not None:
+                wait -= line.before_fire / self.time_scale
                 if wait > 0:
                     asyncio.get_running_loop().call_later(wait, self._send_before_fire, line, item.turn)
         await self._hold(item.duration)
@@ -186,6 +194,9 @@ class SimPlayer(Player):
 
     def fired(self, turn: int) -> None:
         self.fires[turn] = time.monotonic()
+
+    def due(self, turn: int, at: float) -> None:
+        self.dues[turn] = at
 
     def director_call(self, seconds: float, *, answering: bool) -> None:
         on_air = max(self.starts, default=0)
@@ -339,6 +350,14 @@ async def simulate(
         await asyncio.sleep(render.draw(random.Random(f"{seed}:render:{turn}")) / scale)
         return await synthesize(backend, turn=turn, **kwargs)
 
+    write = TimingLog.write
+
+    def announcing_write(log, event, **fields):
+        # The loop's announcement of a fire reaches the scripted viewer.
+        if event == "fire_due":
+            player.due(fields["turn"], time.monotonic() + fields["in_s"])
+        return write(log, event, **fields)
+
     async def known_length(path) -> float:
         # ffprobe takes ~30 ms, which would count `scale` times over.
         return selected.render_seconds
@@ -363,6 +382,8 @@ async def simulate(
              mock.patch.object(MockBackend, "showrunner_delay", showrunner_s / scale), \
              mock.patch.object(ReplayI2V, "synthesize", timed_render), \
              mock.patch.object(runner, "JIT_MARGIN_S", runner.JIT_MARGIN_S / scale), \
+             mock.patch.object(runner, "FIRE_DUE_STEP_S", runner.FIRE_DUE_STEP_S / scale), \
+             mock.patch.object(TimingLog, "write", announcing_write), \
              mock.patch.object(runner, "ADMISSION_TAU_S", runner.ADMISSION_TAU_S / scale), \
              mock.patch.object(runner, "_baseline_floors", lambda: floors), \
              mock.patch.object(runner, "probe_duration", known_length):

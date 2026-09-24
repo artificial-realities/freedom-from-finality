@@ -7,6 +7,12 @@ model: "gpt-4.1"
 # gpt-4.1 at ~150 tokens/s instead of ~60 on 2026-09-17 (2.1 s instead of
 # 5.8 s per segment, same output) at a higher per-token price.
 director_service_tier: "priority"
+# RUN-16 (D-14, BATCH_036-037): the Director is gpt-5.4-mini at no reasoning
+# (the Showrunner keeps `model`). Against gpt-4.1 it answered lines 1.7 s
+# sooner live (2.96 s mean, 3.67 max), wrote longer beats (a third fewer
+# calls), and led every story-authority reading headless.
+director_model: "gpt-5.4-mini"
+director_reasoning_effort: "none"
 temperature: 0.7
 max_tokens_per_agent: 1024
 
@@ -31,6 +37,10 @@ ltxv_continuity_frames: 9
 # ceiling is the way back (145 frames).
 seam: "overlap"
 audio_ceiling_lufs: -18
+# RUN-17 (D-15): one standard size, 512x288 (the server's default), and the
+# story's reference at its aspect to the pixel, resized whole; any other
+# reference refuses to start instead of being cropped or padded.
+i2v_reference_fit: "strict"
 # Identity anchor: the reference image as a guiding keyframe at the end of
 # every clip. Off: the 2026-09-15 sweep showed identity holds without it on
 # the distilled recipe, and an end anchor suppresses the closing action.

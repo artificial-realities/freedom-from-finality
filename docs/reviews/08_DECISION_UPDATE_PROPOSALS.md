@@ -2,6 +2,18 @@
 
 Experiments of the final decision record (`docs/reviews/05_consolidated_decision_record.md`) that have reported. Each entry gives the result and a recommended disposition; the owner decides whether a gated row changes status. The decision record is not edited by the implementation loop, and no gated production behaviour has been implemented or enabled. Newest first.
 
+## GPU session 4: RUN-17, LTX-15, RUN-16 — 2026-09-24
+
+Report: `docs/reviews/experiments/session4.md`. RUN-17 and RUN-16 met their own criteria and are adopted (512×288 with strict 16:9 references; gpt-5.4-mini as the Director).
+
+- **LTX-15: keep cuts a story option; the Lego story stays one continuous take.**
+  - Written cuts into and out of close-ups happen, and none appear unwritten.
+  - But they land 2-4 s into the clip, and a new angle renders as the figure turning.
+  - Close-ups repaint the minifigure's face, which the story forbids.
+  - Live, some cuts render as dissolves, and a few cut clips degrade.
+  - If cuts are wanted later: compile the cut first ("The clip opens on a cut to …"), which is untested, and prefer close-ups on props and hands over faces.
+- **A finding, no row yet: the void drifts into a LEGO baseplate floor over long films.** It shows in session 2's film, before today's changes, and in both of today's, earliest in gpt-5.4-mini's. The visual anchor already says "no floor seam". A candidate is a stronger floor clause in the story's `visual_anchor` ("a seamless white floor with no studs, no grid"), tested over a long film.
+
 ## RUN-15: plan the next beat earlier (D-14) — 2026-09-24
 
 Report: `docs/reviews/implementation_batches/BATCH_033.md`.

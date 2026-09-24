@@ -92,7 +92,7 @@ restart() {
   # Kill and start in separate ssh calls: with both in one command line the
   # kill pattern matches the shell running it (its argv holds the start command).
   ssh_cmd "pkill -f '[l]tx2_server.py' || true; sleep 2"
-  # The first start's defaults (server_defaults.sh: fp8, compile, 640x352, ...) apply here too; without them a
+  # The first start's defaults (server_defaults.sh: fp8, compile, 512x288, ...) apply here too; without them a
   # restart loaded bf16 at 960x544 uncompiled and ran out of memory on the warm-up (2026-09-23).
   ssh_cmd "cd /root && setsid -f env $(server_env) bash -c '. ./server_defaults.sh && exec python ltx2_server.py' > server.log 2>&1 < /dev/null"
   echo "server restarting ($(env | grep '^LTX2_' | tr '\n' ' ')); waiting for /health (load + warm-up)"
