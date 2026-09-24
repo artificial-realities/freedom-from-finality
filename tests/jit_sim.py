@@ -92,9 +92,10 @@ def baseline_director() -> Spread:
 
 
 def clip_length() -> float:
-    """The baseline shape's delivered length (145 frames at 24 fps)."""
+    """The baseline shape's delivered length: what a clip is held for
+    (144 of 153 frames at 24 fps under the overlap seam)."""
     shape = baseline()["shape"]
-    return shape["render_frames"] / shape["fps"]
+    return shape.get("delivered_frames", shape["render_frames"]) / shape["fps"]
 
 
 @dataclass

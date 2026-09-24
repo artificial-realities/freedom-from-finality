@@ -99,7 +99,13 @@ def measure(records: list[dict], *, warm_after: int = 3, stall_s: float = 0.05,
     walls = [r["render_s"] for r in warm]
     median = percentile(walls, 50)
     compiles = [r["turn"] for r in warm if median and r["render_s"] > compile_factor * median]
-    off_media = [abs(on_air[r["turn"]]["duration"] - r["server"]["duration_s"]) * 1000
+    # The hold against the media the player airs: the whole file with the fade
+    # seam; with the overlap seam (D-03) the file minus the frames at its head
+    # that the shape does not deliver (the next clip's cut hides them).
+    shape = start.get("shape") or {}
+    hidden = ((shape.get("render_frames", 0) - shape.get("delivered_frames", 0)) / shape["fps"]
+              if shape.get("fps") and shape.get("delivered_frames") else 0.0)
+    off_media = [abs(on_air[r["turn"]]["duration"] - (r["server"]["duration_s"] - hidden)) * 1000
                  for r in renders
                  if r["turn"] in on_air and isinstance((r.get("server") or {}).get("duration_s"), (int, float))]
 

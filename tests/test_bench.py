@@ -111,6 +111,23 @@ def test_a_clean_video_run_passes_every_gate_it_can_measure():
     assert code == 0 and "No gate failed" in out
 
 
+def test_the_overlap_seam_holds_the_aired_frames_not_the_file():
+    """D-03: a 153-frame file (6.375 s) held 6.0 s is on time; the same hold
+    of a file the shape delivers whole is 375 ms off."""
+    records = _film(length=6.0)
+    for r in records:
+        if r["event"] == "render_done":
+            r["server"]["duration_s"] = 6.375
+    start = next(r for r in records if r["event"] == "session_start")
+    start["shape"] = {"fps": 24.0, "render_frames": 153, "overlap_frames": 9, "delivered_frames": 144,
+                      "delivered_seconds": 6.0}
+    assert _rows(records)["hold_minus_media_ms"]["value"] < 1
+    start["shape"] = {"fps": 24.0, "render_frames": 153, "overlap_frames": 9, "delivered_frames": 153,
+                      "delivered_seconds": 6.375}
+    row = _rows(records)["hold_minus_media_ms"]
+    assert row["result"] == "FAIL" and abs(row["value"] - 375) < 1
+
+
 def test_stalls_slow_renders_compiles_and_late_lines_fail():
     records = _film(clips=12, slow={6: 5.9, 9: 30.0}, waits={7: 0.4}, margins={7: -0.4},
                     lines=[(1, 10.0, 5)], swaps={5: 80.0, 6: 2.0}, reloads=[8])

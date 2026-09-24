@@ -225,6 +225,9 @@ def main(argv: list[str] | None = None) -> int:
         baseline = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
         frames = args.frames or (snap_to_frame_grid(int(args.seconds.split(",")[0]) * fps) if args.seconds
                                  else int(baseline["shape"]["render_frames"]))
+        if not args.overlap and frames == int(baseline["shape"]["render_frames"]):
+            # The baseline's shape airs fewer frames than it renders under the overlap seam.
+            args.overlap = int(baseline["shape"]["render_frames"]) - int(baseline["shape"].get("delivered_frames", frames))
         prompts = prompts_from_file(args.prompts) if args.prompts else builtin_prompts(story)
         warm_after = int(baseline["cold_warm"]["warm_after_clips"])
         rows: list[dict] = []

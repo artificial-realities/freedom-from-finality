@@ -28,9 +28,20 @@ def test_the_prose_compiler_is_gone():
 
 
 async def test_deadline_admission_defers_a_line_it_cannot_answer_in_time():
-    """RUN-06's candidate (X-09 only): a line 0.3 s before a fire cannot be
-    answered before that fire, so it is answered from the clip after it;
-    the schedule's estimates are the rolling p95 floored by the baseline."""
+    """RUN-06's candidate (X-09 only; RUN-06 rejected, the flag kept): a
+    line 0.3 s before a fire cannot be answered before that fire, so it is
+    answered from the clip after it; the schedule's estimates are the
+    rolling p95 floored by the baseline. Run on session A's record, the one
+    X-09 measured against."""
+    from unittest import mock
+    from src.eval import runner
+    import tests.jit_sim as jit_sim
+    session_a = jit_sim.BASELINE_PATH.with_name("2026-09-18-session-a.json")
+    with mock.patch.object(runner, "BASELINE_PATH", session_a), mock.patch.object(jit_sim, "BASELINE_PATH", session_a):
+        await _deadline_case()
+
+
+async def _deadline_case():
     sim = await simulate(clips=16, lines=[Line("the light turns warm", after_clip=8, before_fire=0.3)],
                          policy="deadline", buffer_seconds=1.5)
     deferred = sim.of("line_deferred")

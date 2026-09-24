@@ -26,7 +26,9 @@ from src.story.compiler import compile_clip
 
 REPO = Path(__file__).resolve().parent.parent
 STORY = REPO / "stories" / "lego-void"
-BASELINE = REPO / "benchmarks" / "runtime" / "baseline.json"
+# The comparison's mechanics against a fixed record: session A's (the canonical
+# baseline moves with each live run; its numbers are not what these tests pin).
+BASELINE = REPO / "benchmarks" / "runtime" / "2026-09-18-session-a.json"
 
 
 def _load(name: str):
