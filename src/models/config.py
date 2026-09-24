@@ -97,11 +97,6 @@ class Config(BaseModel):
     elevenlabs_voice_id: str = ""
 
     # ── Director engine (graph: "director") ────────────────────────
-    # The prompt compiler: "labels" (production, `src/story/compiler.py`) or
-    # "prose" (`src/story/compiler_prose.py`, LTX-01's caption-prose arm, for
-    # the X-05 comparison only; LTX-01 is EXPERIMENT_REQUIRED and the flag
-    # stays "labels" until X-05 reports and the owner approves).
-    compiler: str = "labels"
     # How the narrator's lines are rendered: "ltx" (in the video prompt,
     # native audio) | "tts" (ElevenLabs, mixed over the clip) | "off" (not
     # rendered). A rendering choice only: whether the film has a narrator,
@@ -183,6 +178,18 @@ class Config(BaseModel):
             if "render_slack_seconds" in data:
                 slack = data.pop("render_slack_seconds")
                 data.setdefault("buffer_seconds", slack + LEGACY_SLACK_TO_BUFFER)
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _one_compiler(cls, data):
+        """`compiler` chose between `src/story/compiler.py` and LTX-01's
+        caption-prose arm; X-05 rejected the arm (2026-09-23) and it was
+        removed, so the key goes, and asking for the arm is an error."""
+        if isinstance(data, dict) and "compiler" in data:
+            data = dict(data)
+            if data.pop("compiler") not in ("labels", None):
+                raise ValueError("the prose compiler was removed (LTX-01 rejected after X-05); drop `compiler`")
         return data
 
     @classmethod

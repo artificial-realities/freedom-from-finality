@@ -19,8 +19,8 @@ changed.
     python scripts/replay_compiler.py build --session logs/live-box/sessions/<id> --langfuse lf.json \\
         --story stories/lego-void --out replay.json
     python scripts/replay_compiler.py run replay.json --out prompts.json --verify logs/live-box/<id>.md
-    python scripts/replay_compiler.py run replay.json --compiler src.story.compiler_prose:compile_clip \\
-        --out prose.json --diff prompts.json --first 1 --count 12
+    python scripts/replay_compiler.py run replay.json --compiler mypkg.other_compiler:compile_clip \\
+        --out other.json --diff prompts.json --first 1 --count 12
 
 `--compiler` is `module:function` with `compile_clip`'s signature. The
 config gives `narration` and `max_clips_per_beat`; the story gives the narrator.

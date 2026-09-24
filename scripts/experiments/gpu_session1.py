@@ -54,7 +54,6 @@ from src.i2v.ltxv import derive_seed, fit_reference  # noqa: E402
 from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
 from src.story import compiler as labels_compiler  # noqa: E402
-from src.story import compiler_prose  # noqa: E402
 
 REPLAY = REPO / "logs" / "batch-005" / "session-a.replay.json"
 STORY = REPO / "stories" / "lego-void"
@@ -96,11 +95,16 @@ def _no_fallback_prose(beat, index, world, *, visual_style, visual_anchor="", **
     identity arms."""
     if not kw.get("opening") and not visual_anchor:
         visual_style = ""
+    from src.story import compiler_prose  # removed with LTX-01 (D-02); `prepare` needs it from git (32fd5fc)
     return compiler_prose.compile_clip(beat, index, world, visual_style=visual_style, visual_anchor=visual_anchor, **kw)
 
 
 def plan_arms() -> dict[str, dict[str, dict]]:
     """Every experiment's arms: the chain, the render settings, the seed key."""
+    # The prose arm (LTX-01) was rejected after X-05 and removed (D-02): `prepare`
+    # re-creates session 1's inputs only with src/story/compiler_prose.py restored
+    # from git (32fd5fc); `run` and `analyse` work on the prepared arms without it.
+    from src.story import compiler_prose
     story = Story.from_json(STORY)
     labels, prose = labels_compiler.compile_clip, compiler_prose.compile_clip
     forms = json.loads(FORMS.read_text())
