@@ -296,6 +296,28 @@ def format_interventions(world: WorldModel, current_input: str) -> str:
     return "\n".join(out)
 
 
+def format_viewer_callbacks(world: WorldModel) -> str:
+    """What changed in the world since the most recent absorbed viewer line.
+    Gives the Director a way to reference back to the viewer's influence."""
+    absorbed = [i for i in world.interventions if i.disposition == "absorbed"]
+    if not absorbed:
+        return ""
+    last = absorbed[-1]
+    since = last.segment
+    changes: list[str] = []
+    for ev in world.events:
+        if ev.segment <= since:
+            continue
+        for op in ev.applied_ops:
+            changes.append(f"- {op} (segment {ev.segment})")
+        for top in ev.thread_ops:
+            changes.append(f"- thread: {top} (segment {ev.segment})")
+    if not changes:
+        return ""
+    header = f'Since the viewer said "{last.text}" (segment {since}), these things happened:'
+    return header + "\n" + "\n".join(changes[-8:])
+
+
 def format_interventions_all(world: WorldModel) -> str:
     if not world.interventions:
         return "(no viewer input so far)"

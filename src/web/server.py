@@ -77,6 +77,7 @@ class WebPlayer(Player):
         self._clients: set[asyncio.Queue] = set()
         self._runner: web.AppRunner | None = None
         self._ended = False
+        self._seen_input_ids: set[str] = set()
 
     # ── Player ──────────────────────────────────────────────────────
 
@@ -151,8 +152,15 @@ class WebPlayer(Player):
             return web.json_response({"error": "empty input"}, status=400)
         if self._ended:
             return web.json_response({"error": "the film has ended"}, status=409)
+        input_id = str(body.get("id", "")).strip()
+        if input_id:
+            if input_id in self._seen_input_ids:
+                return web.json_response({"status": "duplicate", "id": input_id})
+            self._seen_input_ids.add(input_id)
         record = {"text": text, "received_at": time.time(),
                   "after_turn": self.history[-1].turn if self.history else 0}
+        if input_id:
+            record["id"] = input_id
         self.inputs.append(record)
         self.push_input(text)
         self._broadcast("input", record)

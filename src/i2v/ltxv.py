@@ -230,10 +230,13 @@ class LtxvI2V(I2VBackend):
         prompt: str,
         turn: int,
         shape: ClipShape,
+        clip_id: int | None = None,
+        parent_clip_id: int | None = None,
     ) -> str | None:
         try:
             return await asyncio.to_thread(
                 self._synthesize_sync, image_path, prompt, turn, shape,
+                clip_id=clip_id, parent_clip_id=parent_clip_id,
             )
         except Exception as exc:
             logger.exception("LTX-2.5 render failed on turn %s: %s", turn, exc)
@@ -245,6 +248,9 @@ class LtxvI2V(I2VBackend):
         prompt: str,
         turn: int,
         shape: ClipShape,
+        *,
+        clip_id: int | None = None,
+        parent_clip_id: int | None = None,
     ) -> str | None:
         # Remember the original seed image so we can re-init after a
         # server restart. Always the reference, never a later frame.
@@ -266,9 +272,14 @@ class LtxvI2V(I2VBackend):
             payload["anchor_index"] = self.anchor_index
         if not self._initialized:
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
+        if clip_id is not None:
+            payload["clip_id"] = clip_id
+        if parent_clip_id is not None:
+            payload["parent_clip_id"] = parent_clip_id
         self.last_render = {"requested_frames": payload["num_frames"],
                             "reference": "reference_image" in payload,
-                            "seed": payload.get("seed")}
+                            "seed": payload.get("seed"),
+                            "clip_id": clip_id, "parent_clip_id": parent_clip_id}
 
         url = f"{self.server_url}/generate"
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
@@ -287,6 +298,19 @@ class LtxvI2V(I2VBackend):
                 logger.warning("LTX-2.5 server lost state — re-seeding reference")
                 self.last_render = {**self.last_render, "reference": True, "reseeded": True}
             resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
+
+        # Fenced render: the server does not hold the parent's tail.
+        if resp.status_code == 409 and "unknown_parent" in resp.text:
+            logger.warning("LTX-2.5 server does not hold parent %s — resending with window_frames", parent_clip_id)
+            window = (self._tail_frames(self._last_clip, self.continuity_frames)
+                      if self._last_clip else [])
+            if window:
+                payload["window_frames"] = window
+                self.last_render = {**self.last_render, "restored": len(window)}
+                resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
+            else:
+                self.last_render = {**self.last_render, "unknown_parent": True}
+                return None
 
         self.last_render = {**self.last_render, "status": resp.status_code,
                             **render_headers(resp.headers)}

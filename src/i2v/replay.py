@@ -47,6 +47,8 @@ class ReplayI2V(I2VBackend):
         prompt: str,
         turn: int,
         shape: ClipShape,
+        clip_id: int | None = None,
+        parent_clip_id: int | None = None,
     ) -> str | None:
         if self.delay:
             await asyncio.sleep(self.delay)

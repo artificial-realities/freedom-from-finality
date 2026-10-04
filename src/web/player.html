@@ -495,7 +495,8 @@
     if (!text) return;
     input.value = '';
     try {
-      const r = await fetch('/input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const id = crypto.randomUUID();
+      const r = await fetch('/input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, id }) });
       if (!r.ok) { const err = await r.json().catch(() => ({})); setStatus(err.error || 'input rejected', 'ended'); }
     } catch (e) { setStatus('could not reach the server', 'ended'); }
     input.focus();

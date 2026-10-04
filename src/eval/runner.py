@@ -119,7 +119,7 @@ def _log_emit(timing: TimingLog, graph, turn: int) -> None:
     ev = graph.world.events[-1] if graph.world is not None and graph.world.events else None
     if ev is None or ev.segment != turn:
         return
-    timing.write("emit", turn=turn, beat=ev.beat, clip=ev.clip_index, of=ev.clip_count,
+    timing.write("emit", turn=turn, clip_id=ev.clip_id, beat=ev.beat, clip=ev.clip_index, of=ev.clip_count,
                  seconds=ev.duration, voiceover=bool(ev.voiceover))
 
 
@@ -239,6 +239,8 @@ async def _render_turn(
         prompt=prompt,
         turn=state.turn_number,
         shape=state.current_shape,
+        clip_id=state.current_clip_id or None,
+        parent_clip_id=state.current_parent_clip_id if state.current_clip_id else None,
     )
     if not video_path:
         langfuse_event(
@@ -622,6 +624,7 @@ async def run_live(
 
     async def _bg_render_and_enqueue(
         item: Playable, *, prompt: str, seed_image: str, shape: ClipShape, audio: str = "",
+        clip_id: int | None = None, parent_clip_id: int | None = None,
     ) -> bool:
         """Render one clip in the background and enqueue it, with the
         segment's TTS line (already no longer than the clip) mixed in. The
@@ -635,6 +638,7 @@ async def run_live(
             t0 = time.monotonic()
             video_path = await i2v.synthesize(
                 image_path=seed_image, prompt=prompt, turn=item.turn, shape=shape,
+                clip_id=clip_id, parent_clip_id=parent_clip_id,
             )
             render_s = time.monotonic() - t0
             timing.write("render_done", turn=item.turn, ok=bool(video_path), render_s=round(render_s, 4),
@@ -986,6 +990,8 @@ async def run_live(
                                     seed_image=seed_image,
                                     shape=shape,
                                     audio=state.current_audio_path,
+                                    clip_id=state.current_clip_id or None,
+                                    parent_clip_id=state.current_parent_clip_id if state.current_clip_id else None,
                                 )
                             )
                             _prev_hold = shape.delivered_seconds / player.time_scale
@@ -1113,6 +1119,7 @@ def _playable(state: StoryState) -> Playable:
     beat, shot, comm = state.current_beat, state.current_shot, state.current_commentary
     return Playable(
         turn=state.turn_number,
+        clip_id=state.current_clip_id,
         duration=float(shot.duration_seconds) if shot else state.current_shape.delivered_seconds,
         user_input=state.user_input,
         narration=beat.narration if beat else "",

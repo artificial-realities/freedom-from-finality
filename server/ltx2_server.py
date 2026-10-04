@@ -210,6 +210,12 @@ class GenerateRequest(BaseModel):
     # clip's tail (base64 PNGs); the session continues from it instead of the
     # reference, so costume and position survive the restart.
     window_frames: list[str] | None = None
+    # Fenced render requests: the clip this render belongs to and the clip it
+    # continues from. The server keeps the last few tails keyed by clip_id
+    # and conditions on the named parent. An unknown parent returns 409.
+    # Omitting both preserves backwards compatibility.
+    clip_id: int | None = None
+    parent_clip_id: int | None = None
 
 
 # ── Startup ───────────────────────────────────────────────────────
@@ -620,6 +626,7 @@ async def health():
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         "turn_count": session.get("turn_count", 0),
         "has_reference": "ref_image" in session,
+        "tail_ids": sorted(session.get("tails", {}).keys()),
         "vram_allocated_gb": round(torch.cuda.memory_allocated() / 1e9, 1)
         if torch.cuda.is_available()
         else None,
@@ -646,10 +653,31 @@ def _run_pipeline(req: GenerateRequest) -> dict:
         session["ref_image"] = _decode_image(req.reference_image)
         session["window"] = None
         session["turn_count"] = 0
+        session["tails"] = {}
         logger.info("Session seeded with reference image")
     elif req.reference_image is not None:
         session["ref_image"] = _decode_image(req.reference_image)
         logger.info("Reference image replaced mid-session")
+
+    # Fenced render: resolve the parent's tail from the keyed store.
+    if req.clip_id is not None and req.parent_clip_id is not None:
+        tails: dict = session.setdefault("tails", {})
+        if req.parent_clip_id == 0:
+            pass  # first clip: seeded from the reference
+        elif req.parent_clip_id in tails:
+            session["window"] = tails[req.parent_clip_id]
+        elif req.window_frames:
+            pass  # client sent its own copy (the RUN-10 path)
+        elif session.get("window") is None:
+            pass  # no window at all: reference will be used
+        else:
+            held = sorted(tails.keys())
+            raise HTTPException(
+                409,
+                f"unknown_parent: parent_clip_id={req.parent_clip_id} not among the held tails {held}; "
+                "resend with window_frames from the client's copy",
+            )
+
     if req.window_frames and session.get("window") is None and not req.reset_window:
         frames = [np.asarray(_decode_image(f).resize((WIDTH, HEIGHT))) for f in req.window_frames]
         session["window"] = np.stack(frames).astype(np.uint8)
@@ -751,6 +779,15 @@ def _run_pipeline(req: GenerateRequest) -> dict:
     post_s = time.monotonic() - t_post
     tail = min(req.continuity_frames, frames_u8.shape[0])
     session["window"] = frames_u8[-tail:]
+
+    # Fenced tails: store under clip_id, keep the last 3.
+    if req.clip_id is not None:
+        tails = session.setdefault("tails", {})
+        tails[req.clip_id] = frames_u8[-tail:]
+        if len(tails) > 3:
+            oldest = sorted(tails.keys())[:-3]
+            for k in oldest:
+                del tails[k]
 
     logger.info("Turn %d: generated in %.2fs, frames converted in %.2fs, %s, %.1f GB VRAM",
                 turn, dt, post_s, list(frames_u8.shape), torch.cuda.memory_allocated() / 1e9)

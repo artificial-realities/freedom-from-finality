@@ -52,6 +52,8 @@ class I2VBackend(ABC):
         prompt: str,
         turn: int,
         shape: ClipShape,
+        clip_id: int | None = None,
+        parent_clip_id: int | None = None,
     ) -> str | None:
         """Render a clip from `image_path` + `prompt`. Return MP4 path or None.
 

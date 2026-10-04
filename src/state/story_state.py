@@ -43,6 +43,8 @@ class StoryState(BaseModel):
     # crossfading its first syllable (AUD-02).
     current_speech: bool = False
     current_shape: ClipShape | None = None   # the clip's selected shape (RUN-01): what is rendered and held
+    current_clip_id: int = 0                # monotonic clip identity (never reused)
+    current_parent_clip_id: int = 0         # the clip this one continues from (0 = reference)
     turn_notes: str = ""  # engine-specific markdown appended to the transcript
 
     # Compact views of the world model for the transcript (the engine

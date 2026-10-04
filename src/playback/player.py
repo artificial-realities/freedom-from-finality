@@ -33,6 +33,7 @@ class Playable(BaseModel):
     just its text) plus the views of the segment that produced it."""
 
     turn: int
+    clip_id: int = 0                 # monotonic identity (never reused; 0 = legacy)
     path: str | None = None          # mp4 to play; None = text-only segment (no video backend)
     duration: float = 5.0            # seconds on air (the hold)
     # The overlap seam (AUD-02 / LTX-12, D-03; the config's and the page's

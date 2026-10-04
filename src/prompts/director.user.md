@@ -11,6 +11,7 @@ Segment {segment}
 
 ## Viewer
 {interventions}
+{viewer_callbacks}
 
 ## Story so far
 {summaries}

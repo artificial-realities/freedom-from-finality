@@ -33,6 +33,8 @@ for the terminal loop and tests; the live loop calls `plan`, `emit` and
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 from pathlib import Path
@@ -55,7 +57,7 @@ from src.story.pacing import (
 )
 from src.story.schemas import BeatPlan, ClipSpec
 from src.story.validator import Report, apply_clip, apply_showrunner
-from src.story.world import EventRecord, WorldModel
+from src.story.world import ClipRecord, EventRecord, WorldModel
 from src.tts.elevenlabs import ElevenLabsTTS
 from src.util.langfuse_setup import event as langfuse_event
 from src.util.media import probe_duration
@@ -133,6 +135,7 @@ class DirectorEngine:
         self._plan_notes: list[str] = []    # transcript notes from the plan, shown on its first clip
         self._plan_meta: dict = {}          # vo_open, pacing, trigger, forced for the transcript
         self._last_end_state: str = ""      # the image the last emitted clip ends on
+        self._viewer_line_ids: list[int] = []  # line ids the current beat answers (for ClipRecord)
         self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
         self._pending_note: str = ""        # how the previous beat ended, for the next call
         # A renderer restart that re-seeded the picture from the reference
@@ -151,6 +154,10 @@ class DirectorEngine:
         if not self.has_next_clip():
             await self.plan(state)
         return await self.emit(state)
+
+    def set_viewer_line_ids(self, ids: list[int]) -> None:
+        """The line IDs this beat answers, set by the runner before emit."""
+        self._viewer_line_ids = list(ids)
 
     def has_next_clip(self) -> bool:
         return self._beat is not None and self._clip_index < len(self._beat.clips)
@@ -288,8 +295,10 @@ class DirectorEngine:
                 spawning = reason
         self._plan_notes = notes
         self._plan_meta = {"vo_open": vo_open, "pacing": pnote, "trigger": spawning, "forced": forced_done}
-        return {"beat": world.beats, "clips": len(beat.clips), "director_s": round(director_s, 4),
+        cost = {"beat": world.beats, "clips": len(beat.clips), "director_s": round(director_s, 4),
                 "retry": retried, "fallback": fallback, "bootstrap": bootstrap}
+        self._record_plan(seg, beat, {"fallback": fallback, "bootstrap": bootstrap})
+        return cost
 
     def discard_pending_input(self, segment: int) -> None:
         """A plan was cancelled before it returned: forget the line it had
@@ -442,15 +451,58 @@ class DirectorEngine:
             "last_end_state": self._last_end_state, "last_beat": self._last_beat,
             "pending_note": self._pending_note, "pending_spawn": self._pending_spawn,
             "held_trigger": self._held_trigger, "beat_shape": self._beat_shape,
+            "clip_counter": self.world._clip_counter if self.world is not None else 0,
+            "last_clip_id": self.world._last_clip_id if self.world is not None else 0,
         }
 
+    def _record_plan(self, segment: int, beat: BeatPlan, meta: dict) -> None:
+        if self.session_dir is None:
+            return
+        path = self.session_dir / "plans.jsonl"
+        record = {"segment": segment, "beat_no": self._beat_no,
+                  "beat": beat.model_dump(mode="json"),
+                  "input": self._beat_input or None, **meta}
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            logger.exception("Could not write plan record to %s", path)
+
+    def _record_showrunner(self, update, *, reason: str, at_segment: int, landed_at: int | None = None) -> None:
+        if self.session_dir is None or update is None:
+            return
+        path = self.session_dir / "showrunner.jsonl"
+        record = {"at_segment": at_segment, "reason": reason,
+                  "update": update.model_dump(mode="json")}
+        if landed_at is not None:
+            record["landed_at"] = landed_at
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            logger.exception("Could not write showrunner record to %s", path)
+
     def _restore(self, snap: dict, landings: list[tuple]) -> None:
+        # Record a drop marker for the clip being rolled back (clip IDs never reuse).
+        current_world = self.world
+        rolled_clip_id = current_world._last_clip_id if current_world is not None else 0
+        clip_counter = current_world._clip_counter if current_world is not None else 0
+        clip_records = list(current_world._clip_records) if current_world is not None else []
+        saved_clips = current_world._saved_clips if current_world is not None else 0
         self.world = snap["world"]
         self._beat, self._clip_index, self._beat_no = snap["beat"], snap["clip_index"], snap["beat_no"]
         self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
         self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
         self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
         self._held_trigger, self._beat_shape = snap["held_trigger"], snap["beat_shape"]
+        # Clip counter must never go backwards; restore only the parent pointer.
+        self.world._clip_counter = max(clip_counter, snap.get("clip_counter", 0))
+        self.world._last_clip_id = snap.get("last_clip_id", 0)
+        # Carry forward clip records (append-only, never rewritten).
+        self.world._clip_records = clip_records
+        self.world._saved_clips = saved_clips
+        if rolled_clip_id:
+            self.world.record_drop(rolled_clip_id, f"rollback of segment {snap['segment']}")
         for update, at_segment, force_replan, triggered_at in landings:
             apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan,
                              triggered_at=triggered_at)
@@ -483,6 +535,9 @@ class DirectorEngine:
         first = i == 0
         state.user_input = self._beat_input if first else ""
 
+        parent_clip_id = world.last_clip_id
+        clip_id = world.next_clip_id()
+
         report = apply_clip(beat, i, world, segment_no=seg)
         if first and beat.intervention == "absorbed" and self._beat_input:
             world.viewer_momentum = self._beat_input
@@ -498,9 +553,37 @@ class DirectorEngine:
         )
         shape = self._beat_shape
         state.current_shape = shape
+        state.current_clip_id = clip_id
+        state.current_parent_clip_id = parent_clip_id
         duration = shape.delivered_seconds
         voiceover = beat.voiceover if first else ""
         self._write_views(state, beat, clip, prompt, duration, voiceover, first)
+
+        world_hash = hashlib.sha1(
+            world.model_dump_json(exclude={"events"}).encode()
+        ).hexdigest()[:12]
+
+        world.record_clip(ClipRecord(
+            clip_id=clip_id,
+            beat_id=self._beat_no,
+            parent_clip_id=parent_clip_id,
+            segment=seg,
+            beat_intent=beat.intent,
+            framing=beat.framing,
+            intervention=beat.intervention if first else "none",
+            intervention_reason=beat.intervention_reason if first else "",
+            perspective=beat.perspective,
+            voiceover=voiceover,
+            action=clip.action_text(),
+            end_state=clip.end_state,
+            camera_motion=clip.camera_motion,
+            on_screen=list(clip.on_screen),
+            prompt=prompt,
+            shape_frames=shape.render_frames,
+            shape_seconds=duration,
+            viewer_line_ids=list(self._viewer_line_ids) if first else [],
+            world_hash=world_hash,
+        ))
 
         audio_path = ""
         if (
@@ -529,6 +612,7 @@ class DirectorEngine:
         card = world.plan.scene
         world.events.append(EventRecord(
             segment=seg,
+            clip_id=clip_id,
             scene_id=card.id if card else 0,
             beat=self._beat_no,
             beat_intent=beat.intent,
@@ -710,6 +794,7 @@ class DirectorEngine:
         landed = apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan,
                                   triggered_at=triggered_at)
         self._landed_since.append((update, at_segment, force_replan, triggered_at))
+        self._record_showrunner(update, reason=reason, at_segment=at_segment, landed_at=landed_at)
         if any(n.startswith("scene ") for n in landed):
             self._held_trigger = None   # a new card answers any replan still held
         card = self.world.plan.scene

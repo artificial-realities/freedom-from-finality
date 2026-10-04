@@ -131,6 +131,7 @@ class EventRecord(BaseModel):
     what the camera saw, what changed."""
 
     segment: int
+    clip_id: int = 0             # monotonic per run, never reused (0 = legacy log)
     scene_id: int
     beat: int = 0
     beat_intent: str = ""
@@ -145,6 +146,36 @@ class EventRecord(BaseModel):
     end_state: str = ""
     voiceover: str = ""
     duration: float = 0.0        # delivered seconds of the clip's shape (older logs: whole seconds)
+
+
+class ClipRecord(BaseModel):
+    """The full record of one clip as it was planned, compiled and fired.
+    Appended to clips.jsonl in the session directory; a rollback appends a
+    dropped marker instead of rewriting. Replay and offline analysis read
+    this; nothing reads it during a run."""
+
+    clip_id: int
+    beat_id: int
+    parent_clip_id: int = 0      # 0 = seeded from the reference (the first clip)
+    segment: int
+    beat_intent: str = ""
+    framing: str = ""
+    intervention: str = "none"
+    intervention_reason: str = ""
+    perspective: str = ""
+    voiceover: str = ""
+    action: str = ""
+    end_state: str = ""
+    camera_motion: str = "static"
+    on_screen: list[str] = Field(default_factory=list)
+    prompt: str = ""
+    shape_frames: int = 0
+    shape_seconds: float = 0.0
+    seed: int | None = None
+    viewer_line_ids: list[int] = Field(default_factory=list)
+    world_hash: str = ""
+    dropped: bool = False
+    drop_reason: str = ""
 
 
 class WorldModel(BaseModel):
@@ -171,6 +202,10 @@ class WorldModel(BaseModel):
     shot: str = ""               # the shot the picture is in: the last beat's framing or a clip's cut (LTX-15)
 
     _saved_events: int = PrivateAttr(default=0)
+    _clip_counter: int = PrivateAttr(default=0)
+    _last_clip_id: int = PrivateAttr(default=0)
+    _clip_records: list[ClipRecord] = PrivateAttr(default_factory=list)
+    _saved_clips: int = PrivateAttr(default=0)
 
     # ── Construction ────────────────────────────────────────────────
 
@@ -325,6 +360,28 @@ class WorldModel(BaseModel):
         """Story seconds played from `segment` on (inclusive): a thread's age."""
         return float(sum(e.duration for e in self.events if e.segment >= segment))
 
+    def next_clip_id(self) -> int:
+        """A new clip id: monotonic per run, never reused."""
+        self._clip_counter += 1
+        self._last_clip_id = self._clip_counter
+        return self._clip_counter
+
+    @property
+    def last_clip_id(self) -> int:
+        return self._last_clip_id
+
+    @last_clip_id.setter
+    def last_clip_id(self, value: int) -> None:
+        self._last_clip_id = value
+
+    def record_clip(self, record: ClipRecord) -> None:
+        self._clip_records.append(record)
+
+    def record_drop(self, clip_id: int, reason: str) -> None:
+        self._clip_records.append(ClipRecord(
+            clip_id=clip_id, beat_id=0, segment=0, dropped=True, drop_reason=reason,
+        ))
+
     def events_since(self, segment: int) -> list[EventRecord]:
         return [e for e in self.events if e.segment > segment]
 
@@ -335,9 +392,9 @@ class WorldModel(BaseModel):
     # ── Persistence ─────────────────────────────────────────────────
 
     def save(self, directory: Path | str, *, rewrite: bool = False) -> None:
-        """Write `world.json` and append new events to `events.jsonl`;
-        `rewrite` writes the whole event log again (after a rollback took a
-        recorded clip back out)."""
+        """Write `world.json`, append new events to `events.jsonl` and new
+        clip records to `clips.jsonl`; `rewrite` writes the whole event log
+        again (after a rollback took a recorded clip back out)."""
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "world.json").write_text(
@@ -347,13 +404,19 @@ class WorldModel(BaseModel):
             (directory / "events.jsonl").write_text(
                 "".join(ev.model_dump_json() + "\n" for ev in self.events), encoding="utf-8")
             self._saved_events = len(self.events)
-            return
-        new = self.events[self._saved_events:]
-        if new:
-            with (directory / "events.jsonl").open("a", encoding="utf-8") as f:
-                for ev in new:
-                    f.write(ev.model_dump_json() + "\n")
-            self._saved_events = len(self.events)
+        else:
+            new = self.events[self._saved_events:]
+            if new:
+                with (directory / "events.jsonl").open("a", encoding="utf-8") as f:
+                    for ev in new:
+                        f.write(ev.model_dump_json() + "\n")
+                self._saved_events = len(self.events)
+        new_clips = self._clip_records[self._saved_clips:]
+        if new_clips:
+            with (directory / "clips.jsonl").open("a", encoding="utf-8") as f:
+                for cr in new_clips:
+                    f.write(cr.model_dump_json() + "\n")
+            self._saved_clips = len(self._clip_records)
 
     @classmethod
     def load(cls, directory: Path | str) -> "WorldModel":
