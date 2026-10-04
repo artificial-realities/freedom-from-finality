@@ -59,6 +59,17 @@ def perspective_key(text: str) -> str:
     return re.sub(r"[^a-z]+", "-", text.strip().lower()).strip("-")
 
 
+class Storyteller(BaseModel):
+    """The author's identity — what makes this story theirs even when the
+    viewer takes over. A toy story (Lego Man) works without any of these;
+    an authored story fills them so the system tells *their* story."""
+
+    values: str = ""             # what the story is about, thematically
+    truths: list[str] = Field(default_factory=list)    # beliefs that hold no matter where the viewer steers
+    boundaries: list[str] = Field(default_factory=list) # what this storyteller would never do
+    temperament: str = ""        # how the storyteller absorbs surprise from the viewer
+
+
 class CastPolicy(BaseModel):
     """Who may appear besides the blueprint's cast (ARCH-19). A story that
     allows no new characters keeps its cast as written (objects and
@@ -137,6 +148,7 @@ class Story(BaseModel):
     long_term_narrative: str = ""
     short_term_narrative: str = ""
     thread_guidance: str = ""   # optional: how long setups, promises and gags should run in this story (the Showrunner's)
+    storyteller: Storyteller = Field(default_factory=Storyteller)
     seed_image: str = ""        # reference image for the video model, resolved relative to the story dir
     protagonist: str = ""       # the protagonist's name; "" = the first character
     cast_policy: CastPolicy | None = None   # absent → from `cast_locked` (a blueprint from before ARCH-19)

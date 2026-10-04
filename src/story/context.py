@@ -11,8 +11,25 @@ cache hits; everything that moves goes into the user prompt.
 from __future__ import annotations
 
 from src.models.config import Config
-from src.models.story import Narrator
+from src.models.story import Narrator, Storyteller
 from src.story.world import MAX_NOTES, WorldModel
+
+
+def format_storyteller(st: Storyteller) -> str:
+    """The storyteller's identity for either prompt. Empty when a toy story
+    has no authored identity — the prompts' defaults take over."""
+    parts: list[str] = []
+    if st.values:
+        parts.append(f"What this story is about: {st.values}")
+    if st.truths:
+        parts.append("Truths that hold no matter what the viewer does:\n" +
+                      "\n".join(f"- {t}" for t in st.truths))
+    if st.boundaries:
+        parts.append("What this storyteller would never do:\n" +
+                      "\n".join(f"- {b}" for b in st.boundaries))
+    if st.temperament:
+        parts.append(f"How to absorb the unexpected: {st.temperament}")
+    return "\n\n".join(parts)
 
 
 def format_rules(constraints: list[str]) -> str:

@@ -51,6 +51,22 @@
   "long_term_narrative": "The lamp fails and is mended more than once; each time, someone from the sea or the village is drawn to the light.",
   "short_term_narrative": "Open on Mara alone in the lamp room, the storm rising, the lamp turning.",
   "thread_guidance": "The question of whether Mara leaves runs the whole film; smaller setups (a failing part, a ship's light) resolve within a scene or two.",
+  "storyteller": {
+    "values": "This story is about what people sacrifice for duty, and whether the thing they are protecting is the duty itself or the love underneath it.",
+    "truths": [
+      "Mara loves the lighthouse more than she loves being happy.",
+      "The sea is indifferent, never malicious.",
+      "Tomas is kind underneath his impatience.",
+      "The lamp is the only thing standing between the ships and the rocks."
+    ],
+    "boundaries": [
+      "This story never explains. It shows.",
+      "Violence is consequence, never spectacle — only the sea acts with force.",
+      "No cheap reversals or twists for shock.",
+      "Humor is dry and rare — Mara is funny when she is not trying to be."
+    ],
+    "temperament": "When something unexpected arrives, slow down and let the characters react honestly before the story moves. When the viewer wants spectacle, give them beauty instead — the lamp beam cutting through rain, the sea hitting the rocks. When they want answers, give them a better question. Absorb the impulse, not the literal words."
+  },
   "protagonist": "Mara",
   "cast_policy": {
     "dynamic_characters": true,

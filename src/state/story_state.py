@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from src.i2v.shape import ClipShape
 
 from src.models.responses import Beat, Commentary, Shot
-from src.models.story import CastPolicy, Character, Location, Narrator, Perspective, Story
+from src.models.story import CastPolicy, Character, Location, Narrator, Perspective, Story, Storyteller
 
 
 class HistoryEntry(BaseModel):
@@ -89,6 +89,7 @@ class StoryState(BaseModel):
     protagonist: str = ""
     cast_policy: CastPolicy = Field(default_factory=CastPolicy)
     perspective: Perspective = Field(default_factory=Perspective)
+    storyteller: Storyteller = Field(default_factory=Storyteller)
 
     def get_recent_history(self, count: int = 5) -> list[HistoryEntry]:
         if count <= 0:
@@ -115,5 +116,6 @@ class StoryState(BaseModel):
             perspective=story.perspective,
             long_term_narrative=story.long_term_narrative,
             short_term_narrative=story.short_term_narrative,
+            storyteller=story.storyteller,
             config_name=config_name,
         )
