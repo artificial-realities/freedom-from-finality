@@ -497,3 +497,29 @@ def test_an_answer_beat_is_capped_and_told_so():
     beat = _beat(clips=[_clip(), _clip(), _clip()])
     assert any("only the first 2" in x for x in check(beat, _world(), max_clips=clip_cap(cfg, "x")).warnings)
 
+
+def test_every_blueprint_field_is_in_the_field_guide():
+    """`stories/README.md` says what each field of `story.json` is and does;
+    a field added to the blueprint without a line there fails here."""
+    import typing
+    from pydantic import BaseModel
+    guide = Path("stories/README.md").read_text()
+
+    def models(annotation) -> list[type[BaseModel]]:
+        args = typing.get_args(annotation) or (annotation,)
+        return [a for arg in args for a in ([arg] if isinstance(arg, type) and issubclass(arg, BaseModel)
+                                            else models(arg) if typing.get_args(arg) else [])]
+
+    seen, todo, missing = set(), [Story], []
+    while todo:
+        model = todo.pop()
+        if model in seen:
+            continue
+        seen.add(model)
+        for name, field in model.model_fields.items():
+            if f"`{name}`" not in guide:
+                missing.append(f"{model.__name__}.{name}")
+            todo.extend(models(field.annotation))
+    assert not missing, f"document these in stories/README.md: {missing}"
+    assert {m.__name__ for m in seen} >= {"Story", "Storyteller", "Cast", "Character", "Voice", "Picture", "Reference",
+                                          "Perspective", "Location"}

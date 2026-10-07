@@ -6,7 +6,8 @@ A blueprint holds the essential story, not a script: what the film is
 (`storyteller`), who is in it (`cast`, `locations`) and how it looks
 (`picture`). Everything that happens in time is composed live by the
 Showrunner, the Director and the viewer. All fields are read-only
-during a run; see docs/ARCHITECTURE.md for who reads which.
+during a run. What each field is and what it does to the film, for an
+author: stories/README.md.
 """
 
 from __future__ import annotations

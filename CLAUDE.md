@@ -33,7 +33,7 @@ scripts/replay_compiler.py   # a run's Director outputs through the compiler, of
 scripts/experiments/         # decision-record experiments: drivers, judges, arms (evaluation-only; results in docs/reviews/experiments/)
 benchmarks/runtime/          # baseline.json: the canonical render baseline and its gates
 configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5) · director.replay.yaml (replayed clips)
-stories/                     # per-story folders (story.json blueprint, reference image, assets)
+stories/                     # per-story folders (story.json blueprint, reference image, assets); README.md: the field guide
 docs/                        # ARCHITECTURE.md · reviews/ · legacy/
 server/                      # LTX-2.5 inference server (runs on a GPU box; see server/README.md)
 ```
