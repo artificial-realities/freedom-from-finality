@@ -107,7 +107,7 @@ run() {
   local config=${1:-configs/director.live.yaml} log_dir=${2:-logs/live}; shift $(( $# > 2 ? 2 : $# ))
   # The working tree as it is (tracked files, committed or not), so what you have is what runs.
   local tree; tree=$(git stash create); git archive --format=tar "${tree:-HEAD}" | ssh_cmd "mkdir -p /root/ar && tar -x -C /root/ar"
-  grep -E '^(OPENAI|LANGFUSE|ELEVENLABS)_' .env | ssh_cmd "cat > /root/ar/.env && chmod 600 /root/ar/.env"
+  grep -E '^(OPENAI|LANGFUSE)_' .env | ssh_cmd "cat > /root/ar/.env && chmod 600 /root/ar/.env"
   ssh_cmd "cd /root/ar && pip install -q -r requirements.txt 2>&1 | grep -v 'WARNING: Running pip' | tail -1"
   echo "the film runs on the box: open http://127.0.0.1:8765/  (Ctrl+C stops it; logs stay in /root/ar/$log_dir, fetch them with: $0 pull)"
   ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -L 8765:localhost:8765 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" \

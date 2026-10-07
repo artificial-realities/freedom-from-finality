@@ -1,6 +1,6 @@
 """Markdown story transcript — agent outputs only, for narrative review.
 
-Contains per-turn outputs (Beat, Shot, Commentary, World) and
+Contains per-turn outputs (Beat, Shot, Dialogue, World) and
 nothing else — no prompts, no token counts, no parameters. The full
 LLM call detail lives in Langfuse; this file is for skimming the story
 flow.
@@ -12,7 +12,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from src.models.responses import Beat, Commentary, Shot
+from src.models.responses import Beat, Shot
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class StoryLogger:
         user_input: str,
         beat: Beat | None,
         shot: Shot | None,
-        commentary: Commentary | None,
+        dialogue: list[str],
         world_state: dict,
         context_brief: str,
         extra: str = "",
@@ -77,7 +77,7 @@ class StoryLogger:
             user_input=user_input,
             beat=beat,
             shot=shot,
-            commentary=commentary,
+            dialogue=dialogue,
             world_state=world_state,
             context_brief=context_brief,
             extra=extra,
@@ -95,7 +95,7 @@ class StoryLogger:
         user_input: str,
         beat: Beat | None,
         shot: Shot | None,
-        commentary: Commentary | None,
+        dialogue: list[str],
         world_state: dict,
         context_brief: str,
         extra: str = "",
@@ -108,14 +108,10 @@ class StoryLogger:
         else:
             out.append("**Beat**\n\n")
             out.append(f"{beat.narration}\n\n")
-            if beat.action and beat.action != beat.narration:
-                out.append(f"- Action: {beat.action}\n")
             if beat.outcome and not (shot is not None and beat.outcome == shot.end_frame_description):
                 out.append(f"- Outcome: {beat.outcome}\n")
-            if beat.short_term_narrative:
-                out.append(f"- Short-term direction: {beat.short_term_narrative}\n")
-            if beat.long_term_narrative:
-                out.append(f"- Long-term direction: {beat.long_term_narrative}\n")
+            if beat.intent:
+                out.append(f"- Beat: {beat.intent}\n")
             out.append("\n")
 
         if shot is None:
@@ -130,13 +126,11 @@ class StoryLogger:
             out.append(f"- End frame: {shot.end_frame_description}\n")
             out.append(f"- Duration: {shot.duration_seconds:.2f}s\n\n")
 
-        if commentary is None:
-            out.append("**Voice-over** — _no commentary (parse failure)_\n\n")
-        elif not commentary.voiceover.strip():
-            out.append("**Voice-over** — _(silent)_\n\n")
+        if not dialogue:
+            out.append("**Dialogue** — _(silent)_\n\n")
         else:
-            out.append("**Voice-over**\n\n")
-            for line in commentary.voiceover.splitlines() or [commentary.voiceover]:
+            out.append("**Dialogue**\n\n")
+            for line in dialogue:
                 out.append(f"> {line}\n")
             out.append("\n")
 

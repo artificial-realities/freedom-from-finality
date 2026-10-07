@@ -113,7 +113,7 @@ async def _screen_model(model: str, effort: str, tier: str, engine: DirectorEngi
         t0 = time.monotonic()
         try:
             beat, notes, retried = await director_agent.run(
-                world=world, state=state, llm=backend, config=config, voiceover_open=False,
+                world=world, state=state, llm=backend, config=config,
                 pacing_note="", scene_note="", beat_status=engine._beat_status(), clip_seconds=6.0)
         except Exception as exc:  # a refused parameter, a timeout
             beat, notes, retried = None, [f"error: {exc}"[:300]], False

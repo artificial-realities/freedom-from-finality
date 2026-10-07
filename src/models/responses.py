@@ -1,7 +1,7 @@
 """Runner-facing views of a segment.
 
 The Director engine's real output is `src.story.schemas.BeatPlan`; these
-three small models are the projection the runner, playback, history and
+two small models are the projection the runner, playback, history and
 transcript consume. They are what a future engine must also produce.
 """
 
@@ -11,13 +11,12 @@ from pydantic import BaseModel, Field
 
 
 class Beat(BaseModel):
-    """The narrative view of a segment."""
+    """The narrative view of a segment: what the camera sees (the prose the
+    viewer reads), the image it ends on, and the beat it belongs to."""
 
     narration: str
-    action: str
     outcome: str
-    short_term_narrative: str
-    long_term_narrative: str | None = None
+    intent: str = ""
 
 
 class Shot(BaseModel):
@@ -29,13 +28,3 @@ class Shot(BaseModel):
     motion: str
     end_frame_description: str
     duration_seconds: float = Field(default=6.0, gt=0, le=15)   # the clip shape's delivered seconds
-
-
-class Commentary(BaseModel):
-    """The spoken voice-over line for a segment. Empty means silence.
-
-    Rendered natively by LTX-2.5 (`narration: ltx`) or through TTS, mixed
-    into its clip; a TTS line longer than its clip is not rendered.
-    """
-
-    voiceover: str

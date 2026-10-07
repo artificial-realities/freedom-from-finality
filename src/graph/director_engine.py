@@ -22,10 +22,9 @@ Two LLM roles on two clocks, everything else deterministic:
 Code owns the rest: the typed `WorldModel`, validation and apply, the
 prompt compiler, the pacing gates, and persistence per clip.
 
-For the runner the engine keeps the legacy `StoryState` surface: it
-fills `current_beat`, `current_shot`, `current_commentary` as views of
-the clip, so rendering, playback, history and the transcript work
-unchanged. `ainvoke` is the one-call form (plan if needed, then emit)
+For the runner the engine keeps the `StoryState` surface: it fills
+`current_beat`, `current_shot` and `current_dialogue` as views of the
+clip, which rendering, playback, history and the transcript read. `ainvoke` is the one-call form (plan if needed, then emit)
 for the terminal loop and tests; the live loop calls `plan`, `emit` and
 `abort_beat` itself so it can render just in time and interrupt.
 """
@@ -40,27 +39,19 @@ import time
 from pathlib import Path
 
 from src.agents import director as director_agent
-from src.i2v.shape import ClipShape, ShapeRegistry, seconds_label
+from src.i2v.shape import ClipShape, ShapeRegistry
 from src.agents import showrunner as showrunner_agent
 from src.llm import build_backend
 from src.llm.base import LLMBackend
 from src.models.config import Config
-from src.models.responses import Beat, Commentary, Shot
+from src.models.responses import Beat, Shot
+from src.models.story import Story
 from src.state.story_state import StoryState
 from src.story.compiler import compile_clip
-from src.story.pacing import (
-    SHOWRUNNER_REPLAN_AT,
-    pacing_note,
-    scene_note,
-    tick_story_clock,
-    voiceover_gate,
-)
+from src.story.pacing import SHOWRUNNER_REPLAN_AT, pacing_note, scene_note
 from src.story.schemas import BeatPlan, ClipSpec
 from src.story.validator import Report, apply_clip, apply_showrunner
 from src.story.world import ClipRecord, EventRecord, WorldModel
-from src.tts.elevenlabs import ElevenLabsTTS
-from src.util.langfuse_setup import event as langfuse_event
-from src.util.media import probe_duration
 from src.util.timing_log import TimingLog
 
 logger = logging.getLogger(__name__)
@@ -77,7 +68,6 @@ class DirectorEngine:
         *,
         llm: LLMBackend,
         config: Config,
-        tts: ElevenLabsTTS | None = None,
         session_dir: Path | str | None = None,
         timing: TimingLog | None = None,
         shapes: ShapeRegistry | None = None,
@@ -88,11 +78,11 @@ class DirectorEngine:
         # shape; nothing here derives a length from seconds.
         self.shapes = shapes or ShapeRegistry.from_config(config)
         self._beat_shape: ClipShape = self.shapes.default
-        self.tts = tts
         self.session_dir = Path(session_dir) if session_dir else None
         # The run's timing log: each plan writes director_start/director_end.
         self.timing = timing or TimingLog(None)
         self.world: WorldModel | None = None
+        self.story: Story | None = None     # the blueprint, set with the world
         self.llm_director = (
             build_backend(config.llm_backend, config.director_model or config.model,
                           service_tier=config.director_service_tier,
@@ -133,7 +123,7 @@ class DirectorEngine:
         self._beat_no: int = 0
         self._beat_input: str = ""          # the viewer line the beat answered
         self._plan_notes: list[str] = []    # transcript notes from the plan, shown on its first clip
-        self._plan_meta: dict = {}          # vo_open, pacing, trigger, forced for the transcript
+        self._plan_meta: dict = {}          # pacing, trigger, forced for the transcript
         self._last_end_state: str = ""      # the image the last emitted clip ends on
         self._viewer_line_ids: list[int] = []  # line ids the current beat answers (for ClipRecord)
         self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
@@ -227,7 +217,6 @@ class DirectorEngine:
             notes.extend(self._showrunner_notes)
             self._showrunner_notes = []
 
-        vo_open = voiceover_gate(state)
         pnote = pacing_note(world, self.config)
         snote = scene_note(world, self.config)
 
@@ -238,7 +227,7 @@ class DirectorEngine:
         called = time.monotonic()
         beat, dnotes, retried = await director_agent.run(
             world=world, state=state, llm=self.llm_director, config=self.config,
-            voiceover_open=vo_open, pacing_note=pnote, scene_note=snote,
+            pacing_note=pnote, scene_note=snote,
             beat_status=self._beat_status(), clip_seconds=self.shapes.default.delivered_seconds,
         )
         director_s = time.monotonic() - called
@@ -257,8 +246,6 @@ class DirectorEngine:
             notes.append("director: call failed; holding the picture for one clip"
                          + ("; the viewer's line is answered at the next plan" if text else ""))
         beat.clips = beat.clips[: director_agent.clip_cap(self.config, text)]
-        if not vo_open:
-            beat.voiceover = ""
 
         forced_done = False
         if not beat.scene_done and world.scene_seconds() >= self.config.scene_seconds:
@@ -294,7 +281,7 @@ class DirectorEngine:
                 self._pending_spawn = (reason, mode, triggered_at)
                 spawning = reason
         self._plan_notes = notes
-        self._plan_meta = {"vo_open": vo_open, "pacing": pnote, "trigger": spawning, "forced": forced_done}
+        self._plan_meta = {"pacing": pnote, "trigger": spawning, "forced": forced_done}
         cost = {"beat": world.beats, "clips": len(beat.clips), "director_s": round(director_s, 4),
                 "retry": retried, "fallback": fallback, "bootstrap": bootstrap}
         self._record_plan(seg, beat, {"fallback": fallback, "bootstrap": bootstrap})
@@ -319,7 +306,7 @@ class DirectorEngine:
             self._pending_note = (
                 f'The beat "{beat.intent}" was dropped before any of it played ({reason}). '
                 + (f"The picture still ends on: {self._last_end_state}" if self._last_end_state
-                   else "The picture is still the reference image.")
+                   else self._unplayed())
             )
         else:
             self._pending_note = (
@@ -350,11 +337,22 @@ class DirectorEngine:
         reference image, not from the picture before it (RUN-10's fallback):
         the next plan is told, since what the world model says is on screen
         is no longer in the picture."""
-        hero = self.world.entities.get(self.world.protagonist) if self.world else None
-        name = hero.name if hero else "the protagonist"
-        self._reseed_note = (f"At segment {segment} the renderer restarted and the picture was re-seeded from the "
-                             f"reference image: {name} is back in the reference pose and nothing else from before is "
-                             "in the picture. Bring back in this beat whatever the story needs on screen. ")
+        self._reseed_note = (f"At segment {segment} the renderer restarted and the picture was re-seeded from "
+                             f"{self._reference() or 'the reference image'}. Nothing from before is in the picture. "
+                             "Bring back in this beat whatever the story needs on screen. ")
+
+    def _reference(self) -> str:
+        """The reference image in words, for the next plan ("" without one)."""
+        ref = self.story.picture.reference if self.story is not None else None
+        if ref is None:
+            return ""
+        shows = " ".join(ref.shows.split()).rstrip(".")
+        return "the reference image" + (f", which shows {shows}" if shows else "")
+
+    def _unplayed(self) -> str:
+        """Where the picture is when no clip has played."""
+        ref = self._reference()
+        return f"The picture is still {ref}." if ref else "Nothing has played yet."
 
     def _beat_status(self) -> str:
         # The re-seed note stays until a plan has been answered (a cancelled
@@ -374,7 +372,9 @@ class DirectorEngine:
             intent, done, total = self._last_beat
             return (f'The previous beat "{intent}" ({done} clip{"s" if done != 1 else ""}) played out in full. '
                     f"The picture ends on: {self._last_end_state}")
-        return "You are opening the film; the picture starts from the reference image."
+        ref = self._reference()
+        return "You are opening the film; " + (f"the picture starts as {ref}." if ref else
+                                               "there is no reference image: the first clip starts from your words alone.")
 
     def _fallback_beat(self) -> BeatPlan:
         world = self.world
@@ -513,7 +513,7 @@ class DirectorEngine:
         beat = self._beat
         seg = snap["segment"]
         where = (f"The picture ends on: {self._last_end_state}" if self._last_end_state
-                 else "The picture is still the reference image.")
+                 else self._unplayed())
         if beat is not None:
             done, total = self._clip_index, len(beat.clips)
             self._pending_note = (
@@ -542,22 +542,14 @@ class DirectorEngine:
         if first and beat.intervention == "absorbed" and self._beat_input:
             world.viewer_momentum = self._beat_input
             world.viewer_momentum_segment = seg
-        prompt = compile_clip(
-            beat, i, world,
-            visual_style=state.visual_style,
-            visual_anchor=state.visual_anchor,
-            narration_mode=self.config.narration,
-            narrator=state.narrator,
-            opening=(seg == 1),
-            segment_no=seg,
-        )
+        prompt = compile_clip(beat, i, world, picture=state.story.picture, opening=(seg == 1), segment_no=seg)
         shape = self._beat_shape
         state.current_shape = shape
         state.current_clip_id = clip_id
         state.current_parent_clip_id = parent_clip_id
         duration = shape.delivered_seconds
-        voiceover = beat.voiceover if first else ""
-        self._write_views(state, beat, clip, prompt, duration, voiceover, first)
+        said = [f"{world.resolve(d.speaker).name}: {d.line}" for d in clip.dialogue]   # apply_clip kept known speakers
+        self._write_views(state, beat, clip, prompt, duration, said, first)
 
         world_hash = hashlib.sha1(
             world.model_dump_json(exclude={"events"}).encode()
@@ -573,7 +565,7 @@ class DirectorEngine:
             intervention=beat.intervention if first else "none",
             intervention_reason=beat.intervention_reason if first else "",
             perspective=beat.perspective,
-            voiceover=voiceover,
+            dialogue=said,
             action=clip.action_text(),
             end_state=clip.end_state,
             camera_motion=clip.camera_motion,
@@ -584,30 +576,6 @@ class DirectorEngine:
             viewer_line_ids=list(self._viewer_line_ids) if first else [],
             world_hash=world_hash,
         ))
-
-        audio_path = ""
-        if (
-            voiceover
-            and self.config.narration == "tts"
-            and self.config.audio_enabled
-            and self.tts is not None
-        ):
-            result = await self.tts.synthesize(voiceover, turn=seg)
-            langfuse_event(
-                "tts", input=voiceover, output=result,
-                metadata={"turn": seg, "success": result is not None},
-                level="DEFAULT" if result else "WARNING",
-            )
-            audio_path = result or ""
-            # One render path, no spanning (AUD-04): a line longer than its
-            # clip is rejected, not carried over the next clips.
-            length = await probe_duration(audio_path) if audio_path else None
-            if length is not None and length > duration + 0.05:
-                self._plan_notes.append(
-                    f"tts: the line runs {length:.1f} s, longer than the {seconds_label(duration)} s clip; not rendered",
-                )
-                audio_path = ""
-        state.current_audio_path = audio_path
 
         card = world.plan.scene
         world.events.append(EventRecord(
@@ -625,7 +593,7 @@ class DirectorEngine:
             thread_ops=[a for a in report.applied if a.startswith("thread ")],
             on_screen=list(clip.on_screen),
             end_state=clip.end_state,
-            voiceover=voiceover,
+            dialogue=said,
             duration=duration,
         ))
         self._save()
@@ -637,7 +605,6 @@ class DirectorEngine:
         notes = self._plan_notes if first else []
         self._plan_notes = [] if first else self._plan_notes
         state.turn_notes = self._format_notes(beat, i, report, notes, first=first)
-        self._tick(state)
 
         self._last_end_state = clip.end_state
         self._clip_index += 1
@@ -657,7 +624,8 @@ class DirectorEngine:
         """A fresh world from the blueprint. Resume is not built: every run
         creates its own session directory, and the `world.json` written
         there is for inspection (and `events.jsonl` for replay)."""
-        return WorldModel.from_story(state)
+        self.story = state.story
+        return WorldModel.from_story(state.story)
 
     def _save(self) -> None:
         if self.world is not None and self.session_dir is not None:
@@ -821,17 +789,10 @@ class DirectorEngine:
     # ── Views for the runner ───────────────────────────────────────
 
     def _write_views(self, state: StoryState, beat: BeatPlan, clip: ClipSpec, prompt: str,
-                     duration: float, voiceover: str, first: bool) -> None:
+                     duration: float, said: list[str], first: bool) -> None:
         world = self.world
         assert world is not None
-        action = clip.action_text()
-        state.current_beat = Beat(
-            narration=action,
-            action=action,
-            outcome=clip.end_state,
-            short_term_narrative=beat.intent,
-            long_term_narrative=None,
-        )
+        state.current_beat = Beat(narration=clip.action_text(), outcome=clip.end_state, intent=beat.intent)
         on_screen_names = []
         for eid in clip.on_screen:
             ent = world.resolve(eid)
@@ -844,12 +805,11 @@ class DirectorEngine:
             end_frame_description=clip.end_state,
             duration_seconds=duration,
         )
-        state.current_commentary = Commentary(voiceover=voiceover)
         state.current_intervention = beat.intervention if first else "none"
         state.current_intervention_reason = beat.intervention_reason if first else ""
         state.current_beat_intent = beat.intent
         state.current_clip = f"{self._clip_index + 1}/{len(beat.clips)}"
-        state.current_speech = bool(voiceover.strip() or clip.dialogue)
+        state.current_dialogue = said
         here = world.current_location()
         state.world_state = {
             "protagonist_location": here.id if here else "",
@@ -892,7 +852,7 @@ class DirectorEngine:
         elif first and world.viewer_momentum:
             out.append(f"- Viewer momentum (seg {world.viewer_momentum_segment}): \"{world.viewer_momentum}\"")
         if first:
-            out.append(f"- Voice-over floor: {'open' if meta.get('vo_open') else 'closed'} · pacing: {meta.get('pacing', '')}")
+            out.append(f"- Pacing: {meta.get('pacing', '')}")
         clip = beat.clips[index]
         if clip.dialogue:
             out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in clip.dialogue))
@@ -906,14 +866,9 @@ class DirectorEngine:
             out.append(f"- {n}")
         return "\n".join(out) + "\n"
 
-    def _tick(self, state: StoryState) -> None:
-        if not state.pacing_managed:
-            tick_story_clock(state, self.config)
-
 
 def build_director_engine(
-    *, llm: LLMBackend, config: Config, tts: ElevenLabsTTS | None = None,
-    session_dir: Path | str | None = None, timing: TimingLog | None = None,
-    shapes: ShapeRegistry | None = None,
+    *, llm: LLMBackend, config: Config, session_dir: Path | str | None = None,
+    timing: TimingLog | None = None, shapes: ShapeRegistry | None = None,
 ) -> DirectorEngine:
-    return DirectorEngine(llm=llm, config=config, tts=tts, session_dir=session_dir, timing=timing, shapes=shapes)
+    return DirectorEngine(llm=llm, config=config, session_dir=session_dir, timing=timing, shapes=shapes)

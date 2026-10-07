@@ -6,8 +6,8 @@ can be exercised deterministically. The Director script is keyed on
 what it finds in the prompt: the viewer's line, whether a request is
 still owed, which threads are open, whether the film is opening. It
 deliberately includes proposals the validator must reject (a second
-character in a locked cast, dialogue from a mute character) to exercise
-the re-ask.
+copy of the protagonist, a line spoken by a prop) to exercise the
+re-ask.
 """
 
 from __future__ import annotations
@@ -34,10 +34,6 @@ def _corrections_requested(messages: list[dict]) -> bool:
     return "## Corrections required" in _user(messages)
 
 
-def _floor_open(messages: list[dict]) -> bool:
-    return "Voice-over floor: OPEN" in _user(messages)
-
-
 def _viewer_line(messages: list[dict]) -> str:
     m = re.search(r'Viewer input for this beat: "(.*?)"', _user(messages))
     return m.group(1) if m else ""
@@ -57,7 +53,7 @@ def _thread_open(messages: list[dict], tid: str) -> bool:
 
 
 def _op(op: str, entity: str, **over) -> dict:
-    base = {"op": op, "entity": entity, "kind": "prop", "description": "", "role": "", "speaks": None,
+    base = {"op": op, "entity": entity, "kind": "prop", "description": "", "who": "",
             "voice": "", "status": "", "location": "", "holder": "", "present": None, "posture": "",
             "activity": "", "position": ""}
     base.update(over)
@@ -103,13 +99,11 @@ class MockBackend(LLMBackend):
     def _beat(self, messages: list[dict]) -> dict:
         n = _segment_number(messages)
         retry = _corrections_requested(messages)
-        vo_open = _floor_open(messages)
         line = _viewer_line(messages)
         base = {
             "intent": f"beat from segment {n}",
             "framing": "medium shot, straight-on, eye level",
             "clips": [],
-            "voiceover": "",
             "thread_ops": [],
             "intervention": "none",
             "intervention_reason": "",
@@ -123,11 +117,10 @@ class MockBackend(LLMBackend):
             base["clips"] = [
                 _clip("Lego Man performs action 1. He looks up.", "Lego Man standing, looking up",
                       entity_ops=[_op("update", "lego_man", kind="character", posture="standing",
-                                      activity="looking around", position="centre frame")]),
+                                      activity="looking around", position="centre frame")],
+                      dialogue=[{"speaker": "lego_man", "line": "Hello? Anyone?", "delivery": "quiet"}]),
                 _clip("He holds still. Nothing else happens.", "Lego Man standing still"),
             ]
-            if vo_open:
-                base["voiceover"] = "From the stillness, he stirs."
         elif "soccer ball" in line:
             base["intent"] = "a ball arrives"
             base["clips"] = [_clip(
@@ -158,13 +151,14 @@ class MockBackend(LLMBackend):
             base["delivered_request"] = _owed_segment(messages)
             base["intervention_reason"] = "the deferred trick happens now"
         elif _thread_open(messages, "t1") and not retry:
-            # Two hard violations: a new character in a locked cast, and a
-            # line of dialogue from a character who never speaks.
-            base["intent"] = "a visitor"
+            # Two hard violations: a second copy of the protagonist, and a
+            # line spoken by a prop.
+            base["intent"] = "a double"
             base["clips"] = [_clip(
-                "A second minifigure walks in and Lego Man greets her.", "two figures",
-                entity_ops=[_op("introduce", "Lego Woman", kind="character", description="a second minifigure", present=True)],
-                dialogue=[{"speaker": "lego_man", "line": "Hello!", "delivery": ""}],
+                "A second Lego Man walks in and the ball greets him.", "two figures",
+                entity_ops=[_op("introduce", "Lego Man 2", kind="character", description="another plain minifigure",
+                                present=True)],
+                dialogue=[{"speaker": "soccer_ball", "line": "Hello!", "delivery": ""}],
             )]
         elif _thread_open(messages, "t1") and retry:
             base["intent"] = "the kick"
@@ -174,8 +168,6 @@ class MockBackend(LLMBackend):
                 entity_ops=[_op("update", "soccer_ball", status="kicked across the void")],
             )]
             base["thread_ops"] = [{"op": "pay_off", "thread": "t1", "kind": "setup"}]
-            if vo_open:
-                base["voiceover"] = "A kick, at last."
         else:
             base["clips"] = [
                 _clip(f"Lego Man performs action {n}.", f"end of segment {n}",

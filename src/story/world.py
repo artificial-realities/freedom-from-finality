@@ -20,7 +20,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
-from src.models.story import CastPolicy, Perspective, Voice
+from src.models.story import Perspective, Story, Voice
 
 EntityKind = Literal["character", "prop", "location"]
 
@@ -34,12 +34,17 @@ def slugify(name: str) -> str:
     return slug or "entity"
 
 
+def names(text: str, name: str) -> bool:
+    """Whether `text` names `name` as a whole phrase, ignoring case."""
+    return bool(name.strip()) and re.search(rf"\b{re.escape(name.strip().lower())}\b", text.lower()) is not None
+
+
 class Entity(BaseModel):
     id: str
     name: str
     kind: EntityKind
-    description: str = ""        # who/what it is (for the writer)
-    look: str = ""               # how it looks (for the renderer); falls back to description
+    description: str = ""        # who/what it is (for the writer): a character's `who`
+    look: str = ""               # how it looks (for the renderer; see `render_look`)
     look_short: str = ""         # a few words of look for clips that continue the picture
     status: str = ""             # props: short free text, "dented", "balanced on his head"
     location: str = ""           # location id
@@ -49,15 +54,12 @@ class Entity(BaseModel):
     first_seen: int = 0
     last_seen: int = 0
     notes: list[str] = Field(default_factory=list)   # durable facts (Showrunner; characters only, at most MAX_NOTES)
-    speaks: bool = True
-    voice: Voice | None = None   # characters: how they sound when they speak (from the blueprint)
-    reference_pose: str = ""
-    # Characters (ARCH-19): who they are and what must not drift; supporting
-    # characters' entrance conditions; `dynamic` = introduced by the film,
-    # not written in the blueprint.
-    role: str = ""
-    personality: str = ""
-    invariants: list[str] = Field(default_factory=list)
+    # Characters: how they sound, what they want and how they are (from the
+    # blueprint); supporting characters' entrance conditions; `dynamic` =
+    # introduced by the film, not written in the blueprint.
+    voice: Voice | None = None
+    wants: str = ""
+    nature: str = ""
     appears: str = ""            # must | should | may (supporting characters of the blueprint)
     appears_when: str = ""
     dynamic: bool = False
@@ -67,7 +69,12 @@ class Entity(BaseModel):
     position: str = ""           # where in the frame: "centre frame", "off screen right"
 
     def render_look(self) -> str:
-        return self.look or self.description or self.name
+        """How the renderer is told it looks: its look, else (a prop) its
+        description; a character's description says who it is, not how it
+        looks, so a character without a look is named only."""
+        if self.look:
+            return self.look
+        return self.name if self.kind == "character" else (self.description or self.name)
 
     def now(self) -> str:
         """A character's current state in one clause, or empty."""
@@ -144,7 +151,7 @@ class EventRecord(BaseModel):
     thread_ops: list[str] = Field(default_factory=list)
     on_screen: list[str] = Field(default_factory=list)
     end_state: str = ""
-    voiceover: str = ""
+    dialogue: list[str] = Field(default_factory=list)   # "Name: line", as spoken in the clip
     duration: float = 0.0        # delivered seconds of the clip's shape (older logs: whole seconds)
 
 
@@ -163,7 +170,7 @@ class ClipRecord(BaseModel):
     intervention: str = "none"
     intervention_reason: str = ""
     perspective: str = ""
-    voiceover: str = ""
+    dialogue: list[str] = Field(default_factory=list)
     action: str = ""
     end_state: str = ""
     camera_motion: str = "static"
@@ -182,8 +189,11 @@ class WorldModel(BaseModel):
     title: str = ""
     segment: int = 0
     protagonist: str = ""
-    cast_policy: CastPolicy = Field(default_factory=CastPolicy)
+    newcomers: str = ""          # what kind of characters the film may introduce; "" = none
     perspective: Perspective = Field(default_factory=Perspective)
+    # The characters the reference image shows (ids): the picture before the
+    # first clip. None = no reference, so nothing is said to enter on it.
+    opening_picture: list[str] | None = None
     entities: dict[str, Entity] = Field(default_factory=dict)
     threads: list[Thread] = Field(default_factory=list)
     interventions: list[Intervention] = Field(default_factory=list)
@@ -210,28 +220,28 @@ class WorldModel(BaseModel):
     # ── Construction ────────────────────────────────────────────────
 
     @classmethod
-    def from_story(cls, story) -> "WorldModel":
-        """A fresh world from a `Story` (or the `StoryState` that carries its
-        blueprint fields)."""
+    def from_story(cls, story: Story) -> "WorldModel":
+        """A fresh world from a blueprint."""
+        ref = story.picture.reference
         return cls.from_blueprint(
-            title=story.title, characters=story.characters, locations=story.locations,
-            protagonist=story.protagonist, cast_policy=story.cast_policy, perspective=story.perspective,
+            title=story.title, characters=story.cast.characters, locations=story.locations,
+            protagonist=story.cast.protagonist, newcomers=story.cast.newcomers,
+            perspective=story.picture.perspective, shows=ref.shows if ref is not None else None,
         )
 
     @classmethod
     def from_blueprint(
-        cls, *, title: str, characters, locations, cast_locked: bool | None = None,
-        protagonist: str = "", cast_policy: CastPolicy | None = None, perspective: Perspective | None = None,
+        cls, *, title: str, characters, locations, protagonist: str = "", newcomers: str = "",
+        perspective: Perspective | None = None, shows: str | None = None,
     ) -> "WorldModel":
         """The world at the start of a film: every location, and every
-        character of the blueprint with its identity, look, voice, role and
+        character of the blueprint with who it is, its look, voice and
         starting state. Only the protagonist (`protagonist` by name, or the
         first character) is in the scene; supporting characters wait until
-        the film brings them in. `cast_locked` is the pre-ARCH-19 form of
-        `cast_policy` (locked = no dynamic characters)."""
-        if cast_policy is None:
-            cast_policy = CastPolicy(dynamic_characters=not cast_locked) if cast_locked is not None else CastPolicy()
-        world = cls(title=title, cast_policy=cast_policy.model_copy(),
+        the film brings them in. `shows` is what the reference image shows
+        (None: there is none); the characters it names are in the picture
+        before the first clip."""
+        world = cls(title=title, newcomers=newcomers.strip(),
                     perspective=(perspective or Perspective()).model_copy())
         for i, loc in enumerate(locations):
             lid = world._unique_id(slugify(loc.name))
@@ -247,30 +257,23 @@ class WorldModel(BaseModel):
             is_lead = ch is lead
             world.entities[cid] = Entity(
                 id=cid, name=ch.name, kind="character",
-                description=ch.description,
-                look=getattr(ch, "look", "") or "",
-                look_short=getattr(ch, "look_short", "") or "",
-                speaks=getattr(ch, "speaks", True),
-                voice=getattr(ch, "voice", None),
-                reference_pose=getattr(ch, "reference_pose", "") or "",
-                role=getattr(ch, "role", "") or ("protagonist" if is_lead else ""),
-                personality=getattr(ch, "personality", "") or "",
-                invariants=list(getattr(ch, "invariants", []) or []),
-                appears="" if is_lead else getattr(ch, "appears", "may"),
-                appears_when="" if is_lead else (getattr(ch, "appears_when", "") or ""),
-                posture=getattr(ch, "posture", "") or "",
-                activity=getattr(ch, "activity", "") or "",
-                position=getattr(ch, "position", "") or "",
+                description=ch.who, look=ch.look, look_short=ch.look_short,
+                voice=ch.voice, wants=ch.wants, nature=ch.nature,
+                appears="" if is_lead else ch.appears,
+                appears_when="" if is_lead else ch.appears_when,
+                posture=ch.posture, activity=ch.activity, position=ch.position,
                 present=is_lead, location=home if is_lead else "",
             )
             if is_lead:
                 world.protagonist = cid
+        if shows is not None:
+            world.opening_picture = [e.id for e in world.by_kind("character") if names(shows, e.name)]
         return world
 
     @property
     def cast_locked(self) -> bool:
         """No character may be introduced beyond the blueprint's cast."""
-        return not self.cast_policy.dynamic_characters
+        return not self.newcomers
 
     def _unique_id(self, base: str) -> str:
         if base not in self.entities:

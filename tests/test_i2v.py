@@ -304,41 +304,30 @@ def test_reference_is_checked_before_the_run_renders():
 
 
 def test_story_load_checks_the_reference():
-    """RUN-11 at load: the seed image exists and decodes, and the
-    protagonist's reference_pose says what it shows."""
+    """RUN-11 at load: the reference image exists and decodes; what it
+    shows may be blank, and a story may have no reference at all."""
     import json
     import shutil
     import tempfile
     from pathlib import Path
     from src.models.story import Story
-    story = Story.from_json("stories/lego-void")
-    assert story.characters[0].reference_pose
     with tempfile.TemporaryDirectory() as d:
         folder = Path(d) / "s"
         shutil.copytree("stories/lego-void", folder)
         blueprint = json.loads((folder / "story.json").read_text())
 
-        def load_with(**change):
+        def load_with(reference):
             data = json.loads(json.dumps(blueprint))
-            for key, value in change.items():
-                if key == "pose":
-                    data["characters"][0]["reference_pose"] = value
-                else:
-                    data[key] = value
+            data["picture"]["reference"] = reference
             (folder / "story.json").write_text(json.dumps(data))
             return Story.from_json(folder)
 
-        for change, words in (({"seed_image": "missing.png"}, "does not exist"),
-                              ({"pose": "  "}, "reference_pose")):
+        (folder / "broken.png").write_bytes(b"not an image")
+        for image, words in (("missing.png", "does not exist"), ("broken.png", "does not decode")):
             try:
-                load_with(**change)
-                raise AssertionError(f"{change} must be refused")
+                load_with({"image": image, "shows": "x"})
+                raise AssertionError(f"{image} must be refused")
             except ValueError as exc:
                 assert words in str(exc), exc
-        (folder / "broken.png").write_bytes(b"not an image")
-        try:
-            load_with(seed_image="broken.png")
-            raise AssertionError("an undecodable image must be refused")
-        except ValueError as exc:
-            assert "does not decode" in str(exc)
-        assert load_with(seed_image="", pose="").seed_image == "", "a story without an image needs no pose"
+        assert load_with({"image": "legoman-16x9.png"}).picture.reference.shows == "", "what it shows may be blank"
+        assert load_with(None).reference_image == "", "a story without an image loads"

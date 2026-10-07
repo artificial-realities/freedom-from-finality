@@ -168,6 +168,6 @@ async def test_player_input_joins_lines_and_pipelined_items_keep_views():
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(), story=story, log_dir=d, player=p, max_segments=3)
     assert [i.turn for i in p.items] == [1, 2, 3]
-    assert p.items[0].voiceover == "From the stillness, he stirs."
+    assert p.items[0].dialogue == ["Lego Man: Hello? Anyone?"] and p.items[1].dialogue == []
     assert p.items[1].scene.startswith("scene "), "each item carries the scene it played in"
     assert len(state.history) == 3

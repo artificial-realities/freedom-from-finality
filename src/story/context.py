@@ -11,53 +11,50 @@ cache hits; everything that moves goes into the user prompt.
 from __future__ import annotations
 
 from src.models.config import Config
-from src.models.story import Narrator, Storyteller
+from src.models.story import Picture, Story
 from src.story.world import MAX_NOTES, WorldModel
 
 
-def format_storyteller(st: Storyteller) -> str:
-    """The storyteller's identity for either prompt. Empty when a toy story
-    has no authored identity — the prompts' defaults take over."""
-    parts: list[str] = []
-    if st.values:
-        parts.append(f"What this story is about: {st.values}")
-    if st.truths:
-        parts.append("Truths that hold no matter what the viewer does:\n" +
-                      "\n".join(f"- {t}" for t in st.truths))
-    if st.boundaries:
-        parts.append("What this storyteller would never do:\n" +
-                      "\n".join(f"- {b}" for b in st.boundaries))
-    if st.temperament:
-        parts.append(f"How to absorb the unexpected: {st.temperament}")
-    return "\n\n".join(parts)
+def format_film(story: Story, *, opening: bool = False) -> str:
+    """The film as both roles read it: the essential story and the
+    storyteller. Empty fields are not said, so a minimal blueprint adds
+    no prompt text. `opening` adds how the film opens (the Showrunner's,
+    which writes the first scene card from it)."""
+    teller = story.storyteller
+    lines = [
+        ("Title", story.title),
+        ("Premise", story.premise),
+        ("The question the film keeps open", story.question),
+        ("What keeps happening", story.engine),
+        ("How the film opens", story.opening if opening else ""),
+        ("What it is about", teller.theme),
+        ("Tone", teller.tone),
+        ("How this storyteller takes the unexpected", teller.temperament),
+    ]
+    out = [f"{label}: {' '.join(text.split())}" for label, text in lines if text.strip()]
+    if teller.never:
+        out.append("This storyteller would never:\n" + "\n".join(f"- {n}" for n in teller.never))
+    return "\n".join(out)
 
 
-def format_rules(constraints: list[str]) -> str:
-    if not constraints:
+def format_truths(truths: list[str]) -> str:
+    if not truths:
         return "(none)"
-    return "\n".join(f"- {c}" for c in constraints)
+    return "\n".join(f"- {t}" for t in truths)
 
 
-def format_narrator(narrator: Narrator, tone_guidelines: str = "") -> str:
-    """The narrator section of the Director's system prompt, from the
-    story (AUD-06): whether the film has one, the register of its lines,
-    the language to write them in and the story's guidance on when it
-    speaks. The film's own tone, when the story gives one apart from the
-    narrator's, comes first."""
-    out: list[str] = []
-    film_tone = " ".join(tone_guidelines.split())
-    if film_tone and film_tone != " ".join(narrator.tone.split()):
-        out.append(f"Tone of the film: {film_tone}")
-    if not narrator.enabled:
-        out.append("This film has no narrator. Leave `voiceover` empty.")
-        return "\n\n".join(out)
-    out.append("Register of the narrator's lines (applies only to the `voiceover` field): "
-               + (" ".join(narrator.tone.split()) or "(not specified: plain, observational)"))
-    language = narrator.voice.language.strip()
-    if language:
-        out.append(f"The narrator speaks {language}: write the line in {language}.")
-    if narrator.guidance.strip():
-        out.append("When the narrator speaks in this story: " + " ".join(narrator.guidance.split()))
+def format_picture(picture: Picture) -> str:
+    """The look of the film and where its first clip starts, for the
+    Director's system prompt."""
+    out = [" ".join(picture.style.split()) or "(no style given)"]
+    shows = " ".join(picture.reference.shows.split()).rstrip(".") if picture.reference else ""
+    if shows:
+        out.append(f"The film's first clip starts from a reference image that shows {shows}. Open the action "
+                   "from exactly that picture, then move; a character it does not show enters the picture.")
+    elif picture.reference:
+        out.append("The film's first clip starts from a reference image; open the action from it, then move.")
+    else:
+        out.append("There is no reference image: the film's first clip is drawn from your words alone.")
     return "\n\n".join(out)
 
 
@@ -69,22 +66,16 @@ def format_cast(world: WorldModel) -> str:
         if ent.dynamic:
             continue
         bits = [f"- `{ent.id}`: {ent.name}. {ent.description}".rstrip()]
-        if ent.role:
-            bits.append(f"  Role: {ent.role}.")
-        if ent.personality:
-            bits.append(f"  Personality: {ent.personality}")
-        if ent.invariants:
-            bits.append("  Never changes: " + "; ".join(ent.invariants) + ".")
+        if ent.wants:
+            bits.append(f"  Wants: {ent.wants}")
+        if ent.nature:
+            bits.append(f"  Nature: {ent.nature}")
         if ent.appears:
             when = f", when {ent.appears_when.rstrip('.')}" if ent.appears_when else ""
             bits.append(f"  Not in the film at the start; {ent.appears} appear{when}.")
         if ent.look:
             bits.append(f"  Look (verbatim for shots): {ent.look}")
-        if ent.reference_pose:
-            bits.append(f"  Reference image shows: {ent.reference_pose}. The first clip of the film starts from exactly this; begin the action there.")
-        if not ent.speaks:
-            bits.append("  Never speaks: no dialogue lines for this character.")
-        elif ent.voice is not None:
+        if ent.voice is not None:
             voice = ent.voice
             said = "; ".join(x for x in (voice.description, voice.language and f"speaks {voice.language}",
                                           voice.accent, voice.delivery and f"usually {voice.delivery}") if x)
@@ -102,18 +93,16 @@ def format_cast_rules(world: WorldModel) -> str:
     hero = world.entities.get(world.protagonist)
     if hero is not None:
         out.append(f"- Protagonist: `{hero.id}` ({hero.name}). Always the same character: never removed from the "
-                   "story, never appearing twice, its look and anything under \"Never changes\" held in every clip.")
+                   "story, never appearing twice, its look held in every clip.")
     supporting = [e for e in world.by_kind("character") if e.appears]
     if supporting:
         out.append("- Supporting characters enter when the story calls for them (see the cast): the Showrunner "
                    "decides when an entrance serves the story, the Director stages it by bringing the character "
                    "in with its id (`update`, `present: true`).")
-    policy = world.cast_policy
-    if policy.dynamic_characters:
-        guide = " ".join(policy.dynamic_guidance.split()) or "Invent them freely within the rules of the world."
-        out.append(f"- New characters beyond the cast are allowed. {guide} Introduce one with `introduce`, kind "
-                   "`character`, a `description` of how it looks, its `role`, `speaks`, and a `voice` if it speaks; "
-                   "it is then registered and must look and sound the same in every later clip.")
+    if world.newcomers:
+        out.append(f"- New characters beyond the cast are allowed: {world.newcomers} Introduce one with `introduce`, "
+                   "kind `character`, a `description` of how it looks, `who` it is in the story and its `voice`; it "
+                   "is then registered and must look and sound the same in every later clip.")
     else:
         out.append("- No characters beyond the cast: anything else that appears is a prop.")
     persp = world.perspective
@@ -218,11 +207,10 @@ def format_world_now(world: WorldModel) -> str:
                 line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATUS_CHARS)}"
                 if ent.dynamic:
                     # Not on the cast sheet (it came into the film at segment
-                    # `first_seen`): who it is and whether it speaks.
-                    voice = f", voice: {ent.voice.description}" if ent.voice and ent.voice.description else ""
+                    # `first_seen`): who it is and how it sounds.
                     line += (f" · introduced at segment {ent.first_seen}"
-                             + (f" · role: {ent.role}" if ent.role else "")
-                             + (f" · speaks{voice}" if ent.speaks else " · never speaks"))
+                             + (f" · who: {ent.description}" if ent.description else "")
+                             + (f" · voice: {ent.voice.description}" if ent.voice and ent.voice.description else ""))
                 if held:
                     line += f" · holding: {held}"
                 if ent.location:
@@ -376,7 +364,7 @@ def format_recent(world: WorldModel, count: int) -> str:
         lines.append(
             f"{_clip_label(ev)} {ev.narration}\n"
             f"  on screen: {', '.join(ev.on_screen) or '(none)'} · ends on: {ev.end_state or '(unspecified)'}"
-            + (f" · voice-over: \"{ev.voiceover}\"" if ev.voiceover else "")
+            + (" · said: " + " / ".join(ev.dialogue) if ev.dialogue else "")
         )
     return "\n\n".join(lines)
 
@@ -394,29 +382,16 @@ def format_events(world: WorldModel, since: int) -> str:
             bits.append("  world: " + "; ".join(ev.applied_ops))
         if ev.thread_ops:
             bits.append("  threads: " + "; ".join(ev.thread_ops))
-        if ev.voiceover:
-            bits.append(f'  voice-over: "{ev.voiceover}"')
+        if ev.dialogue:
+            bits.append("  said: " + " / ".join(ev.dialogue))
         lines.append("\n".join(bits))
     return "\n\n".join(lines)
 
 
-def format_gates(
-    *, voiceover_open: bool, pacing: str, scene: str, narrator: bool = True, answer_clips: int = 0,
-) -> str:
-    """The deterministic signals for this beat. `narrator` is whether the
-    story has one (AUD-06; the rendering choice `narration` never closes
-    the gate). `answer_clips` > 0 when the beat answers a viewer line: its
-    clip cap (ARCH-11)."""
-    if not narrator:
-        vo = "Voice-over: this film has no narrator. Leave `voiceover` empty."
-    elif voiceover_open:
-        vo = (
-            "Voice-over floor: OPEN. You may fill `voiceover` with one short line "
-            "if it earns its place; empty is still the normal choice."
-        )
-    else:
-        vo = "Voice-over floor: CLOSED (a line played recently). Leave `voiceover` empty."
-    out = f"{vo}\nPacing: {pacing}\n{scene}"
+def format_gates(*, pacing: str, scene: str, answer_clips: int = 0) -> str:
+    """The deterministic signals for this beat. `answer_clips` > 0 when the
+    beat answers a viewer line: its clip cap (ARCH-11)."""
+    out = f"Pacing: {pacing}\n{scene}"
     if answer_clips:
         out += (f"\nThis beat answers the viewer: at most {answer_clips} clip{'s' if answer_clips != 1 else ''}. "
                 "Start the answer now; the next beat continues it.")

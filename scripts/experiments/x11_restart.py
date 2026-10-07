@@ -75,7 +75,7 @@ def run(server: str, out: Path, prompts_path: Path) -> None:
         rows, restart_s = [], None
         for n, seg in enumerate(range(FIRST, FIRST + COUNT), start=1):
             t0 = time.monotonic()
-            path = client._synthesize_sync(story.seed_image, prompts[seg], seg, shape)
+            path = client._synthesize_sync(story.reference_image, prompts[seg], seg, shape)
             wall = time.monotonic() - t0
             rows.append({"clip": n, "segment": seg, "path": Path(path).name if path else None, "wall_s": round(wall, 3),
                          "after_restart": n == KILL_AFTER + 1, **client.last_render})

@@ -64,8 +64,9 @@ def test_x19_finds_the_first_clip_in_a_streamed_reply():
     from src.story.schemas import BeatPlan, ClipSpec
     fields = list(StreamedBeatPlan.model_fields)
     assert set(fields) == set(BeatPlan.model_fields)
-    assert fields.index("clips") > max(fields.index(f) for f in ("voiceover", "intervention", "thread_ops", "delivered_request"))
-    plan = StreamedBeatPlan(intent='he says "clips": {no} [really]', framing="medium", voiceover='a \\"quoted\\" line with } and ]',
+    assert fields.index("clips") > max(fields.index(f) for f in ("intervention", "thread_ops", "delivered_request"))
+    plan = StreamedBeatPlan(intent='he says "clips": {no} [really]', framing="medium",
+                            intervention_reason='a \\"quoted\\" line with } and ]',
                             clips=[ClipSpec(action='He {jumps} over "the [box]"', end_state="done \\ ok"),
                                    ClipSpec(action="second", end_state="x")])
     text = plan.model_dump_json()

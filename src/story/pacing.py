@@ -1,6 +1,6 @@
-"""Deterministic pacing: the voice-over gate, the story clock, and the
-stagnation ladder that turns "nothing has changed for a while" into
-prompt pressure and, eventually, a Showrunner replan.
+"""Deterministic pacing: the stagnation ladder that turns "nothing has
+changed for a while" into prompt pressure and, eventually, a Showrunner
+replan, and the scene clock that tells the Director when to close a scene.
 
 Pressure is counted in story seconds, not clips: a film that holds a
 quiet state for a minute is not stalled, one that holds it for three
@@ -10,7 +10,6 @@ minutes is.
 from __future__ import annotations
 
 from src.models.config import Config
-from src.state.story_state import StoryState
 from src.story.world import WorldModel
 
 # The stagnation ladder, in multiples of `stagnation_seconds`: pressure on
@@ -19,32 +18,6 @@ from src.story.world import WorldModel
 # has one owner (ARCH-05).
 REQUIRED_AT = 1.5
 SHOWRUNNER_REPLAN_AT = 2.0
-
-
-def voiceover_gate(state: StoryState) -> bool:
-    """True when the Director may fill `voiceover` this beat: the story has
-    a narrator and its optional floor of silence has passed (silence starts
-    at the floor, so the film may open on a line). Content only: whether
-    the line is rendered (`narration`: ltx, tts, off) is not asked here."""
-    narrator = state.narrator
-    return narrator.enabled and state.silence_seconds >= narrator.min_pause_seconds
-
-
-def tick_story_clock(state: StoryState, config: Config) -> None:
-    """Silence bookkeeping for modes without a live audio producer.
-
-    One segment ≈ one clip of its own duration. A spoken line resets the
-    floor; silence accumulates.
-    """
-    if state.current_commentary and state.current_commentary.voiceover:
-        state.silence_seconds = 0.0
-    else:
-        clip = state.last_clip_duration
-        if not clip and state.current_shot is not None:
-            clip = float(state.current_shot.duration_seconds)
-        if not clip and state.current_shape is not None:
-            clip = state.current_shape.delivered_seconds
-        state.silence_seconds += clip
 
 
 def pacing_note(world: WorldModel, config: Config) -> str:

@@ -274,7 +274,7 @@ def test_the_director_is_told_lengths_in_seconds_and_how_the_renderer_reads():
     for seconds in (6, 4):
         shape = ClipShape.from_seconds(seconds)
         asyncio.run(director.run(world=WorldModel.from_story(story), state=state, llm=Capture(), config=_config(),
-                                 voiceover_open=False, pacing_note="p", scene_note="s", beat_status="b",
+                                 pacing_note="p", scene_note="s", beat_status="b",
                                  clip_seconds=shape.delivered_seconds))
     six, four = seen
     assert "one to 4 clips of 6 seconds each, in order: a beat is 6 to 24 seconds of film" in six

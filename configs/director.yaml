@@ -10,14 +10,6 @@ temperature: 0.7
 max_tokens_per_agent: 1024
 
 video_enabled: false
-audio_enabled: false
-
-# Narration is a Director field behind a deterministic gate; whether the film
-# has a narrator, how it sounds and any floor of silence between its lines are
-# the story's (`narrator` in story.json). This is how its lines are rendered:
-# "ltx" folds them into the video prompt (native audio), "tts" uses ElevenLabs
-# when audio_enabled, "off" does not render them (the Director still writes them).
-narration: "ltx"
 
 recent_clips: 6
 max_clips_per_beat: 4

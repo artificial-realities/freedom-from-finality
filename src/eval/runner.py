@@ -25,9 +25,8 @@ from src.i2v.shape import DEFAULT_FPS, ClipShape, ShapeRegistry
 from src.llm import build_backend
 from src.models.config import Config
 from src.models.story import Story
-from src.playback import Playable, Player, TerminalPlayer, mux_audio_into_video
+from src.playback import Playable, Player, TerminalPlayer
 from src.state.story_state import HistoryEntry, StoryState
-from src.tts.elevenlabs import ElevenLabsTTS
 from src.ui.terminal import TerminalUI
 from src.util.langfuse_setup import event as langfuse_event
 from src.util.langfuse_setup import flush as langfuse_flush
@@ -82,7 +81,7 @@ def _trace_output(state: StoryState) -> dict:
     """What to surface as the trace.output in the Langfuse Sessions view."""
     return {
         "narration": state.current_beat.narration if state.current_beat else None,
-        "voiceover": state.current_commentary.voiceover if state.current_commentary else None,
+        "dialogue": state.current_dialogue or None,
     }
 
 
@@ -120,7 +119,7 @@ def _log_emit(timing: TimingLog, graph, turn: int) -> None:
     if ev is None or ev.segment != turn:
         return
     timing.write("emit", turn=turn, clip_id=ev.clip_id, beat=ev.beat, clip=ev.clip_index, of=ev.clip_count,
-                 seconds=ev.duration, voiceover=bool(ev.voiceover))
+                 seconds=ev.duration, speech=bool(ev.dialogue))
 
 
 def _shapes_for(config: Config, i2v: I2VBackend | None) -> ShapeRegistry:
@@ -153,32 +152,20 @@ def _check_shapes(i2v: I2VBackend | None, shapes: ShapeRegistry, timing: TimingL
 def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog) -> None:
     """Validate the reference against the render frame before anything
     renders (RUN-11); the verdict goes to the timing log. A strict
-    refusal stops the run here, not at the first render."""
+    refusal stops the run here, not at the first render, and so does a
+    story without a reference: the renderer starts every film from one."""
     if i2v is None:
         return
     try:
+        if not seed_image:
+            raise ValueError("this story has no reference image (`picture.reference`); the renderer starts "
+                             "the film from one, so a video run needs it")
         verdict = i2v.check_reference(seed_image)
     except Exception as exc:
         timing.write("reference", image=seed_image, refused=str(exc))
         raise
     if verdict:
         timing.write("reference", image=seed_image, **verdict)
-
-
-def _maybe_tts(config: Config, log_dir: Path | str) -> ElevenLabsTTS | None:
-    if not config.audio_enabled:
-        return None
-    audio_dir = Path(log_dir) / "audio"
-    return ElevenLabsTTS(
-        voice_id=config.elevenlabs_voice_id,
-        audio_dir=audio_dir,
-    )
-
-
-def seed_image_for(config: Config, story: Story) -> str:
-    """The reference image the first clip is rendered from: the story's
-    `seed_image`, or the config's `i2v_seed_image` for a story without one."""
-    return story.seed_image or config.i2v_seed_image
 
 
 def _maybe_i2v(config: Config, log_dir: Path | str, session_id: str = "") -> I2VBackend | None:
@@ -205,22 +192,12 @@ def _maybe_i2v(config: Config, log_dir: Path | str, session_id: str = "") -> I2V
     )
 
 
-async def _render_turn(
-    *,
-    state: StoryState,
-    i2v: I2VBackend,
-    seed_image: str,
-    frames_dir: Path,
-    video_dir: Path,
-) -> tuple[str, str | None, str | None]:
+async def _render_turn(*, state: StoryState, i2v: I2VBackend, seed_image: str) -> tuple[str, str | None]:
     """Render one clip for the turn-by-turn loop (`run_play`), threading
     the seed image forward.
 
-    Returns `(next_seed_image, silent_video_path, playable_path)` where:
-    - `next_seed_image` always set (falls back to current seed on failure)
-    - `silent_video_path` is the raw i2v mp4 (or None if render failed)
-    - `playable_path` is the muxed mp4 when a TTS line was produced this
-      turn; otherwise the silent path; or None on complete render failure.
+    Returns `(next_seed_image, video_path)`: the seed image is always set
+    (the current one on failure); the video is None when the render failed.
     """
     if not Path(seed_image).exists():
         logger.warning("Seed image missing for turn %s: %s — skipping render",
@@ -231,7 +208,7 @@ async def _render_turn(
                       "reason": "missing_seed", "seed_image": seed_image},
             level="WARNING",
         )
-        return seed_image, None, None
+        return seed_image, None
 
     prompt = state.current_shot.i2v_prompt
     video_path = await i2v.synthesize(
@@ -248,37 +225,15 @@ async def _render_turn(
             metadata={"turn": state.turn_number, "seed_image": seed_image},
             level="ERROR",
         )
-        return seed_image, None, None
+        return seed_image, None
 
     # The LTXV backend owns continuity server-side (sliding window in GPU
-    # memory), so no client-side frame chaining is needed.
-    extracted = None
-
-    playable_path: str | None = video_path
-    muxed_path: str | None = None
-    if state.current_audio_path:
-        out = video_dir / f"turn_{state.turn_number:04d}_muxed.mp4"
-        muxed_path = await mux_audio_into_video(
-            video_path=video_path,
-            audio_path=state.current_audio_path,
-            output_path=out,
-        )
-        if muxed_path:
-            playable_path = muxed_path
-
+    # memory), so the seed image stays the reference.
     langfuse_event(
         "i2v_render",
-        metadata={
-            "turn": state.turn_number,
-            "seed_image": seed_image,
-            "video_path": video_path,
-            "audio_path": state.current_audio_path or None,
-            "muxed_path": muxed_path,
-            "playable_path": playable_path,
-            "next_seed_image": extracted or seed_image,
-        },
+        metadata={"turn": state.turn_number, "seed_image": seed_image, "video_path": video_path},
     )
-    return extracted or seed_image, video_path, playable_path
+    return seed_image, video_path
 
 
 def _coerce_state(result) -> StoryState:
@@ -291,24 +246,12 @@ def _coerce_state(result) -> StoryState:
 
 
 def _commit_history(state: StoryState) -> None:
-    """Append the committed turn to history, if all three outputs exist."""
-    if (
-        state.current_beat is None
-        or state.current_shot is None
-        or state.current_commentary is None
-    ):
-        logger.warning(
-            "Turn %s skipped history commit — missing one of beat/shot/commentary",
-            state.turn_number,
-        )
+    """Append the committed turn to history, if both views exist."""
+    if state.current_beat is None or state.current_shot is None:
+        logger.warning("Turn %s skipped history commit — missing beat or shot", state.turn_number)
         return
-
     state.history.append(HistoryEntry(
-        turn=state.turn_number,
-        user_input=state.user_input,
-        beat=state.current_beat,
-        shot=state.current_shot,
-        commentary=state.current_commentary,
+        turn=state.turn_number, user_input=state.user_input, beat=state.current_beat, shot=state.current_shot,
     ))
 
 
@@ -318,7 +261,7 @@ def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
         user_input=state.user_input,
         beat=state.current_beat,
         shot=state.current_shot,
-        commentary=state.current_commentary,
+        dialogue=state.current_dialogue,
         world_state=state.world_state,
         context_brief=state.context_brief,
         extra=state.turn_notes,
@@ -373,24 +316,17 @@ async def run_play(
     )
 
     llm = build_backend(config.llm_backend, config.model)
-    tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir, session_id)
 
     session_dir = Path(log_dir) / "sessions" / session_id
     shapes = _shapes_for(config, i2v)
     timing = _start_timing(config, story, session_id, session_dir, loop="play", shapes=shapes)
-    seed_image: str = seed_image_for(config, story)
+    seed_image = story.reference_image
     _check_reference(i2v, seed_image, timing)
     _check_shapes(i2v, shapes, timing, config)
-    graph = build_graph(
-        config.graph, llm=llm, config=config, tts=tts,
-        session_dir=session_dir, timing=timing, shapes=shapes,
-    )
+    graph = build_graph(config.graph, llm=llm, config=config, session_dir=session_dir, timing=timing, shapes=shapes)
 
     ui = ui or TerminalUI()
-
-    video_dir = Path(log_dir) / "video"
-    frames_dir = video_dir / "frames"
 
     trace_tags = [config.name, "play"]
 
@@ -433,14 +369,8 @@ async def run_play(
                     timing.write("fire", turn=turn_number, seconds=state.current_shot.duration_seconds,
                                  frames=state.current_shape.render_frames)
                     t0 = time.monotonic()
-                    seed_image, _silent, _playable = await _render_turn(
-                        state=state,
-                        i2v=i2v,
-                        seed_image=seed_image,
-                        frames_dir=frames_dir,
-                        video_dir=video_dir,
-                    )
-                    timing.write("render_done", turn=turn_number, ok=_silent is not None,
+                    seed_image, video = await _render_turn(state=state, i2v=i2v, seed_image=seed_image)
+                    timing.write("render_done", turn=turn_number, ok=video is not None,
                                  render_s=round(time.monotonic() - t0, 4), server=dict(i2v.last_render))
 
                 set_trace_output(_trace_output(state))
@@ -504,7 +434,6 @@ async def run_live(
     )
 
     llm = build_backend(config.llm_backend, config.model)
-    tts = _maybe_tts(config, log_dir)
     i2v = _maybe_i2v(config, log_dir, session_id)
     player = player or TerminalPlayer()
 
@@ -517,12 +446,9 @@ async def run_live(
         buffer_seconds=config.buffer_seconds, jit_safety=JIT_SAFETY,
         jit_margin=JIT_MARGIN_S, time_scale=player.time_scale,
     )
-    _check_reference(i2v, seed_image_for(config, story), timing)
+    _check_reference(i2v, story.reference_image, timing)
     _check_shapes(i2v, shapes, timing, config)
-    graph = build_graph(
-        config.graph, llm=llm, config=config, tts=tts,
-        session_dir=session_dir, timing=timing, shapes=shapes,
-    )
+    graph = build_graph(config.graph, llm=llm, config=config, session_dir=session_dir, timing=timing, shapes=shapes)
     mode = "video" if i2v is not None else "text (no video backend)"
     if config.startup_clips > 0:
         print(f"Live, {mode}: pre-buffering {queue_size} segments before playback "
@@ -561,11 +487,6 @@ async def run_live(
 
     def _hold_of(item: Playable) -> float:
         return float(item.duration) / player.time_scale
-
-    # The producer mutates these state fields directly so the next turn's
-    # voice-over gate sees up-to-date pacing (silence starts at the story
-    # narrator's floor, so the film may open on a line).
-    state.pacing_managed = True
 
     trace_tags = [config.name, "live"]
 
@@ -623,11 +544,10 @@ async def run_live(
         return ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
 
     async def _bg_render_and_enqueue(
-        item: Playable, *, prompt: str, seed_image: str, shape: ClipShape, audio: str = "",
+        item: Playable, *, prompt: str, seed_image: str, shape: ClipShape,
         clip_id: int | None = None, parent_clip_id: int | None = None,
     ) -> bool:
-        """Render one clip in the background and enqueue it, with the
-        segment's TTS line (already no longer than the clip) mixed in. The
+        """Render one clip in the background and enqueue it. The
         player holds it for the shape's delivered frames (RUN-01); the
         file's measured length is only checked against the shape. A failed
         render is retried once when the retry can still land before the
@@ -673,12 +593,6 @@ async def run_live(
                 # tail (RUN-10): the Director hears the picture was reset.
                 timing.write("reseeded", turn=item.turn)
                 graph.note_reseed(item.turn)
-            if audio:
-                muxed = await mux_audio_into_video(
-                    video_path=video_path, audio_path=audio,
-                    output_path=video_dir / f"turn_{item.turn:04d}_muxed.mp4",
-                )
-                item.path = muxed or video_path
             item.duration = shape.delivered_seconds
             measured = await probe_duration(item.path)
             if measured is not None and abs(measured - shape.render_seconds) > 1.5 / shape.fps:
@@ -690,7 +604,7 @@ async def run_live(
 
     async def producer() -> None:
         nonlocal state
-        seed_image = seed_image_for(config, story)
+        seed_image = story.reference_image
         turn = 0
         # Background render task for pipelining, and the hold of the clip it
         # renders (its shape's delivered seconds on the player's clock).
@@ -701,12 +615,11 @@ async def run_live(
         # joined to it (ARCH-06).
         planned_text = ""
         # Fail-soft (RUN-09): viewer text whose answer was rolled back, for
-        # the next plan; the lines that landed on the last clip; the silence
-        # count before it; failed segments in a row.
+        # the next plan; the lines that landed on the last clip; failed
+        # segments in a row.
         carry_text = ""
         deferred_text = ""     # a line waiting for the clip after the next (deadline admission, X-09)
         last_landed: tuple[int, list[int]] | None = None
-        silence_before = state.silence_seconds
         failures = 0
 
         def _fail(turn_failed: int, reason: str) -> None:
@@ -726,7 +639,6 @@ async def run_live(
             carry = graph.rollback_clip(turn_failed, reason)
             if state.history and state.history[-1].turn == turn_failed:
                 state.history.pop()
-            state.silence_seconds = silence_before
             requeued = list(last_landed[1]) if last_landed and last_landed[0] == turn_failed else []
             requeued += beat_lines
             beat_lines.clear()
@@ -967,14 +879,13 @@ async def run_live(
                         if i2v is None:
                             # ── Text-only film ──────────────────────────
                             # No renderer: the clip plays as text for its
-                            # own duration. Pacing follows that clock.
-                            _pace_expected(state, item.duration)
+                            # own duration.
                             await _enqueue(item)
                         else:
                             # ── The one render path (AUD-04) ────────────
                             # Wait for the previous render (the sliding
                             # window is sequential), then fire this one in
-                            # the background; a TTS line is mixed in there.
+                            # the background.
                             player.status(f"rendering segment {turn}")
                             shape = state.current_shape
                             # How long until this clip is due on air (None
@@ -989,16 +900,11 @@ async def run_live(
                                     prompt=state.current_shot.i2v_prompt,
                                     seed_image=seed_image,
                                     shape=shape,
-                                    audio=state.current_audio_path,
                                     clip_id=state.current_clip_id or None,
                                     parent_clip_id=state.current_parent_clip_id if state.current_clip_id else None,
                                 )
                             )
                             _prev_hold = shape.delivered_seconds / player.time_scale
-                            # Pacing from the shape's delivered length, so the
-                            # next voice-over decision is right.
-                            silence_before = state.silence_seconds
-                            _pace_expected(state, shape.delivered_seconds)
 
                     set_trace_output(_trace_output(state))
 
@@ -1116,14 +1022,14 @@ async def run_live(
 def _playable(state: StoryState) -> Playable:
     """The viewer-facing views of the segment just produced. `path` and the
     real `duration` are filled in once a clip exists."""
-    beat, shot, comm = state.current_beat, state.current_shot, state.current_commentary
+    beat, shot = state.current_beat, state.current_shot
     return Playable(
         turn=state.turn_number,
         clip_id=state.current_clip_id,
         duration=float(shot.duration_seconds) if shot else state.current_shape.delivered_seconds,
         user_input=state.user_input,
         narration=beat.narration if beat else "",
-        voiceover=comm.voiceover if comm else "",
+        dialogue=list(state.current_dialogue),
         on_screen=list(shot.on_screen) if shot else [],
         camera=shot.camera if shot else "",
         intervention=state.current_intervention,
@@ -1131,17 +1037,5 @@ def _playable(state: StoryState) -> Playable:
         scene=state.context_brief,
         beat=state.current_beat_intent,
         clip=state.current_clip,
-        speech=state.current_speech,
+        speech=bool(state.current_dialogue),
     )
-
-
-def _pace_expected(state: StoryState, expected_dur: float) -> None:
-    """Pacing for a segment whose clip is not measured yet (pipelined render
-    or text-only): assume it plays for its planned duration."""
-    state.last_clip_duration = expected_dur
-    if state.current_commentary and state.current_commentary.voiceover:
-        # A line was produced this turn (rendered natively or logged): the
-        # silence floor re-arms from here.
-        state.silence_seconds = 0.0
-    else:
-        state.silence_seconds += expected_dur

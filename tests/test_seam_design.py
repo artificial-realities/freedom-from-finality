@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from unittest import mock
 
 from src.i2v.shape import ClipShape, ShapeRegistry
 from src.models.config import Config
@@ -53,18 +52,8 @@ async def test_clips_carry_their_overlap_and_are_held_for_the_new_frames():
     the first clip (seeded from the reference) without an overlap, every
     later one with 0.375 s, and a clip with speech marked."""
     from src.eval import runner
-    from src.llm.mock_backend import MockBackend
     from tests.test_engine import Scripted
     story = Story.from_json("stories/lego-void")
-    generate = MockBackend.generate_structured
-
-    async def talkative(backend, messages, schema, *a, **kw):
-        text, usage = await generate(backend, messages, schema, *a, **kw)
-        if schema.__name__ == "BeatPlan":
-            beat = json.loads(text)
-            beat["voiceover"] = "A voice."           # the story's narrator gate decides which clips carry it
-            text = json.dumps(beat)
-        return text, usage
 
     with tempfile.TemporaryDirectory() as d:
         clips = Path(d) / "clips"
@@ -80,15 +69,14 @@ async def test_clips_carry_their_overlap_and_are_held_for_the_new_frames():
             seen.append(item.model_copy())
             await play(item)
         player.play = spy
-        with mock.patch.object(MockBackend, "generate_structured", talkative):
-            await runner.run_live(config=config, story=story, log_dir=d, player=player, max_segments=4)
+        await runner.run_live(config=config, story=story, log_dir=d, player=player, max_segments=4)
         records = [json.loads(x) for x in next((Path(d) / "sessions").iterdir()).joinpath("timing.jsonl").read_text().splitlines()]
     assert [i.duration for i in seen] == [6.0] * 4
     assert [i.overlap_seconds for i in seen] == [0.0, 0.375, 0.375, 0.375]
     assert not [r for r in records if r["event"] == "shape_mismatch"], "a 153-frame file for a 153-frame shape"
     assert all(r.get("frames", 153) == 153 for r in records if r["event"] == "shapes")
-    assert [i.speech for i in seen] == [bool(i.voiceover) for i in seen]
-    assert any(i.speech for i in seen) and not all(i.speech for i in seen), [i.voiceover for i in seen]
+    assert [i.speech for i in seen] == [bool(i.dialogue) for i in seen]
+    assert any(i.speech for i in seen) and not all(i.speech for i in seen), [i.dialogue for i in seen]
 
 
 def test_a_different_server_ceiling_is_noticed():

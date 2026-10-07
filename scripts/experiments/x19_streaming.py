@@ -17,7 +17,7 @@ share the network's moment:
             whole beat. Its API time is the critical path of an answer.
   streamed  the same messages, streamed, against an evaluation-only copy of
             `BeatPlan` with `clips` after the fields the first clip needs
-            (`voiceover`, `thread_ops`, the disposition, `delivered_request`,
+            (`thread_ops`, the disposition, `delivered_request`,
             `perspective`); `scene_done` and `needs_replan` after the clips.
             Times: first token, the first clip's object closed, the whole
             reply. The first clip is parsed alone as a `ClipSpec` the moment
@@ -81,7 +81,6 @@ class StreamedBeatPlan(BaseModel):
     intent: str
     framing: str
     perspective: str = ""
-    voiceover: str = ""
     thread_ops: list[ThreadOp] = Field(default_factory=list)
     intervention: Literal["none", "absorbed", "deferred", "declined"] = "none"
     intervention_reason: str = ""
@@ -226,7 +225,7 @@ async def run(out: Path, calls: int) -> None:
         capture = _captured(engine.llm_director)
         t0 = time.monotonic()
         beat, notes, retried = await director_agent.run(
-            world=world, state=state, llm=capture, config=config, voiceover_open=False, pacing_note="",
+            world=world, state=state, llm=capture, config=config, pacing_note="",
             scene_note="", beat_status=engine._beat_status(), clip_seconds=6.0)
         whole = {"api_s": capture.calls[0]["api_s"], "turn_s": time.monotonic() - t0, "retried": retried,
                  "valid": beat is not None, "clips": len(beat.clips) if beat else None,

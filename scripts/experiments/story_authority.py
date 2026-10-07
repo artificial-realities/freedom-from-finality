@@ -66,15 +66,15 @@ SCHEDULES = {
         5: "A small paper boat drifts in; he decides to become its captain.",
         13: "Everything he touches starts to bounce like rubber.",
     },
-    # X-26 (ARCH-19's post-implementation check) on tests/fixtures/lighthouse:
-    # a new character, the supporting character's condition, a permitted
-    # and a forbidden perspective switch, a line for the new character.
+    # X-26 (ARCH-19's post-implementation check) on the Lego story: a new
+    # character, the supporting character's condition, a permitted and a
+    # forbidden perspective switch, a line for the new character.
     "cast": {
-        4: "A fisherman staggers in out of the storm, soaked to the bone.",
-        9: "The lamp sputters and goes dark.",
-        15: "Mara looks through the telescope at a ship's light out at sea.",
-        21: "Show the tower from high above, a bird's-eye view.",
-        26: "The fisherman asks Mara for a blanket.",
+        4: "A pirate captain stumbles in from the edge of the frame, looking for the sea.",
+        9: "His tower of bricks collapses with a clatter.",
+        15: "Lego Man looks through a pair of binoculars at the horizon.",
+        21: "Show the void from high above, a bird's-eye view.",
+        26: "The pirate asks Lego Man which way the sea is.",
     },
 }
 

@@ -7,10 +7,9 @@ import tempfile
 from pathlib import Path
 
 from src.models.config import Config
-from src.models.story import Story
-from src.state.story_state import StoryState
+from src.models.story import Picture, Story
 from src.story.compiler import compile_clip
-from src.story.pacing import pacing_note, scene_note, voiceover_gate
+from src.story.pacing import pacing_note, scene_note
 from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThreadOp
 from src.story.validator import apply_clip, check
 from src.story.world import EventRecord, WorldModel
@@ -22,8 +21,13 @@ def _config(**over) -> Config:
     return Config(**base)
 
 
-def _world() -> WorldModel:
+PLAIN = Picture()   # no style, no reference: the compiler's own words only
+
+
+def _world(**cast) -> WorldModel:
     story = Story.from_json("stories/lego-void")
+    if cast:
+        story = story.model_copy(update={"cast": story.cast.model_copy(update=cast)})
     return WorldModel.from_story(story)
 
 
@@ -46,10 +50,14 @@ def _apply(beat: BeatPlan, w: WorldModel, segment_no: int, index: int = 0):
 def test_world_from_blueprint():
     w = _world()
     assert w.protagonist == "lego_man"
-    assert w.cast_locked is True
-    hero = w.entities["lego_man"]
-    assert hero.speaks is False and hero.present is True and hero.location == "the_white_void"
+    assert not w.cast_locked and w.newcomers.startswith("Other minifigures from any LEGO theme")
+    hero, spaceman = w.entities["lego_man"], w.entities["spaceman"]
+    assert hero.present is True and hero.location == "the_white_void"
+    assert hero.description.startswith("The most default minifigure") and hero.wants == "Something to do, and to get it right."
+    assert hero.voice.description.startswith("earnest") and hero.now() == "standing upright, arms at his sides; centre frame"
     assert hero.look_short.startswith("the same plain LEGO minifigure"), "the blueprint's short look carries over"
+    assert not spaceman.present and spaceman.appears == "must" and spaceman.location == ""
+    assert w.opening_picture == ["lego_man"], "the reference image shows Lego Man, not the Spaceman"
     assert w.current_location().id == "the_white_void"
     assert w.resolve("Lego Man") is hero and w.resolve("lego man") is hero
 
@@ -112,22 +120,26 @@ def test_validator_checks_every_clip_and_caps_them():
     assert not r.violations and any("only the first 2" in x for x in r.warnings), "clips past the cap are not checked"
 
 
-def test_validator_cast_lock_and_mute_dialogue():
-    w = _world()
+def test_validator_cast_lock_and_speakers():
+    """A story without newcomers keeps its cast; any character may speak,
+    a prop may not."""
+    w = _world(newcomers="")
+    _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="plastic dog", description="a plastic dog")])]), w, 1)
     beat = _beat(clips=[_clip(
         entity_ops=[EntityOp(op="introduce", entity="Lego Woman", kind="character", description="second figure")],
-        dialogue=[DialogueLine(speaker="lego_man", line="Hi")],
+        dialogue=[DialogueLine(speaker="lego_man", line="Hi"), DialogueLine(speaker="plastic_dog", line="Woof, said the dog")],
     )])
     r = check(beat, w)
     assert any("allows no characters beyond its cast" in v for v in r.violations)
-    assert any("never speaks" in v for v in r.violations)
-    _apply(beat, w, 1)
+    assert any("dialogue speaker 'plastic_dog' is not a known character id" in v for v in r.violations)
+    assert not any("speaker 'lego_man'" in v for v in r.violations), "every character may speak"
+    _apply(beat, w, 2)
     assert "lego_woman" not in w.entities, "locked cast: the character is never created"
-    assert beat.clips[0].dialogue == [], "mute dialogue is dropped on apply"
+    assert [d.speaker for d in beat.clips[0].dialogue] == ["lego_man"], "the prop's line is dropped on apply"
 
-    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="plastic dog", kind="prop", description="a small plastic dog")])])
-    r = _apply(beat, w, 2)
-    assert not r.violations and "plastic_dog" in w.entities, "creatures are props and allowed"
+    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="plastic cat", kind="prop", description="a small plastic cat")])])
+    r = _apply(beat, w, 3)
+    assert not r.violations and "plastic_cat" in w.entities, "creatures are props and allowed"
 
 
 def test_validator_threads_and_interventions_land_on_the_first_clip():
@@ -166,21 +178,20 @@ def test_validator_threads_and_interventions_land_on_the_first_clip():
     assert w.drop_pending_interventions(5) == 1 and not w.unresolved_interventions()[1:]
 
 
-def test_compiler_opening_clip_carries_style_look_and_pose():
+def test_compiler_opening_clip_carries_style_look_and_reference():
     w = _world()
-    beat = _beat(clips=[_clip(action="He waves.", ambient_sound="a faint plastic rattle", end_state="Lego Man mid-wave")],
-                 voiceover="A kick, at last.")
-    prompt = compile_clip(beat, 0, w, visual_style="Studio product shot. Pure white.", visual_anchor="Studio shot, white.",
-                          narration_mode="ltx", narrator=Story.from_json("stories/lego-void").narrator,
-                          opening=True, segment_no=1)
+    reference = Story.from_json("stories/lego-void").picture.reference
+    picture = Picture(style="Studio product shot. Pure white.", anchor="Studio shot, white.", reference=reference)
+    beat = _beat(clips=[_clip(action="He waves.", ambient_sound="a faint plastic rattle", end_state="Lego Man mid-wave",
+                              dialogue=[DialogueLine(speaker="lego_man", line="Hello?")])])
+    prompt = compile_clip(beat, 0, w, picture=picture, opening=True, segment_no=1)
     assert prompt.startswith("Studio product shot. Pure white.")
     assert "Lego Man (the most default LEGO minifigure" in prompt, "the full look on the opening clip"
     assert "The shot opens with Lego Man standing upright in a wide product shot" in prompt
     assert "A faint plastic rattle." in prompt and "Medium shot; the camera remains static." in prompt
     assert "Entering the picture" not in prompt, "the reference image already shows the character"
+    assert 'Lego Man says in a earnest, slightly formal, a little breathless voice, in English, "Hello?"' in prompt
     assert "Final frame: Lego Man mid-wave." in prompt
-    assert 'voice-over (English, warm, unhurried documentary narrator) says: "A kick, at last."' in prompt, \
-        "the narrator as the story describes it"
 
 
 def test_compiler_continuing_clip_is_compact():
@@ -189,29 +200,25 @@ def test_compiler_continuing_clip_is_compact():
     beat = _beat(clips=[
         _clip(action="He kicks.", end_state="mid-kick", on_screen=["lego_man", "soccer_ball"]),
         _clip(action="He watches the ball roll.", end_state="watching", on_screen=["lego_man", "soccer_ball"], camera_motion="slow push in"),
-    ], voiceover="A kick, at last.")
+    ])
     style = "Studio product shot. Pure white cyclorama."
-    p1 = compile_clip(beat, 0, w, visual_style=style, visual_anchor="Studio shot, white.", narration_mode="ltx", segment_no=2)
+    p1 = compile_clip(beat, 0, w, picture=Picture(style=style, anchor="Studio shot, white."), segment_no=2)
     assert p1.startswith("Studio shot, white.") and "Pure white cyclorama" not in p1, "the anchor replaces the style paragraph"
     assert "Lego Man (the same plain LEGO minifigure" in p1 and "the most default" not in p1, "short look on continues"
     assert "soccer ball;" in p1 or "soccer ball." in p1
     assert "(a studded LEGO ball)" not in p1, "a prop already introduced is named, not described"
     assert "The shot opens with" not in p1 and "Cut to" not in p1
-    assert "voice-over" in p1
-    p2 = compile_clip(beat, 1, w, visual_style=style, visual_anchor="", narration_mode="ltx", segment_no=3)
+    p2 = compile_clip(beat, 1, w, picture=Picture(style=style), segment_no=3)
     assert p2.startswith("Studio product shot.") and "cyclorama" not in p2, "no anchor: the style's first sentence"
-    assert "voice-over" not in p2, "the line plays over the first clip only"
     assert "Medium shot; the camera makes a slow push in." in p2
     # The clip that introduces a prop carries its description, as an entrance
     # rather than as something already on screen (LTX-03).
     beat3 = _beat(clips=[_clip(action="A cone appears.", end_state="cone", on_screen=["lego_man", "cone"],
                                entity_ops=[EntityOp(op="introduce", entity="cone", description="a yellow LEGO cone")])])
     _apply(beat3, w, 4)
-    p3 = compile_clip(beat3, 0, w, visual_style=style, narration_mode="off", segment_no=4)
+    p3 = compile_clip(beat3, 0, w, picture=Picture(style=style), segment_no=4)
     assert "Entering the picture during this clip: cone (a yellow LEGO cone). A cone appears." in p3
     assert "On screen: Lego Man (the same plain" in p3 and "; cone" not in p3, "an entering entity is not listed as present"
-    p_tts = compile_clip(beat, 0, w, visual_style="", narration_mode="tts", segment_no=2)
-    assert "voice-over" not in p_tts, "in tts mode the line is not folded into the video prompt"
 
 
 def test_pacing_in_story_seconds():
@@ -274,7 +281,7 @@ def test_compiler_caps_described_entities():
     for i in range(10):
         _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity=f"thing {i}", description=f"look {i}")])]), w, 1)
     beat = _beat(clips=[_clip(action="x", on_screen=[f"thing_{i}" for i in range(10)] + ["lego_man"], end_state="e")])
-    prompt = compile_clip(beat, 0, w, visual_style="", narration_mode="off", segment_no=1)
+    prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=1)
     assert prompt.count("(look ") == DESCRIBED_IN_FULL - 1, "character first, then props with looks up to the cap"
     assert "Lego Man (" in prompt and "thing 9" in prompt
 
@@ -298,25 +305,22 @@ def test_persistence_round_trip():
         assert "lego_man" in old.entities and not hasattr(old.entities["lego_man"], "reference_image")
 
 
-def test_blueprint_has_no_reference_image_field():
-    """CLEAN-03: the story's `seed_image` is the reference; the per-character
-    field was read by nothing. An old blueprint that still carries it loads."""
-    from src.models.story import Character
-    from src.story.world import Entity
-    assert "reference_image" not in Character.model_fields and "reference_image" not in Entity.model_fields
-    assert "reference_pose" in Character.model_fields and "reference_pose" in Entity.model_fields
+def test_the_reference_belongs_to_the_picture():
+    """The reference image and what it shows live on the picture, not on a
+    character; the image resolves against the story folder; a story may
+    have none (the renderer refuses a video run without one)."""
     import json
     raw = json.loads(Path("stories/lego-void/story.json").read_text())
-    assert "reference_image" not in raw["characters"][0]
-    raw["characters"][0]["reference_image"] = "legoman.png"
+    image = raw["picture"]["reference"]["image"]
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "story.json").write_text(json.dumps(raw))
-        (Path(d) / raw["seed_image"]).write_bytes((Path("stories/lego-void") / raw["seed_image"]).read_bytes())
+        (Path(d) / image).write_bytes((Path("stories/lego-void") / image).read_bytes())
         story = Story.from_json(d)
-    assert story.characters[0].reference_pose.startswith("standing upright")
-    assert story.seed_image == str(Path(d) / raw["seed_image"]), "the seed image resolves against the story folder"
-    w = WorldModel.from_story(story)
-    assert w.entities["lego_man"].reference_pose == story.characters[0].reference_pose
+    assert story.reference_image == str(Path(d) / image), "the image resolves against the story folder"
+    assert story.picture.reference.shows.startswith("Lego Man standing upright")
+    raw["picture"].pop("reference")
+    bare = Story(**raw)
+    assert bare.reference_image == "" and WorldModel.from_story(bare).opening_picture is None
 
 
 def test_location_resolver_forms_and_prefix_collision():
@@ -330,8 +334,7 @@ def test_location_resolver_forms_and_prefix_collision():
     from src.story.validator import resolve_location
     story = Story.from_json("stories/lego-void")
     locations = [Location(name="The Void", description="white"), Location(name="The Void Annex", description="whiter")]
-    w = WorldModel.from_blueprint(title=story.title, characters=story.characters, locations=locations,
-                                  cast_locked=story.cast_locked)
+    w = WorldModel.from_blueprint(title=story.title, characters=story.cast.characters, locations=locations)
     assert [e.id for e in w.by_kind("location")] == ["the_void", "the_void_annex"]
     assert w.current_location().id == "the_void", "the first location is home"
     # Exact ids, names, slugs and prefixed forms all resolve to the right one.
@@ -345,9 +348,8 @@ def test_location_resolver_forms_and_prefix_collision():
     assert resolve_location(w, "The Void Annex, far end").id == "the_void", "the prefix collision (01 §4.4)"
     assert resolve_location(w, "far end of the annex") is None, "no location id in the text: unresolved"
     # Two locations with the same name get `_2`, and the same collision applies.
-    w2 = WorldModel.from_blueprint(title=story.title, characters=story.characters,
-                                   locations=[Location(name="Void", description="a"), Location(name="Void", description="b")],
-                                   cast_locked=story.cast_locked)
+    w2 = WorldModel.from_blueprint(title=story.title, characters=story.cast.characters,
+                                   locations=[Location(name="Void", description="a"), Location(name="Void", description="b")])
     assert [e.id for e in w2.by_kind("location")] == ["void", "void_2"]
     assert resolve_location(w2, "void_2").id == "void_2" and resolve_location(w2, "the void_2").id == "void_2"
     assert resolve_location(w2, "void 2, by the edge").id == "void", "the prefix collision (`void` inside `void_2`)"
@@ -377,7 +379,7 @@ def test_compiler_camera_clause():
     assert camera_clause("the camera slowly pushes in.") == "the camera slowly pushes in", "no double 'the camera'"
     w = _world()
     beat = _beat(framing="wide shot, low angle", clips=[_clip(camera_motion="slow push-in on the crown")])
-    prompt = compile_clip(beat, 0, w, visual_style="", narration_mode="off", segment_no=2)
+    prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=2)
     assert "Wide shot, low angle; the camera makes a slow push-in on the crown." in prompt
     assert " camera." not in prompt
 
@@ -385,7 +387,7 @@ def test_compiler_camera_clause():
 def _emit(beat: BeatPlan, w: WorldModel, seg: int, index: int = 0, **kw) -> str:
     """Apply, compile and record the clip the way the engine emits it."""
     _apply(beat, w, seg, index)
-    prompt = compile_clip(beat, index, w, visual_style="", narration_mode="off", segment_no=seg, **kw)
+    prompt = compile_clip(beat, index, w, picture=PLAIN, segment_no=seg, **kw)
     clip = beat.clips[index]
     w.events.append(EventRecord(segment=seg, scene_id=1, narration=clip.action_text(),
                                 on_screen=list(clip.on_screen), end_state=clip.end_state, duration=6))
@@ -443,7 +445,7 @@ def test_compiler_describes_entering_and_returning_entities():
     assert "cat" not in p10 and "Entering" not in p10
     # No previous record (a replay with a gap, or segment 0): nothing is called a return.
     w2 = _world()
-    p = compile_clip(_beat(clips=[_clip(on_screen=["lego_man"])]), 0, w2, visual_style="", narration_mode="off", segment_no=5)
+    p = compile_clip(_beat(clips=[_clip(on_screen=["lego_man"])]), 0, w2, picture=PLAIN, segment_no=5)
     assert "On screen: Lego Man (" in p and "Entering" not in p
 
 
@@ -489,8 +491,9 @@ def test_an_answer_beat_is_capped_and_told_so():
     assert cfg.answer_max_clips == 2
     assert clip_cap(cfg, "a ball appears") == 2 and clip_cap(cfg, "  ") == cfg.max_clips_per_beat == 4
     assert clip_cap(_config(answer_max_clips=6), "x") == 4, "never above the beat cap"
-    gates = format_gates(voiceover_open=False, pacing="p", scene="s", answer_clips=2)
+    gates = format_gates(pacing="p", scene="s", answer_clips=2)
     assert gates.endswith("This beat answers the viewer: at most 2 clips. Start the answer now; the next beat continues it.")
-    assert "answers the viewer" not in format_gates(voiceover_open=False, pacing="p", scene="s")
+    assert "answers the viewer" not in format_gates(pacing="p", scene="s")
     beat = _beat(clips=[_clip(), _clip(), _clip()])
     assert any("only the first 2" in x for x in check(beat, _world(), max_clips=clip_cap(cfg, "x")).warnings)
+

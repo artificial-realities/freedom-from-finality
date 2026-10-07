@@ -203,19 +203,19 @@ def test_check_end_to_end_with_events():
         d = Path(d)
         clips = _three_clips(d)
         events = d / "events.jsonl"
-        events.write_text('{"segment": 1, "voiceover": "Our subject hums."}\n{"segment": 2, "voiceover": ""}\n')
+        events.write_text('{"segment": 1, "dialogue": ["Lego Man: Our subject hums."]}\n{"segment": 2, "dialogue": []}\n')
         result = audio.check(clips, events=events, ceiling_lufs=-18.0)
         m = result["metrics"]
         assert m["clips"] == 3 and m["seams"] == 2 and m["policy"] == "today"
-        assert m["narrated_clips"] == 1 and result["clips_detail"][0]["words"] == 3
+        assert m["spoken_clips"] == 1 and result["clips_detail"][0]["words"] == 3
         assert m["clips_above_ceiling"] == 1 and m["true_peak_overs"] == 1       # the loud clip
         assert m["onset_clicks"] == 0 and m["holes"] >= 1 and m["holes_per_minute"] > 0
-        assert m["narrated_step_median_lu"] > 14                                  # tone (-23) to silence (-70)
+        assert m["spoken_step_median_lu"] > 14                                  # tone (-23) to silence (-70)
         assert m["trailing_silence_clips"] == 1
         results = {r["criterion"]: r["result"] for r in result["criteria"]}
         assert results["onset_clicks"] == "PASS"
         assert results["holes_per_minute"] == "FAIL" and results["true_peak_overs"] == "FAIL"
-        assert results["narrated_step_median_lu"] == "FAIL"
+        assert results["spoken_step_median_lu"] == "FAIL"
         no_events = audio.check(clips)
-        assert no_events["metrics"]["narrated_step_median_lu"] is None
-        assert {r["criterion"]: r["result"] for r in no_events["criteria"]}["narrated_step_median_lu"] == "not measured"
+        assert no_events["metrics"]["spoken_step_median_lu"] is None
+        assert {r["criterion"]: r["result"] for r in no_events["criteria"]}["spoken_step_median_lu"] == "not measured"

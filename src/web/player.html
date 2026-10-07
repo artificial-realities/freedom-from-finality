@@ -43,7 +43,7 @@
   .buffering[hidden] { display: none; }
   .buffering .ring { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg) } }
-  .caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 24px 16px; text-align: center; font: italic 400 clamp(14px, 1.4vw, 18px)/1.4 var(--serif); color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9); background: linear-gradient(to top, rgba(0,0,0,.55), transparent); pointer-events: none; opacity: 0; transition: opacity .3s; }
+  .caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 24px 16px; text-align: center; font: italic 400 clamp(14px, 1.4vw, 18px)/1.4 var(--serif); color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9); background: linear-gradient(to top, rgba(0,0,0,.55), transparent); pointer-events: none; opacity: 0; transition: opacity .3s; white-space: pre-line; }
   .caption.show { opacity: 1; }
   .progress { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
@@ -63,8 +63,7 @@
   .entry .head .beat { margin-left: auto; color: var(--muted); flex: none; font-style: italic; }
   .entry.now .head .n { color: var(--accent); }
   .entry p { margin: 6px 0 0; font: 400 14px/1.5 var(--serif); color: var(--text); }
-  .entry .vo { margin-top: 6px; color: var(--muted); font: italic 13px/1.45 var(--serif); }
-  .entry .vo::before { content: "VO  "; font: 500 10px var(--sans); letter-spacing: .08em; color: var(--muted); font-style: normal; }
+  .entry .said { margin-top: 6px; color: var(--muted); font: italic 13px/1.45 var(--serif); }
   .you { margin-top: 8px; padding: 8px 10px; border-radius: 4px; background: rgba(143,183,230,.08); border-left: 2px solid var(--you); font-size: 13px; }
   .you .line { color: var(--you); }
   .you .line::before { content: "you  "; font: 500 10px var(--sans); letter-spacing: .08em; color: var(--muted); }
@@ -191,8 +190,9 @@
     $('count').textContent = 'segment ' + item.turn;
     $('scene').textContent = item.scene || '';
     const cap = $('caption');
-    cap.textContent = item.voiceover || '';
-    cap.classList.toggle('show', !!item.voiceover);
+    const said = item.dialogue || [];
+    cap.textContent = said.join('\n');
+    cap.classList.toggle('show', said.length > 0);
     if (item.url) (seam === 'overlap' ? cutTo(item) : playVideo(item)); else playText(item);
     markNow(item.turn);
     setStatus(item.url ? 'playing' : 'playing (text)', 'live');
@@ -397,12 +397,12 @@
     const p = document.createElement('p');
     p.textContent = item.narration || '';
     el.appendChild(p);
-    if (item.voiceover) {
-      const vo = document.createElement('div');
-      vo.className = 'vo';
-      vo.textContent = item.voiceover;
-      el.appendChild(vo);
-    }
+    (item.dialogue || []).forEach(line => {
+      const said = document.createElement('div');
+      said.className = 'said';
+      said.textContent = line;
+      el.appendChild(said);
+    });
     // Insert in turn order (a reconnect can deliver history out of step).
     const list = $('script');
     const after = [...list.querySelectorAll('.entry')].find(e => +e.dataset.turn > item.turn);

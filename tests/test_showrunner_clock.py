@@ -30,7 +30,7 @@ def _clip(action: str, **over) -> dict:
 
 def _beat(action: str, *, clips: int = 1, **over) -> dict:
     base = {"intent": action, "framing": "medium shot", "clips": [_clip(f"{action} ({i + 1})") for i in range(clips)],
-            "voiceover": "", "thread_ops": [], "intervention": "none", "intervention_reason": "",
+            "thread_ops": [], "intervention": "none", "intervention_reason": "",
             "scene_done": False, "needs_replan": False}
     base.update(over)
     return base
@@ -160,8 +160,7 @@ def test_stagnation_rungs_have_one_owner_each():
     Showrunner's stagnation replan fires only from 2x."""
     assert (REQUIRED_AT, SHOWRUNNER_REPLAN_AT) == (1.5, 2.0)
     engine, _, state = _engine([_beat("quiet")], showrunner_min_gap=1)
-    world = WorldModel.from_blueprint(title="t", characters=state.characters, locations=state.locations,
-                                      cast_locked=True)
+    world = WorldModel.from_story(state.story)
     engine.world = world
     quiet = BeatPlan(**_beat("quiet"))
     for seconds, required, replan in ((100, False, False), (140, True, False), (175, True, False), (185, True, True)):
@@ -188,37 +187,37 @@ def test_threads_show_their_age():
     assert all(t.status == "open" for t in world.threads)
 
 
-async def test_the_showrunner_reads_the_story_thread_guidance():
-    """ARCH-16: a blueprint may say how long its threads run; the
-    Showrunner's system prompt carries it, or says to judge by the story."""
+async def test_the_showrunner_reads_the_film_and_how_it_opens():
+    """The Showrunner's system prompt carries the film as the Director reads
+    it plus how the film opens (it writes the first card from it), the
+    truths, and the authority rule; an empty field adds no text."""
     from src.agents import showrunner as showrunner_agent
     story = Story.from_json("stories/lego-void")
-    for guidance, expected in (("", "(none given: judge each thread by the story)"),
-                               ("The mystery of the door runs the whole film.", "The mystery of the door runs the whole film.")):
-        state = StoryState.initialize(story.model_copy(update={"thread_guidance": guidance}), config_name="t")
-        seen: list[str] = []
+    seen: list[str] = []
 
-        class Capture(Stub):
-            async def generate_structured(self, messages, schema, **kw):
-                seen.append(messages[0]["content"])
-                return await super().generate_structured(messages, schema, **kw)
+    class Capture(Stub):
+        async def generate_structured(self, messages, schema, **kw):
+            seen.append(messages[0]["content"])
+            return await super().generate_structured(messages, schema, **kw)
 
-        world = WorldModel.from_blueprint(title=story.title, characters=story.characters,
-                                          locations=story.locations, cast_locked=True)
-        await showrunner_agent.run(world=world, state=state, llm=Capture([_beat("x")]),
-                                   config=Config(name="t", graph="director", llm_backend="mock", model="mock"),
-                                   reason="compaction", mode="compact")
-        assert "# Threads in this story\n\n" + expected in seen[0]
-        assert "outranks your scene card" in seen[0], "the authority rule (ARCH-01)"
+    config = Config(name="t", graph="director", llm_backend="mock", model="mock")
+    for teller in (story.storyteller, story.storyteller.model_copy(update={"temperament": ""})):
+        state = StoryState.initialize(story.model_copy(update={"storyteller": teller}), config_name="t")
+        await showrunner_agent.run(world=WorldModel.from_story(state.story), state=state, llm=Capture([_beat("x")]),
+                                   config=config, reason="compaction", mode="compact")
+    full, bare = seen
+    assert "How the film opens: He wakes in the empty white space" in full
+    assert "The question the film keeps open: Does he ever land the perfect bit?" in full
+    assert "How this storyteller takes the unexpected: Say yes" in full and "takes the unexpected" not in bare
+    assert "# What is true in this story (absolute)\n\n- This is a LEGO world" in full
+    assert "outranks your scene card" in full, "the authority rule (ARCH-01)"
 
 
 def test_notes_are_kept_only_when_they_add_something():
     """ARCH-17: props keep no notes; a note that restates the cast sheet or
     is already in a summary is not kept; a character keeps at most
     MAX_NOTES, the oldest going first."""
-    story = Story.from_json("stories/lego-void")
-    world = WorldModel.from_blueprint(title=story.title, characters=story.characters,
-                                      locations=story.locations, cast_locked=True)
+    world = WorldModel.from_story(Story.from_json("stories/lego-void"))
     from src.story.world import Entity
     world.entities["ball"] = Entity(id="ball", name="ball", kind="prop", present=True)
     world.summaries = [Summary(scope="scene", first_segment=1, last_segment=10,
@@ -230,7 +229,7 @@ def test_notes_are_kept_only_when_they_add_something():
                                   entity_notes=[EntityNote(entity=e, note=n) for e, n in pairs])
         return apply_showrunner(world, update, at_segment=world.last_compacted + 1, force_replan=False)
 
-    # Session A's bootstrap note, verbatim in shape: the reference pose plus the look.
+    # Session A's bootstrap note, verbatim in shape: the starting pose plus the look.
     restated = ("Currently standing upright in the center of the frame, arms at his sides, feet together, facing "
                 "the camera. The most default LEGO minifigure: bare yellow head with no hair piece, printed only with "
                 "the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands.")

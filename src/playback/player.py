@@ -44,8 +44,8 @@ class Playable(BaseModel):
     overlap_seconds: float = 0.0
     speech: bool = False
     user_input: str = ""
-    narration: str = ""
-    voiceover: str = ""
+    narration: str = ""              # what the camera sees: the prose the viewer reads
+    dialogue: list[str] = Field(default_factory=list)   # the clip's spoken lines, "Name: line"
     on_screen: list[str] = Field(default_factory=list)
     camera: str = ""
     intervention: str = "none"       # how the Director handled `user_input`
@@ -169,8 +169,8 @@ class TerminalPlayer(Player):
             self._proc = new_proc
         else:
             sys.stdout.write(f"\n[segment {item.turn}] {item.narration}\n")
-            if item.voiceover:
-                sys.stdout.write(f"  > {item.voiceover}\n")
+            for line in item.dialogue:
+                sys.stdout.write(f"  > {line}\n")
             sys.stdout.write("› ")
             sys.stdout.flush()
         await self._hold(item.duration)

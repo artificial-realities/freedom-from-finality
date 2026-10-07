@@ -5,8 +5,8 @@ can be compared on the same per-clip fields with the LLM out of the loop
 
 The compiler's input is the Director's `BeatPlan` and the world model as
 it stood after the clip's ops were applied. A run's `events.jsonl` knows
-which clips of which beat were emitted, their viewer line and whether
-the voiceover gate was open, but not the plan itself; Langfuse stores
+which clips of which beat were emitted and their viewer line, but not
+the plan itself; Langfuse stores
 every Director generation's output verbatim, keyed by the segment it was
 requested at. `build` joins the two into one self-contained replay file;
 `run` replays it the way the engine emits: a world from the blueprint,
@@ -23,7 +23,9 @@ changed.
         --out other.json --diff prompts.json --first 1 --count 12
 
 `--compiler` is `module:function` with `compile_clip`'s signature. The
-config gives `narration` and `max_clips_per_beat`; the story gives the narrator.
+config gives `max_clips_per_beat`; the story gives the picture. A run
+from before the narrator was removed (2026-10-06) replays without its
+voice-over lines, so `--verify` differs on the clips that had one.
 Beats without a plan (a Director failure's fallback beat, a missing
 generation) are listed in the replay file and skipped with a note.
 """
@@ -114,7 +116,6 @@ def build_replay(events: list[dict], plans_by_segment: dict[int, dict], *, story
             "segment": ev["segment"], "beat": beat, "clip_index": ev.get("clip_index", 1),
             "clip_count": ev.get("clip_count", 1), "user_input": ev.get("user_input", ""),
             "intervention": ev.get("intervention", "none"),
-            "voiceover_kept": bool(ev.get("voiceover")) or ev.get("clip_index", 1) != 1,
             "duration": ev.get("duration", 0),
         })
     return {"schema": REPLAY_SCHEMA, "session": session, "story": story, "source": source or {},
@@ -213,8 +214,6 @@ def replay(data: dict, *, compiler, config: Config, story: Story) -> list[dict]:
             else:
                 plan = BeatPlan(**entry["plan"])
                 plan.clips = plan.clips[: config.max_clips_per_beat]
-                if not clip.get("voiceover_kept", True):
-                    plan.voiceover = ""
                 plans[beat] = plan
             world.segment = seg
             if clip.get("user_input"):
@@ -233,15 +232,7 @@ def replay(data: dict, *, compiler, config: Config, story: Story) -> list[dict]:
         if index == 0 and plan.intervention == "absorbed" and clip.get("user_input"):
             world.viewer_momentum = clip["user_input"]
             world.viewer_momentum_segment = seg
-        prompt = compiler(
-            plan, index, world,
-            visual_style=story.visual_style,
-            visual_anchor=story.visual_anchor,
-            narration_mode=config.narration,
-            narrator=story.narrator,
-            opening=(seg == 1),
-            segment_no=seg,
-        )
+        prompt = compiler(plan, index, world, picture=story.picture, opening=(seg == 1), segment_no=seg)
         row.update({"prompt": prompt, "words": len(prompt.split()), "chars": len(prompt)})
         rows.append(row)
         # The engine records the clip after compiling it; the compiler reads
@@ -252,7 +243,8 @@ def replay(data: dict, *, compiler, config: Config, story: Story) -> list[dict]:
             beat=beat, beat_intent=plan.intent, clip_index=index + 1, clip_count=len(plan.clips),
             user_input=clip.get("user_input", "") or "", intervention=clip.get("intervention", "none") or "none",
             narration=emitted.action_text(), on_screen=list(emitted.on_screen), end_state=emitted.end_state,
-            voiceover=plan.voiceover if index == 0 else "", duration=float(clip.get("duration", 0) or 0),
+            dialogue=[f"{world.resolve(d.speaker).name}: {d.line}" for d in emitted.dialogue],
+            duration=float(clip.get("duration", 0) or 0),
         ))
     return rows
 

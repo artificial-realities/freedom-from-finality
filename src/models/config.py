@@ -1,7 +1,6 @@
 """Run configuration loaded from YAML.
 
-`audio_enabled` and `video_enabled` default to False so headless dev
-runs stay cheap.
+`video_enabled` defaults to False so headless dev runs stay cheap.
 """
 
 from __future__ import annotations
@@ -64,10 +63,6 @@ class Config(BaseModel):
     # passes it to the server as LTX2_AUDIO_CEILING_LUFS; the client warns
     # when the server's differs. D-03: -18 with `seam: "overlap"`.
     audio_ceiling_lufs: float | None = None
-    # The reference image the first clip is rendered from. "" → the story's
-    # `seed_image` (`stories/<story>/story.json`); set here only for a story
-    # without one.
-    i2v_seed_image: str = ""
 
     # LTX-2.5 backend (when i2v_backend == "ltxv"):
     ltxv_server_url: str = ""
@@ -115,16 +110,7 @@ class Config(BaseModel):
     i2v_replay_dir: str = ""
     i2v_replay_delay: float = 0.0
 
-    audio_enabled: bool = False
-    elevenlabs_voice_id: str = ""
-
     # ── Director engine (graph: "director") ────────────────────────
-    # How the narrator's lines are rendered: "ltx" (in the video prompt,
-    # native audio) | "tts" (ElevenLabs, mixed over the clip) | "off" (not
-    # rendered). A rendering choice only: whether the film has a narrator,
-    # how it sounds and any floor of silence between its lines are the
-    # story's (`Story.narrator`), and the Director writes the lines either way.
-    narration: str = "ltx"
     director_model: str = ""            # override `model` for the Director call
     # OpenAI processing tier for the Director call, the per-clip critical
     # path: "priority" ran gpt-4.1 at ~150 tokens/s instead of ~60 on

@@ -1,7 +1,7 @@
 """Audio check: each clip's level and the seams of the played mix, offline,
 against the audio criteria of the decision record's X-02 and review 04
 §9.1. Run it after touching the server's audio encode, the player's
-audio handling or the narration path (RUN-13).
+audio handling or how speech is compiled (RUN-13).
 
 Per clip (ffmpeg's ebur128): integrated loudness and true peak; the audio
 track shorter than the video; leading and trailing digital silence.
@@ -21,13 +21,14 @@ transition; median and p90), onset clicks (a jump at the join sample of
 -30 dBFS or more that is at least four times the signal's own sample
 steps over the next 20 ms, so a loud continuous track is not a click but
 a start from silence into one is), digital-silence holes (200 ms or longer
-below -70 dBFS; count and per minute), the narrated-to-next loudness step
-when the run's `events.jsonl` names the voiceover clips, clips above the
-ceiling and true-peak overs.
+below -70 dBFS; count and per minute), the spoken-to-next loudness step
+when the run's `events.jsonl` names the clips with speech (their
+`dialogue`, or a run's voice-over lines from before the narrator was
+removed), clips above the ceiling and true-peak overs.
 
-Not here: narration word recall and rate (ASR) and speaker identity
+Not here: speech word recall and rate (ASR) and speaker identity
 (embeddings), which need faster-whisper and Resemblyzer; they stay the
-tooling of X-01, X-13 and X-15 in the review's own environment.
+tooling of X-13 and X-15 in the review's own environment.
 
     python scripts/audio_check.py logs/live-box/video --run 20260918 \\
         --events logs/live-box/sessions/director-ltxv_live_20260918_145552/events.jsonl
@@ -70,7 +71,7 @@ CRITERIA = {
     "holes_per_minute": {"max": 0.0, "source": "review 04 §9.1 (room tone on; AUD-09 is deferred)"},
     "clips_above_ceiling": {"max": 0, "source": "review 04 §9.1 (ceiling from X-13)"},
     "true_peak_overs": {"max": 0, "source": "review 04 §9.1 (-1 dBTP)"},
-    "narrated_step_median_lu": {"max": 14.0, "source": "review 04 §9.1"},
+    "spoken_step_median_lu": {"max": 14.0, "source": "review 04 §9.1"},
 }
 TRUE_PEAK_MAX_DBTP = -1.0
 
@@ -240,22 +241,25 @@ def seam_metrics(y, transitions: list[tuple[float, float]], sr: int = SR) -> lis
 
 # ── The run ──────────────────────────────────────────────────────────
 
-def voiceovers(events_path: Path | None) -> dict[int, str]:
+def speech(events_path: Path | None) -> dict[int, str]:
+    """What was said in each clip with speech, by segment: its dialogue
+    lines' words, or (a run from before 2026-10-06) its voice-over."""
     if events_path is None:
         return {}
     out = {}
     for line in Path(events_path).read_text(encoding="utf-8").splitlines():
         if line.strip():
             rec = json.loads(line)
-            if rec.get("voiceover"):
-                out[int(rec["segment"])] = rec["voiceover"]
+            said = " ".join(d.partition(": ")[2] for d in rec.get("dialogue") or []) or rec.get("voiceover", "")
+            if said:
+                out[int(rec["segment"])] = said
     return out
 
 
 def check(clips: list[tuple[int, Path]], *, policy: str = "today", overlap_s: float = 0.375, fade_in_s: float = FADE_IN_S,
           ceiling_lufs: float = -18.0, events: Path | None = None, click_dbfs: float = CLICK_DBFS) -> dict:
     import numpy as np
-    narrated = voiceovers(events)
+    spoken = speech(events)
     per_clip, tracks = [], []
     for turn, path in clips:
         info = probe(path)
@@ -267,7 +271,7 @@ def check(clips: list[tuple[int, Path]], *, policy: str = "today", overlap_s: fl
                          "video_s": round(video_s, 4), "audio_s": round(len(x) / SR, 4),
                          "audio_short_ms": round((video_s - len(x) / SR) * 1000, 1),
                          "leading_silence_s": round(lead, 3), "trailing_silence_s": round(trail, 3),
-                         "narrated": turn in narrated, "words": len(narrated.get(turn, "").split())})
+                         "spoken": turn in spoken, "words": len(spoken.get(turn, "").split())})
         tracks.append((x, video_s))
     y, transitions = mix(tracks, policy=policy, overlap_s=overlap_s, fade_in_s=fade_in_s)
     seams = seam_metrics(y, transitions)
@@ -278,7 +282,7 @@ def check(clips: list[tuple[int, Path]], *, policy: str = "today", overlap_s: fl
     found = holes(y)
     minutes = len(y) / SR / 60.0
     by_turn = {c["turn"]: c for c in per_clip}
-    narrated_steps = [by_turn[t]["lufs"] - by_turn[t + 1]["lufs"] for t in sorted(narrated)
+    spoken_steps = [by_turn[t]["lufs"] - by_turn[t + 1]["lufs"] for t in sorted(spoken)
                       if t in by_turn and t + 1 in by_turn and np.isfinite(by_turn[t]["lufs"]) and np.isfinite(by_turn[t + 1]["lufs"])]
     metrics = {
         "clips": len(per_clip), "seams": len(seams), "policy": policy,
@@ -290,8 +294,8 @@ def check(clips: list[tuple[int, Path]], *, policy: str = "today", overlap_s: fl
         "holes_seconds": round(sum(h["seconds"] for h in found), 3),
         "clips_above_ceiling": sum(1 for c in per_clip if c["lufs"] > ceiling_lufs), "ceiling_lufs": ceiling_lufs,
         "true_peak_overs": sum(1 for c in per_clip if c["true_peak_dbtp"] > TRUE_PEAK_MAX_DBTP),
-        "narrated_clips": sum(1 for c in per_clip if c["narrated"]),
-        "narrated_step_median_lu": _pct(sorted(narrated_steps), 50) if narrated_steps else None,
+        "spoken_clips": sum(1 for c in per_clip if c["spoken"]),
+        "spoken_step_median_lu": _pct(sorted(spoken_steps), 50) if spoken_steps else None,
         "trailing_silence_clips": sum(1 for c in per_clip if c["trailing_silence_s"] >= HOLE_MIN_S),
         "audio_short_ms_median": _pct(sorted(c["audio_short_ms"] for c in per_clip), 50),
     }
@@ -326,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("clips", type=Path, help="directory of a run's clips (turn_NNNN_<run>_*.mp4)")
     ap.add_argument("--run", help="the run date in the file names, when the directory holds several")
-    ap.add_argument("--events", type=Path, default=None, help="the run's events.jsonl, for the narrated clips")
+    ap.add_argument("--events", type=Path, default=None, help="the run's events.jsonl, for the clips with speech")
     ap.add_argument("--first", type=int, default=None, help="start at this turn")
     ap.add_argument("--count", type=int, default=None, help="how many consecutive clips (default: all)")
     ap.add_argument("--policy", choices=("today", "overlap"), default="today")
@@ -363,11 +367,11 @@ def main(argv: list[str] | None = None) -> int:
               + (f" (overlap {m['overlap_s']} s)" if m["policy"] == "overlap" else f" (fade-in {m['fade_in_s']} s)"))
         print(f"  clips: {m['clips_above_ceiling']} above {m['ceiling_lufs']} LUFS, {m['true_peak_overs']} over "
               f"{TRUE_PEAK_MAX_DBTP} dBTP, {m['trailing_silence_clips']} end in ≥ {HOLE_MIN_S} s of silence, "
-              f"audio shorter than video by {m['audio_short_ms_median']} ms (median); {m['narrated_clips']} narrated")
+              f"audio shorter than video by {m['audio_short_ms_median']} ms (median); {m['spoken_clips']} with speech")
         print(f"  mix: {m['mix_minutes']} min; seam step median {m['seam_step_median_db']} dB, p90 {m['seam_step_p90_db']} dB; "
               f"clicks {m['onset_clicks']}{' at ' + str(m['clicks_at']) if m['clicks_at'] else ''}; "
               f"holes {m['holes']} ({m['holes_per_minute']} per minute, {m['holes_seconds']} s)"
-              + (f"; narrated-to-next step median {m['narrated_step_median_lu']} LU" if m["narrated_step_median_lu"] is not None else ""))
+              + (f"; spoken-to-next step median {m['spoken_step_median_lu']} LU" if m["spoken_step_median_lu"] is not None else ""))
         for row in result["criteria"]:
             value = "—" if row["value"] is None else row["value"]
             print(f"  {row['result']:<12} {row['criterion']:<26} {value} (≤ {row['threshold']}; {row['source']})")

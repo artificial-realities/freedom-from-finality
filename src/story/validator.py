@@ -3,10 +3,10 @@
 Plan → Diff → Validate → Apply. The LLM proposes, this module decides
 what is structurally admissible, applies the admissible part, and
 reports the rest so the caller can re-ask once and log the remainder.
-Hard violations (unknown entities, a character the story's cast policy
-does not allow, the protagonist removed or doubled, a perspective the
-story does not permit, a mute character speaking) are the ones worth a
-retry; warnings are fixed up silently.
+Hard violations (unknown entities, a character the story's cast does
+not allow, the protagonist removed or doubled, a perspective the story
+does not permit, a line from someone who is not a character) are the
+ones worth a retry; warnings are fixed up silently.
 
 `check` looks at the whole beat before any of it plays. `apply_clip`
 applies one clip when it is emitted, so a beat the viewer cuts short
@@ -68,7 +68,7 @@ def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, 
             r.warnings.append(f"{where}: '{op.entity}' already exists as {existing.id}; treated as update")
         elif op.kind == "character":
             cast = ", ".join(f"`{e.id}`" for e in world.by_kind("character"))
-            if not world.cast_policy.dynamic_characters:
+            if world.cast_locked:
                 r.violations.append(
                     f"{where}: cannot introduce character '{op.entity}': this story allows no characters "
                     f"beyond its cast ({cast}); bring one of them in, or make it a prop",
@@ -86,8 +86,9 @@ def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, 
                     "so it stays the same character in every later clip",
                 )
                 return
-            if op.speaks and not op.voice.strip():
-                r.warnings.append(f"{where}: new character '{op.entity}' speaks but has no `voice`")
+            if not op.voice.strip():
+                r.warnings.append(f"{where}: new character '{op.entity}' has no `voice`; it will not sound "
+                                  "the same from clip to clip")
             introduced.add(slugify(op.entity))
         else:
             introduced.add(slugify(op.entity))
@@ -128,10 +129,8 @@ def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
             _check_op(op, world, introduced, r, where)
         for line in clip.dialogue:
             speaker = world.resolve(line.speaker)
-            if speaker is None or speaker.kind != "character":
+            if (speaker is None or speaker.kind != "character") and slugify(line.speaker) not in introduced:
                 r.violations.append(f"{where}: dialogue speaker '{line.speaker}' is not a known character id")
-            elif not speaker.speaks:
-                r.violations.append(f"{where}: {speaker.name} never speaks in this world; remove the dialogue line")
         for ref in clip.on_screen:
             if world.resolve(ref) is None and slugify(ref) not in introduced:
                 r.warnings.append(f"{where}: on_screen entity '{ref}' is unknown and was dropped")
@@ -210,29 +209,26 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             name = op.entity.strip()
             if "_" in name and " " not in name:
                 name = name.replace("_", " ")  # the model sent an id-like name
+            look = " ".join(op.description.split())
             ent = Entity(
                 id=eid, name=name, kind=op.kind,
-                description=op.description.strip(),
-                look=op.description.strip() if op.kind != "location" else "",
+                description=look, look=look if op.kind != "location" else "",
                 first_seen=seg,
             )
             if ent.kind == "character":
                 # Registered once, with what keeps it the same character:
-                # its look (and a short form for later clips), role, voice,
-                # whether it speaks, and its state from this op.
+                # its look (and a short form for later clips), who it is,
+                # its voice, and its state from this op.
                 ent.dynamic = True
-                ent.look_short = _short_look(ent.look)
-                ent.role = " ".join(op.role.split())
-                ent.speaks = bool(op.speaks)
+                ent.look_short = _short_look(look)
+                ent.description = " ".join(op.who.split())
                 ent.voice = Voice(description=" ".join(op.voice.split())) if op.voice.strip() else None
             if ent.kind == "prop":
                 here = world.current_location()
                 ent.location = here.id if here else ""
             ent.present = True
             world.entities[eid] = ent
-            r.applied.append(
-                f"introduce {ent.kind} {ent.id}" + (f" ({ent.description})" if ent.description else ""),
-            )
+            r.applied.append(f"introduce {ent.kind} {ent.id}" + (f" ({look})" if look else ""))
             r.changed = True
         if ent is None:
             continue  # reported as a violation by check()
@@ -313,17 +309,17 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
 
     clip.dialogue = [
         d for d in clip.dialogue
-        if (sp := world.resolve(d.speaker)) is not None and sp.kind == "character" and sp.speaks
+        if (sp := world.resolve(d.speaker)) is not None and sp.kind == "character"
     ]
 
     # The shot (LTX-15): a cut is kept only where the story allows cuts and
-    # never on the film's first clip, which opens from the reference image.
+    # never on the film's first clip, which opens the film.
     cut = " ".join(clip.cut_to.split()).rstrip(".")
     if cut and not world.perspective.cuts:
         r.warnings.append(f"cut to '{cut}' dropped: this story is one continuous take")
         cut = ""
     elif cut and not world.events:
-        r.warnings.append(f"cut to '{cut}' dropped: the film's first clip opens from the reference image")
+        r.warnings.append(f"cut to '{cut}' dropped: the film's first clip never cuts")
         cut = ""
     elif cut and _same_shot(cut, shot_before(beat, index)):
         # The Director restating the framing in `cut_to` is not a cut.
@@ -418,14 +414,14 @@ def _significant(text: str) -> list[str]:
 def redundant_note(body: str, ent: Entity, world: WorldModel, update: ShowrunnerUpdate) -> str | None:
     """Why a Showrunner note adds nothing, or None: it is already a note,
     it is contained in a summary (the stored ones or this update's), or it
-    restates the entity's cast description (contained in it, or three
-    quarters of its words drawn from it)."""
+    restates the entity's cast description or its current state (contained
+    in them, or three quarters of its words drawn from them)."""
     note = _norm(body)
     if not note:
         return "empty"
     if any(note == _norm(n) for n in ent.notes):
         return "already noted"
-    sheet = " ".join((ent.description, ent.look, ent.look_short, ent.reference_pose))
+    sheet = " ".join((ent.description, ent.look, ent.look_short, ent.wants, ent.nature, ent.now()))
     if note in _norm(sheet):
         return "contained in the cast description"
     words = _significant(body)

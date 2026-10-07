@@ -1,8 +1,5 @@
-"""Media duration probing via ffprobe.
-
-Used for a rendered clip's real length (the player holds it that long)
-and to reject a TTS line longer than its clip (there is no spanning).
-"""
+"""Media duration probing via ffprobe: a rendered clip's real length,
+checked against its clip shape."""
 
 from __future__ import annotations
 

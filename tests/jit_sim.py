@@ -374,7 +374,6 @@ async def simulate(
         run = real.model_copy(update={
             "llm_backend": "mock", "model": "mock",
             "i2v_backend": "replay", "i2v_replay_dir": str(replay), "i2v_replay_delay": 0.0,
-            "i2v_seed_image": story.seed_image,
             "buffer_seconds": real.buffer_seconds / scale,
         })
         floors = {k: v / scale for k, v in runner._baseline_floors().items()}

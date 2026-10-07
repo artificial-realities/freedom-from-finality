@@ -21,13 +21,13 @@ from src.story.context import (
     format_cast,
     format_cast_rules,
     format_events,
+    format_film,
     format_interventions_all,
     format_locations,
     format_plan,
-    format_rules,
-    format_storyteller,
     format_summaries,
     format_threads,
+    format_truths,
     format_world_now,
 )
 from src.story.pacing import stagnation_report
@@ -75,16 +75,11 @@ async def run(
 ) -> ShowrunnerUpdate | None:
     system_prompt = load_prompt(
         SYSTEM_PATH,
-        title=state.title or world.title,
-        narrative_premise=state.narrative_premise or "(none)",
-        storyteller=format_storyteller(state.storyteller),
-        long_term_narrative=state.long_term_narrative or "(none)",
-        short_term_narrative=state.short_term_narrative or "(none)",
-        world_constraints=format_rules(state.world_constraints),
+        film=format_film(state.story, opening=True),
+        truths=format_truths(state.story.truths),
         cast=format_cast(world),
         cast_rules=format_cast_rules(world),
         locations=format_locations(world),
-        thread_guidance=state.thread_guidance.strip() or "(none given: judge each thread by the story)",
     )
     user_prompt = load_prompt(
         USER_PATH,

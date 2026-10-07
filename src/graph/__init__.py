@@ -8,7 +8,6 @@ def build_graph(
     *,
     llm,
     config,
-    tts=None,
     session_dir=None,
     timing=None,
     shapes=None,
@@ -17,6 +16,6 @@ def build_graph(
     stays so a future engine can be A/B'd the same way this one was."""
     key = graph_name.lower()
     if key == "director":
-        return build_director_engine(llm=llm, config=config, tts=tts, session_dir=session_dir,
+        return build_director_engine(llm=llm, config=config, session_dir=session_dir,
                                      timing=timing, shapes=shapes)
     raise ValueError(f"Unknown graph: {graph_name!r}")

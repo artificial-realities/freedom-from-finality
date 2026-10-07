@@ -3,7 +3,7 @@
 Reads the assembled context (plan, world, threads, viewer, summaries,
 recent clips, where the picture is, gates) and returns a `BeatPlan`:
 one action or state of the film as one to a few clips, each with its
-picture and the world changes that happen in it, plus voice-over, thread
+picture, its lines and the world changes that happen in it, plus thread
 ops, the viewer disposition and flags. The world validator checks the
 proposal; a hard violation earns exactly one re-ask with the violations
 spelled out.
@@ -25,17 +25,17 @@ from src.story.context import (
     format_cast,
     format_cast_rules,
     format_cut_rule,
+    format_film,
     format_gates,
     format_interventions,
-    format_viewer_callbacks,
     format_locations,
-    format_storyteller,
-    format_narrator,
+    format_picture,
     format_plan,
     format_recent,
-    format_rules,
     format_summaries,
     format_threads,
+    format_truths,
+    format_viewer_callbacks,
     format_world_now,
     viewer_direction_active,
 )
@@ -83,7 +83,6 @@ async def run(
     state: StoryState,
     llm: LLMBackend,
     config: Config,
-    voiceover_open: bool,
     pacing_note: str,
     scene_note: str,
     beat_status: str,
@@ -92,18 +91,16 @@ async def run(
     """Return (beat, notes, retried). `beat` is None on a parse failure;
     `retried` says the validator re-ask was made (a second LLM call).
     `clip_seconds` is the delivered length of the run's clip shape."""
+    story = state.story
     system_prompt = load_prompt(
         SYSTEM_PATH,
-        title=state.title or world.title,
-        narrative_premise=state.narrative_premise or "(none)",
-        storyteller=format_storyteller(state.storyteller),
-        world_constraints=format_rules(state.world_constraints),
-        visual_style=state.visual_style or "(none)",
+        film=format_film(story),
+        truths=format_truths(story.truths),
+        picture=format_picture(story.picture),
         cast=format_cast(world),
         cast_rules=format_cast_rules(world),
         cut_rule=format_cut_rule(world),
         locations=format_locations(world),
-        narrator=format_narrator(state.narrator, state.tone_guidelines),
         clip_seconds=seconds_label(clip_seconds),
         # Beat lengths in whole seconds from the shape and the clip cap (ARCH-10).
         beat_seconds=seconds_label(round(clip_seconds * config.max_clips_per_beat)),
@@ -122,10 +119,8 @@ async def run(
         recent=format_recent(world, config.recent_clips),
         beat_status=beat_status,
         gates=format_gates(
-            voiceover_open=voiceover_open,
             pacing=pacing_note,
             scene=scene_note,
-            narrator=state.narrator.enabled,
             answer_clips=config.answer_max_clips if (state.user_input or "").strip() else 0,
         ),
     )

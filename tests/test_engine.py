@@ -68,28 +68,27 @@ def test_engine_starts_a_fresh_world_even_if_the_session_dir_has_one():
         assert world.segment == 0 and "hat" not in world.entities and "lego_man" in world.entities
 
 
-def test_seed_image_comes_from_the_story():
-    """CLEAN-02: the story owns its reference image; the config's
-    `i2v_seed_image` is only the fallback for a story without one."""
-    from src.eval.runner import seed_image_for
+def test_the_reference_image_comes_from_the_story():
+    """CLEAN-02: the story owns its reference image; no config names one. A
+    video run of a story without one is refused before anything renders."""
+    from src.eval.runner import _check_reference
+    from src.util.timing_log import TimingLog
     story = Story.from_json("stories/lego-void")
-    assert story.seed_image.endswith("stories/lego-void/legoman-16x9.png") and Path(story.seed_image).exists()
-    assert Config(name="t", graph="director", llm_backend="mock", model="mock").i2v_seed_image == ""
-    assert seed_image_for(_config(), story) == story.seed_image
-    assert seed_image_for(_config(i2v_seed_image="elsewhere.png"), story) == story.seed_image, "the story wins"
-    bare = story.model_copy(update={"seed_image": ""})
-    assert seed_image_for(_config(i2v_seed_image="elsewhere.png"), bare) == "elsewhere.png"
-    assert seed_image_for(_config(), bare) == ""
+    assert story.reference_image.endswith("stories/lego-void/legoman-16x9.png") and Path(story.reference_image).exists()
+    assert "i2v_seed_image" not in Config.model_fields
     for cfg in ("configs/director.yaml", "configs/director.live.yaml", "configs/director.replay.yaml"):
-        loaded = Config.from_yaml(cfg)
-        assert loaded.i2v_seed_image == "", f"{cfg}: the story's image, not a config path"
-        assert loaded.ltxv_negative_prompt == "", f"{cfg}: no negative prompt (LTX-08)"
+        assert Config.from_yaml(cfg).ltxv_negative_prompt == "", f"{cfg}: no negative prompt (LTX-08)"
+    _check_reference(None, "", TimingLog(None))   # headless: no renderer, no reference needed
+    try:
+        _check_reference(object(), "", TimingLog(None))
+        raise AssertionError("a video run without a reference is refused")
+    except ValueError as exc:
+        assert "has no reference image" in str(exc)
 
 
 async def test_live_loop_renders_from_the_story_image():
-    """CLEAN-02 through the loop: with no `i2v_seed_image` in the config the
-    render backend is handed the story's seed image (main.py no longer
-    copies it into the config)."""
+    """CLEAN-02 through the loop: the render backend is handed the story's
+    reference image."""
     import subprocess
     from unittest import mock
     from src.i2v.replay import ReplayI2V
@@ -107,10 +106,9 @@ async def test_live_loop_renders_from_the_story_image():
         subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=128x80:d=1:r=24",
                         "-pix_fmt", "yuv420p", str(clips / "a.mp4")], check=True)
         config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips))
-        assert config.i2v_seed_image == ""
         with mock.patch.object(ReplayI2V, "synthesize", spy):
             await run_live(config=config, story=story, log_dir=d, player=Scripted(), max_segments=2)
-    assert seen and all(path == story.seed_image for path in seen), seen
+    assert seen and all(path == story.reference_image for path in seen), seen
 
 
 async def test_director_engine_end_to_end():
@@ -122,14 +120,14 @@ async def test_director_engine_end_to_end():
         state = await run_live(config=_config(plan_early=False), story=story, log_dir=d, player=player, max_segments=7)
 
         assert player.turns == [1, 2, 3, 4, 5, 6, 7]
-        assert len(state.history) == 7, "every clip produced beat + shot + commentary"
+        assert len(state.history) == 7, "every clip produced beat + shot"
         inputs = [h.user_input for h in state.history]
         # A line spoken while clip k plays reaches the plan for k+2: clip k+1
         # was already emitted (and, with video, rendering) when it arrived.
         assert inputs == ["", "", "A soccer ball appears at your feet.", "", "", "Do a trick with it.", ""], inputs
-        assert state.history[0].commentary.voiceover == "From the stillness, he stirs."
-        assert state.history[1].commentary.voiceover == "", "the line plays over the beat's first clip only"
-        assert "voice-over (English" in state.history[0].shot.i2v_prompt, "ltx narration folded into the prompt"
+        assert ('Lego Man says in a quiet, earnest, slightly formal, a little breathless voice, in English, "Hello? Anyone?"'
+                in state.history[0].shot.i2v_prompt), "the line is compiled into its clip, in the character's voice"
+        assert "says" not in state.history[1].shot.i2v_prompt, "clip 2 of the beat is silent"
         assert state.history[0].beat.narration.startswith("Lego Man performs action 1."), "the clip's action is the prose"
         assert state.history[1].beat.narration == "He holds still. Nothing else happens.", "clip 2 of the beat, no LLM call"
 
@@ -138,7 +136,8 @@ async def test_director_engine_end_to_end():
         world = WorldModel.load(session_dir)
         assert len(world.events) == 7
         assert [(e.beat, e.clip_index, e.clip_count) for e in world.events[:3]] == [(1, 1, 2), (1, 2, 2), (2, 1, 1)]
-        assert "soccer_ball" in world.entities and "lego_woman" not in world.entities
+        assert world.events[0].dialogue == ["Lego Man: Hello? Anyone?"] and world.events[1].dialogue == []
+        assert "soccer_ball" in world.entities and "lego_man_2" not in world.entities
         ball = world.entities["soccer_ball"]
         assert ball.status == "rolled out of frame" and not ball.present and ball.holder == ""
         assert world.threads[0].status == "paid_off"
@@ -157,7 +156,7 @@ async def test_director_engine_end_to_end():
         assert "- Now: standing; looking around; centre frame" in transcript
         assert "Showrunner spawned: scene_done" in transcript
         assert "showrunner (bootstrap" in transcript and "scene 1 card" in transcript
-        assert "**World**" in transcript
+        assert "**World**" in transcript and "**Dialogue**\n\n> Lego Man: Hello? Anyone?" in transcript
 
 
 async def test_viewer_line_cuts_a_beat_short():

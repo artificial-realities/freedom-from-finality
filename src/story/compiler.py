@@ -6,10 +6,11 @@ action, dialogue in quotes and the image the clip ends on. Every clip
 continues the previous one, so the prompt describes the next few seconds
 of motion, not the picture the conditioning frames already carry: the
 full visual style and the full look of a character go only on the
-opening clip of the run; an entity's description goes on the clip in
-which it enters the picture (introduced, or back after an absence), and
-an entering entity is never listed as already on screen, because the
-conditioning frames do not have it. Later clips carry the blueprint's
+opening clip of the run, which opens on what the reference image shows;
+an entity's description goes on the clip in which it enters the picture
+(introduced, back after an absence, or on the opening clip without being
+in the reference image), and an entering entity is never listed as
+already on screen, because the conditioning frames do not have it. Later clips carry the blueprint's
 short visual anchor and each character's short look, which hold framing
 and identity over long chains. A clip that cuts (LTX-15, where the story
 allows it) opens on the shot the picture is in and says "The view cuts to
@@ -20,7 +21,7 @@ changes; the schemas do not.
 
 from __future__ import annotations
 
-from src.models.story import Narrator, Voice, perspective_key
+from src.models.story import Picture, Voice, perspective_key
 from src.story.schemas import BeatPlan
 from src.story.world import Entity, WorldModel
 
@@ -137,17 +138,6 @@ def speech(name: str, line: str, *, delivery: str = "", voice: Voice | None = No
     return f'{lead}, "{text}"'
 
 
-def narration(line: str, narrator: Narrator) -> str:
-    """The narrator's line, spoken over the beat's first clip, described
-    from the story's narrator: its language, voice and accent, as the
-    blueprint gives them; nothing is assumed."""
-    voice = narrator.voice
-    bits = [voice.language.strip(), _voice_words(voice.description), voice.accent.strip().rstrip(".")]
-    hint = ", ".join(b for b in bits if b)
-    text = " ".join(line.split()).replace('"', "'")
-    return f'A narrator\'s voice-over{f" ({hint})" if hint else ""} says: "{text}"'
-
-
 DESCRIBED_IN_FULL = 6   # entities described with a look; the rest by name only
 
 
@@ -177,10 +167,12 @@ def previous_picture(world: WorldModel, segment_no: int) -> set[str] | None:
     """The entities in the picture at the end of the previous clip: that
     clip's `on_screen` plus whatever entered during it (introduced then),
     so an entity described as entering once is not described as entering
-    again on the next clip. None when the previous clip is not on record
-    (the first clip of a run, or a replay with a gap)."""
+    again on the next clip. Before the film's first clip it is what the
+    reference image shows. None when the picture before is not known (a
+    run without a reference, or a replay with a gap)."""
     if not world.events:
-        return None
+        first = segment_no <= 1 and world.opening_picture is not None
+        return set(world.opening_picture) if first else None
     prev = world.events[-1]
     if prev.segment != segment_no - 1:
         return None
@@ -194,16 +186,14 @@ def compile_clip(
     index: int,
     world: WorldModel,
     *,
-    visual_style: str,
-    visual_anchor: str = "",
-    narration_mode: str,
-    narrator: Narrator | None = None,
+    picture: Picture,
     opening: bool = False,
     segment_no: int = 0,
 ) -> str:
     """The prompt for clip `index` of `beat`. `opening` marks the first
     clip of a run: the renderer seeds it from the reference image, so it
-    carries the full style, the full looks and the reference pose.
+    carries the full style and the full looks, and opens on what the
+    reference shows.
     `segment_no` is the clip's segment: an entity introduced in it, or
     on screen now but not in the previous clip's picture (read from the
     world's event log), enters during this clip and is described then."""
@@ -267,11 +257,9 @@ def compile_clip(
     # The first clip starts from the reference image, so it must open from
     # what that image shows; a pose mismatch in the first frames is what
     # drags the picture off the sheet (2026-09-08 sweep).
-    if opening:
-        for ent in staying:
-            if ent.reference_pose:
-                parts.append(f"The shot opens with {ent.name} {ent.reference_pose.strip().rstrip('.')}, then the action begins.")
-                break
+    shows = " ".join(picture.reference.shows.split()).rstrip(".") if picture.reference else ""
+    if opening and shows:
+        parts.append(f"The shot opens with {shows}, then the action begins.")
     if cut:
         parts.append(_sentence(f"The view cuts to {_with_article(cut)}; {camera_clause(clip.camera_motion)}"))
     if entering:
@@ -285,13 +273,8 @@ def compile_clip(
                             voice=speaker.voice if speaker is not None else None))
     if clip.end_state.strip():
         parts.append("Final frame: " + _tail(clip.end_state))
-    paragraphs = [" ".join(p for p in parts if p)]
-
-    if index == 0 and beat.voiceover.strip() and narration_mode == "ltx":
-        paragraphs.append(narration(beat.voiceover, narrator or Narrator()))
-
     if opening:
-        style = " ".join(visual_style.split())
+        style = " ".join(picture.style.split())
     else:
-        style = " ".join(visual_anchor.split()) or _first_sentence(visual_style)
-    return ((style + " " if style else "") + " ".join(paragraphs)).strip()
+        style = " ".join(picture.anchor.split()) or _first_sentence(picture.style)
+    return " ".join(p for p in [style, *parts] if p)

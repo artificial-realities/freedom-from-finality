@@ -8,7 +8,7 @@ film's first clip never cuts."""
 
 from __future__ import annotations
 
-from src.models.story import Story
+from src.models.story import Picture, Story
 from src.story.compiler import compile_clip
 from src.story.context import format_cut_rule
 from src.story.schemas import BeatPlan, ClipSpec
@@ -39,7 +39,7 @@ def _cut_beat() -> BeatPlan:
 
 
 def _compile(beat: BeatPlan, index: int, world: WorldModel) -> str:
-    return compile_clip(beat, index, world, visual_style="Style.", visual_anchor="Anchor.", narration_mode="none")
+    return compile_clip(beat, index, world, picture=Picture(style="Style.", anchor="Anchor."))
 
 
 def test_a_cut_opens_on_the_shot_and_the_clips_after_it_continue_the_new_one():
@@ -122,7 +122,7 @@ class SystemRecording(Recording):
 
 async def _film(cuts: bool) -> tuple[SystemRecording, list[str], list[str]]:
     engine, _, state = _engine([])
-    state.perspective.cuts = cuts
+    state.story.picture.perspective.cuts = cuts
     stub = SystemRecording([
         _beat("wake"),
         {**_beat("notice"), "clips": [_clip("He looks down."), _clip("His hand closes around it.", cut_to=BALL)]},

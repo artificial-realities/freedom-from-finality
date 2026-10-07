@@ -164,12 +164,12 @@ def test_plans_from_a_langfuse_export():
     ]}
     plans = replayer.plans_from_langfuse(export)
     assert sorted(plans) == [1, 6] and plans[1]["intent"] == "second try" and plans[6]["intent"] == "third"
-    events = [{"segment": 1, "beat": 1, "clip_index": 1, "clip_count": 1, "voiceover": "", "beat_intent": "second try"},
-              {"segment": 2, "beat": 2, "clip_index": 1, "clip_count": 1, "voiceover": "x", "beat_intent": "gone"},
-              {"segment": 3, "beat": 2, "clip_index": 2, "clip_count": 2, "voiceover": ""}]
+    events = [{"segment": 1, "beat": 1, "clip_index": 1, "clip_count": 1, "beat_intent": "second try"},
+              {"segment": 2, "beat": 2, "clip_index": 1, "clip_count": 1, "beat_intent": "gone"},
+              {"segment": 3, "beat": 2, "clip_index": 2, "clip_count": 2}]
     data = replayer.build_replay(events, plans, story="stories/lego-void", session="s")
     assert list(data["beats"]) == ["1"] and data["missing_beats"] == [{"beat": 2, "segment": 2, "intent": "gone"}]
-    assert [c["voiceover_kept"] for c in data["clips"]] == [False, True, True]
+    assert [c["clip_index"] for c in data["clips"]] == [1, 1, 2]
 
 
 # ── The warm probe ───────────────────────────────────────────────────

@@ -26,7 +26,9 @@ class EntityOp(BaseModel):
 
     `entity` is an existing entity id for `update`/`remove`, or the name
     of a new thing for `introduce`. Empty strings mean "unchanged".
-    `description` (introduce only) is how the new thing looks.
+    `description` (introduce only) is how the new thing looks; a new
+    character also says `who` it is in the story and how its `voice`
+    sounds, so it is registered once and stays the same.
     `holder` takes a character id, or the literal `nobody`. `posture`,
     `activity` and `position` are a character's state at the end of the
     clip; `status` is a prop's.
@@ -36,11 +38,7 @@ class EntityOp(BaseModel):
     entity: str
     kind: EntityKind = "prop"
     description: str = ""
-    # Introducing a character the blueprint does not have (when the story
-    # allows it): its role in the story, whether it speaks and how it
-    # sounds, so it is registered once and stays the same.
-    role: str = ""
-    speaks: bool | None = None
+    who: str = ""
     voice: str = ""
     status: str = ""
     location: str = ""
@@ -101,7 +99,6 @@ class BeatPlan(BaseModel):
     intent: str
     framing: str
     clips: list[ClipSpec]
-    voiceover: str = ""
     thread_ops: list[ThreadOp] = Field(default_factory=list)
     intervention: Literal["none", "absorbed", "deferred", "declined"] = "none"
     intervention_reason: str = ""

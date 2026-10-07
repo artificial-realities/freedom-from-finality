@@ -8,8 +8,8 @@ The actual capture of prompts/completions/tokens/latency happens via the
 `langfuse.openai` drop-in wrapper in `src/llm/openai_backend.py`. This
 module adds the surrounding structure: a per-turn span that groups the
 agent generations, trace I/O so the Sessions view shows the user_input
-and the resulting voiceover, plus discrete events for non-LLM things
-(pacing holds, i2v render outcomes, TTS calls, playback transitions).
+and the resulting clip (its action and lines), plus discrete events for
+non-LLM things (i2v render outcomes, playback transitions).
 """
 
 from __future__ import annotations
@@ -101,8 +101,8 @@ def event(
 ) -> None:
     """Emit a discrete event on the current trace.
 
-    For non-LLM things the openai wrapper doesn't already capture: pacing
-    holds, i2v render outcomes, TTS calls, playback transitions. When
+    For non-LLM things the openai wrapper doesn't already capture: i2v
+    render outcomes and playback transitions. When
     called outside an active span, the event still attaches to the
     current trace context if one exists; otherwise it's silently dropped.
     """

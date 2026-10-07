@@ -3,7 +3,7 @@
 Adapters wrap a hosted or local i2v service; the runtime sees a single
 `synthesize` call that takes a seed image + a text prompt and returns
 the path to the rendered MP4 (or None on failure — i2v always fails
-soft, the way TTS does).
+soft).
 """
 
 from __future__ import annotations

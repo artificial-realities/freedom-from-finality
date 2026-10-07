@@ -21,9 +21,6 @@ i2v_backend: "replay"
 i2v_replay_dir: "logs/video"
 i2v_replay_delay: 3.0
 
-narration: "ltx"
-audio_enabled: false
-
 recent_clips: 6
 max_clips_per_beat: 4
 scene_seconds: 240

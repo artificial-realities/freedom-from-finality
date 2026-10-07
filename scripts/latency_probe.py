@@ -60,13 +60,12 @@ RENDER_TIMEOUT_S = 900
 
 def builtin_prompts(story: Story) -> list[str]:
     """The fixed pair: a kick from the reference, then a shrug that continues."""
-    ch = story.characters[0]
-    look = ch.look
-    pose = ch.reference_pose.strip().rstrip(".")
-    style = " ".join(story.visual_style.split())
-    name = ch.name
+    ch = story.protagonist_character()
+    name, look = ch.name, ch.look
+    shows = " ".join(story.picture.reference.shows.split()).rstrip(".") if story.picture.reference else name
+    style = " ".join(story.picture.style.split())
     kick = (f"{style} Medium shot, straight-on, eye level, static camera. On screen: {name} ({look}). "
-            f"The shot opens with {name} {pose}, then the action begins. A black-and-white soccer ball rolls in "
+            f"The shot opens with {shows}, then the action begins. A black-and-white soccer ball rolls in "
             f"from the left and stops at his feet. {name} kicks the ball; it rolls out of frame to the right. He watches "
             f"it go, then returns to standing with his arms at his sides. Final frame: {name} standing upright, facing "
             "the camera, arms at his sides.")
@@ -184,13 +183,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--tolerance", type=float, default=0.03, help="allowed rise over the baseline's ratios")
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--story", default="stories/lego-void")
-    ap.add_argument("--reference", default=None, help="reference image (default: the story's seed image)")
+    ap.add_argument("--reference", default=None, help="reference image (default: the story's)")
     ap.add_argument("--config", type=Path, default=LIVE_CONFIG, help="the live config: continuity frames, negative prompt")
     ap.add_argument("--out", default="logs/probe")
     args = ap.parse_args(argv)
 
     story = Story.from_json(args.story)
-    reference = args.reference or story.seed_image
+    reference = args.reference or story.reference_image
     if not reference:
         print("no reference image: pass --reference", file=sys.stderr)
         return 2

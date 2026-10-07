@@ -112,9 +112,6 @@ def test_the_window_is_the_default_and_named_values_only():
 async def test_the_director_hears_of_a_reseed():
     """When the picture was re-seeded from the reference anyway, the next
     plan's picture section says so, once."""
-    from src.graph.director_engine import DirectorEngine
-    from src.state.story_state import StoryState
-    from src.models.story import Story
     from tests.test_story_authority import Recording
     from tests.test_showrunner_clock import _beat, _engine
     engine, _, state = _engine([])
@@ -132,4 +129,5 @@ async def test_the_director_hears_of_a_reseed():
             await engine.plan(state)
         await engine.emit(state)
     said = [p for p in stub.director_prompts if "re-seeded from the reference image" in p]
-    assert len(said) == 1 and "At segment 2" in said[0] and "Lego Man is back in the reference pose" in said[0]
+    assert len(said) == 1 and "At segment 2" in said[0] and "which shows Lego Man standing upright" in said[0]
+    assert "Nothing from before is in the picture" in said[0]
