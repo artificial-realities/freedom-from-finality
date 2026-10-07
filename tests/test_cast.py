@@ -101,7 +101,7 @@ def test_a_newcomer_is_registered_once_and_stays_the_same():
     assert ent.now() == "standing on his peg leg; squinting at the horizon; frame right"
     prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=12)
     assert "Entering the picture during this clip: pirate captain (a LEGO pirate captain minifigure" in prompt
-    assert 'pirate captain says in a gravelly, booming voice, "Ahoy!"' in prompt
+    assert 'Pirate captain says in a gravelly, booming voice, "Ahoy!"' in prompt, "the speaker opens a sentence"
     later = _beat(on_screen=("lego_man", "pirate_captain"))
     apply_clip(later, 0, w, segment_no=13)
     prompt = compile_clip(later, 0, w, picture=PLAIN, segment_no=13)
@@ -147,9 +147,9 @@ def test_voices_are_the_storys():
         DialogueLine(speaker="spaceman", line='Contact at "two" o\'clock.', delivery="urgent"),
         DialogueLine(speaker="lego_man", line="Where?")])
     prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=0)
-    assert ("Spaceman says in a urgent, crisp voice, in Norwegian with a soft Bergen accent, "
+    assert ("Spaceman says in an urgent, crisp voice, in Norwegian with a soft Bergen accent, "
             "\"Contact at 'two' o'clock.\"") in prompt, prompt
-    assert 'Lego Man says in a earnest, slightly formal, a little breathless voice, in English, "Where?"' in prompt
+    assert 'Lego Man says in an earnest, slightly formal, a little breathless voice, in English, "Where?"' in prompt
     assert speech("Ola", "Hei.", voice=Voice(delivery="calm")) == 'Ola says in a calm voice, "Hei."'
     assert speech("Ola", "Hei.") == 'Ola says, "Hei."'
     assert Story(title="t", premise="p", cast={"characters": [{"name": "Ola", "voice": "bright"}]}) \

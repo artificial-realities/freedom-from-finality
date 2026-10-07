@@ -190,7 +190,7 @@ def test_compiler_opening_clip_carries_style_look_and_reference():
     assert "The shot opens with Lego Man standing upright in a wide product shot" in prompt
     assert "A faint plastic rattle." in prompt and "Medium shot; the camera remains static." in prompt
     assert "Entering the picture" not in prompt, "the reference image already shows the character"
-    assert 'Lego Man says in a earnest, slightly formal, a little breathless voice, in English, "Hello?"' in prompt
+    assert 'Lego Man says in an earnest, slightly formal, a little breathless voice, in English, "Hello?"' in prompt
     assert "Final frame: Lego Man mid-wave." in prompt
 
 

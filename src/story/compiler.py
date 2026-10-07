@@ -130,7 +130,7 @@ def speech(name: str, line: str, *, delivery: str = "", voice: Voice | None = No
     if voice is not None and voice.description.strip():
         words.append(_voice_words(voice.description))
     how = ", ".join(w for w in words if w)
-    lead = f"{name} says" + (f" in a {how} voice" if how else "")
+    lead = f"{name[:1].upper()}{name[1:]} says" + (f" in {'an' if how[:1].lower() in 'aeiou' else 'a'} {how} voice" if how else "")
     tongue = _language(voice)
     if tongue:
         lead += f", {tongue}"
