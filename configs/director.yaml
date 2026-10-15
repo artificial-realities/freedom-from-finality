@@ -3,8 +3,10 @@ description: "Director engine, headless: one Director call per segment, Showrunn
 graph: "director"
 llm_backend: "openai"
 model: "gpt-4.1"
-# The Director as in the live config (RUN-16); the Showrunner keeps `model`.
-director_model: "gpt-5.4-mini"
+# The Director as in the live config (RUN-16).
+director_model: "gpt-5.6-luna"
+showrunner_model: "gpt-5.6-luna"
+showrunner_reasoning_effort: "none"
 director_reasoning_effort: "none"
 temperature: 0.7
 max_tokens_per_agent: 1024

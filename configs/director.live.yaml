@@ -3,15 +3,16 @@ description: "Director engine with LTX-2.5 video: Director â†’ compiled prompt â
 graph: "director"
 llm_backend: "openai"
 model: "gpt-4.1"
-# The Director call is the per-clip critical path. OpenAI's priority tier ran
-# gpt-4.1 at ~150 tokens/s instead of ~60 on 2026-09-17 (2.1 s instead of
-# 5.8 s per segment, same output) at a higher per-token price.
-director_service_tier: "priority"
-# RUN-16 (D-14, BATCH_036-037): the Director is gpt-5.4-mini at no reasoning
-# (the Showrunner keeps `model`). Against gpt-4.1 it answered lines 1.7 s
-# sooner live (2.96 s mean, 3.67 max), wrote longer beats (a third fewer
-# calls), and led every story-authority reading headless.
-director_model: "gpt-5.4-mini"
+# The Director call is the per-clip critical path. With luna at standard
+# tier, priority is not needed (luna's output is shorter than gpt-5.4-mini's).
+director_service_tier: ""
+# Both roles are gpt-5.6-luna at no reasoning. Luna beat gpt-5.4-mini as
+# Director under both judges (win share 0.62/0.55) and produced the best
+# films (0.75 vs control); as Showrunner it won 22/22 vs gpt-4.1.
+# Cost: $0.50/film-hour (was $3.88 with gpt-5.4-mini priority + gpt-4.1).
+director_model: "gpt-5.6-luna"
+showrunner_model: "gpt-5.6-luna"
+showrunner_reasoning_effort: "none"
 director_reasoning_effort: "none"
 temperature: 0.7
 max_tokens_per_agent: 1024

@@ -121,6 +121,7 @@ class Config(BaseModel):
     # its effort, "none" for the fastest; "" for a chat model (gpt-4.1).
     director_reasoning_effort: str = ""
     showrunner_model: str = ""          # override `model` for the Showrunner call
+    showrunner_reasoning_effort: str = ""
     max_tokens_director: int = 2048
     max_tokens_showrunner: int = 2048
     recent_clips: int = 6               # verbatim recent clips in the Director prompt

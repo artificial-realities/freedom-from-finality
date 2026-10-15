@@ -47,3 +47,11 @@ report/
 
 # Personal command cheat sheet
 COMMANDS.md
+
+# LLM evaluation (2026-10): harness, results, research docs, prompt file
+# The implementation changes are committed; this data can be added later.
+benchmarks/llm/
+scripts/llmbench/
+docs/research/
+tests/test_llmbench.py
+LLM_evaluation.md

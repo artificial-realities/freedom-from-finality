@@ -101,8 +101,10 @@ def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, 
         )
     if op.holder and op.holder.strip().lower() != "nobody":
         holder = world.resolve(op.holder)
-        if holder is None or holder.kind != "character":
-            r.violations.append(f"{where}: holder '{op.holder}' is not a known character id")
+        if holder is None:
+            r.violations.append(f"{where}: holder '{op.holder}' is not a known entity")
+        elif holder.kind != "character":
+            r.warnings.append(f"{where}: holder '{op.holder}' is not a character; holder unchanged")
         elif existing is not None and existing.kind == "character":
             r.warnings.append(f"{where}: a character cannot be held; holder on {existing.id} ignored")
     if op.location:
@@ -341,7 +343,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 thread = Thread(id=world.new_thread_id(), text=text, kind=top.kind, opened_at=seg)
                 world.threads.append(thread)
                 r.applied.append(f"thread {thread.id} opened: {thread.text}")
-                r.changed = True
             else:
                 thread = next((t for t in world.threads if t.id == top.thread and t.status == "open"), None)
                 if thread is None:

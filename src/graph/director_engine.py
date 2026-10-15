@@ -90,8 +90,9 @@ class DirectorEngine:
             if (config.director_model or config.director_service_tier or config.director_reasoning_effort) else llm
         )
         self.llm_showrunner = (
-            build_backend(config.llm_backend, config.showrunner_model)
-            if config.showrunner_model else llm
+            build_backend(config.llm_backend, config.showrunner_model or config.model,
+                          reasoning_effort=config.showrunner_reasoning_effort)
+            if (config.showrunner_model or config.showrunner_reasoning_effort) else llm
         )
         self._showrunner_task: asyncio.Task | None = None
         # (at_segment, force_replan, reason, triggered_at): `triggered_at` is the
