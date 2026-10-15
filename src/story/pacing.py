@@ -66,15 +66,15 @@ def pacing_note(world: WorldModel, config: Config) -> str:
         return (
             f"{quiet:.0f} s of film since anything in the world changed.{suffix} Land a concrete "
             "development in this beat or the next: introduce a new prop, reveal "
-            "something, change who holds what, pay off a thread — anything that "
-            "moves the world, not just the character's posture."
+            "something, bring someone in or send something away, pay off a thread — "
+            "anything that moves the world, not just a pose or who holds what."
         )
     if looping:
         return (
             f"The last clips repeat nearly the same action (similarity {rep:.0%}). "
-            "Break the loop: introduce a new prop, reveal something, change who "
-            "holds what, pay off a thread — anything that changes the situation, "
-            "not just the character's posture or phrasing."
+            "Break the loop: introduce a new prop, reveal something, bring someone "
+            "in or send something away, pay off a thread — anything that changes the "
+            "situation, not just a pose, who holds what, or the phrasing."
         )
     return "The story is moving; no pacing pressure. A quiet beat is fine."
 

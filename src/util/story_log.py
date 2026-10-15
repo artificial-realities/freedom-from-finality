@@ -135,11 +135,8 @@ class StoryLogger:
             out.append("\n")
 
         out.append("**Memory**\n\n")
-        inventory = world_state.get("inventory")
         location = world_state.get("protagonist_location")
         characters = world_state.get("characters")
-        if inventory is not None:
-            out.append(f"- Inventory: {inventory if inventory else '_(empty)_'}\n")
         if location:
             out.append(f"- Location: {location}\n")
         if characters:

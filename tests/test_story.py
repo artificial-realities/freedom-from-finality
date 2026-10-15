@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from src.models.config import Config
-from src.models.story import Picture, Story
+from src.models.story import Character, Picture, Story
 from src.story.compiler import compile_clip
 from src.story.pacing import pacing_note, scene_note
 from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThreadOp
@@ -54,19 +54,23 @@ def test_world_from_blueprint():
     hero, spaceman = w.entities["lego_man"], w.entities["spaceman"]
     assert hero.present is True and hero.location == "the_white_void"
     assert hero.description.startswith("The most default minifigure") and hero.wants == "Something to do, and to get it right."
-    assert hero.voice.description.startswith("earnest") and hero.now() == "standing upright, arms at his sides; centre frame"
+    assert hero.voice.description.startswith("earnest") and hero.state == "standing upright centre frame, arms at his sides"
     assert hero.look_short.startswith("the same plain LEGO minifigure"), "the blueprint's short look carries over"
     assert not spaceman.present and spaceman.appears == "must" and spaceman.location == ""
     assert w.opening_picture == ["lego_man"], "the reference image shows Lego Man, not the Spaceman"
     assert w.current_location().id == "the_white_void"
     assert w.resolve("Lego Man") is hero and w.resolve("lego man") is hero
+    # A blueprint from before `state` gave the starting state in three fields.
+    old = Character(name="Mara", posture="sitting", activity="watching the sea", position="frame left")
+    assert old.state == "sitting; watching the sea; frame left"
+    assert Character(name="Mara", state="kneeling", posture="sitting").state == "kneeling"
 
 
 def test_validator_introduce_update_remove_and_character_state():
     w = _world()
     beat = _beat(clips=[_clip(on_screen=["lego_man", "soccer ball"], entity_ops=[
-        EntityOp(op="introduce", entity="soccer ball", description="a studded LEGO ball", status="at his feet"),
-        EntityOp(op="update", entity="lego_man", kind="character", posture="crouching", activity="eyeing the ball", position="centre frame"),
+        EntityOp(op="introduce", entity="soccer ball", description="a studded LEGO ball", state="at his feet"),
+        EntityOp(op="update", entity="lego_man", kind="character", state="crouching centre frame, eyeing the ball"),
     ])])
     r = _apply(beat, w, 2)
     assert not r.violations and r.changed
@@ -74,27 +78,27 @@ def test_validator_introduce_update_remove_and_character_state():
     assert ball.present and ball.location == "the_white_void" and ball.first_seen == 2
     assert beat.clips[0].on_screen == ["lego_man", "soccer_ball"], "references normalised to ids"
     hero = w.entities["lego_man"]
-    assert hero.now() == "crouching; eyeing the ball; centre frame"
+    assert ball.state == "at his feet" and hero.state == "crouching centre frame, eyeing the ball"
     assert w.last_change == 2
 
-    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="soccer_ball", holder="lego_man")])])
+    # Who holds a prop is its state, in prose: replaced whole, and not a
+    # structural change (a hand-off does not hold off the pacing clock).
+    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="soccer_ball", state="in Lego Man's hands"),
+                                          EntityOp(op="update", entity="lego_man", kind="character", state="standing")])])
     r = _apply(beat, w, 3)
-    assert ball.holder == "lego_man" and w.held_props()[0] is ball and w.last_change == 3
+    assert ball.state == "in Lego Man's hands" and hero.state == "standing" and not r.warnings
+    assert not r.changed and w.last_change == 2
+    assert r.applied == ["update soccer_ball: state=in Lego Man's hands", "update lego_man: state=standing"]
 
-    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="lego_man", kind="character", holder="lego_man", posture="standing")])])
-    r = _apply(beat, w, 4)
-    assert hero.holder == "" and hero.posture == "standing", "a character is never held; the posture still lands"
-    assert any("cannot be held" in x or "holder on character" in x for x in r.warnings)
+    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="soccer_ball", state="dropped", present=False)])])
+    r = _apply(beat, w, 5)
+    assert ball.state == "dropped" and not ball.present and ball in w.dormant_props() and r.changed
 
-    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="soccer_ball", holder="nobody", present=False)])])
-    _apply(beat, w, 5)
-    assert ball.holder == "" and not ball.present and ball in w.dormant_props()
-
-    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="remove", entity="soccer_ball", status="disassembled")])])
+    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="remove", entity="soccer_ball", state="disassembled")])])
     _apply(beat, w, 6)
-    assert ball.gone and ball not in w.dormant_props() and ball in w.gone_props()
+    assert ball.gone and ball.state == "disassembled" and ball not in w.dormant_props() and ball in w.gone_props()
 
-    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="ghost", status="x")])])
+    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="ghost", state="x")])])
     r = check(beat, w)
     assert any("unknown entity" in v for v in r.violations)
 
@@ -111,8 +115,8 @@ def test_validator_checks_every_clip_and_caps_them():
     w = _world()
     beat = _beat(clips=[
         _clip(entity_ops=[EntityOp(op="introduce", entity="hat", description="a red cap")]),
-        _clip(entity_ops=[EntityOp(op="update", entity="hat", holder="lego_man")]),  # introduced in clip 1: fine
-        _clip(entity_ops=[EntityOp(op="update", entity="nothing", status="x")]),
+        _clip(entity_ops=[EntityOp(op="update", entity="hat", state="on Lego Man's head")]),  # introduced in clip 1: fine
+        _clip(entity_ops=[EntityOp(op="update", entity="nothing", state="x")]),
     ])
     r = check(beat, w, max_clips=4)
     assert len(r.violations) == 1 and r.violations[0].startswith("clip 3")
@@ -248,20 +252,20 @@ def test_context_shows_character_state_and_keeps_notes_out_of_the_cast():
     hero = w.entities["lego_man"]
     hero.notes.append("He is proud of the kick.")
     _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="lego_man", kind="character",
-                                                   posture="lying on his back", activity="asleep", position="centre frame")])]), w, 1)
+                                                   state="lying on his back centre frame, asleep")])]), w, 1)
     text = format_world_now(w)
-    assert "now: lying on his back; asleep; centre frame" in text
+    assert "now: lying on his back centre frame, asleep" in text
     assert "notes: He is proud of the kick." in text
     assert "He is proud" not in format_cast(w), "notes live in the user prompt so the system prompt stays cacheable"
     for i in range(20):
-        _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity=f"prop {i}", description="x" * 300, status="s" * 300)])]), w, i + 2)
+        _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity=f"prop {i}", description="x" * 300, state="s" * 300)])]), w, i + 2)
     text = format_world_now(w)
     assert text.count("\n- ") == PRESENT_IN_FULL, "the character plus the most recent props get full lines"
     assert "Also present (seen less recently)" in text
-    assert "…" in text, "long status strings are clipped"
+    assert "…" in text, "long state strings are clipped"
     assert "looks:" not in text and "xxxx" not in text, \
         "a prop's look is the compiler's business, not the Director's (CLEAN-07)"
-    assert "status: sss" in text, "the status still shows"
+    assert "now: sss" in text, "a prop's state still shows"
     w.events.append(EventRecord(segment=1, scene_id=1, beat=1, beat_intent="he sleeps", clip_index=2, clip_count=3,
                                 narration="He lies still.", end_state="asleep", duration=6))
     recent = format_recent(w, 4)
@@ -415,7 +419,7 @@ def test_compiler_describes_entering_and_returning_entities():
     assert "Entering" not in p3 and "(a studded LEGO ball)" not in p3
     # Introduced by an op but not listed (the crown at segment 53): described anyway.
     crown = _beat(clips=[_clip(action="The crown pops off with a click. He holds it up.", on_screen=["lego_man"],
-                               entity_ops=[EntityOp(op="introduce", entity="princess crown", description="a bright, blocky LEGO crown", holder="lego_man")])])
+                               entity_ops=[EntityOp(op="introduce", entity="princess crown", description="a bright, blocky LEGO crown", state="in Lego Man's hand")])])
     p4 = _emit(crown, w, 4)
     assert "Entering the picture during this clip: princess crown (a bright, blocky LEGO crown). The crown pops off" in p4
     assert "On screen: Lego Man (the same plain" in p4 and "soccer ball" not in p4, "not listed this clip: not in the picture"

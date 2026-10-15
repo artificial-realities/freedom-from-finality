@@ -87,7 +87,7 @@ def test_a_newcomer_is_registered_once_and_stays_the_same():
     pirate = EntityOp(op="introduce", entity="pirate captain", kind="character",
                       description="a LEGO pirate captain minifigure in a black tricorn hat and red coat; a peg leg",
                       who="a castaway who thinks the void is a becalmed sea", voice="gravelly, booming",
-                      posture="standing on his peg leg", activity="squinting at the horizon", position="frame right")
+                      state="standing on his peg leg at frame right, squinting at the horizon")
     hello = DialogueLine(speaker="pirate captain", line="Ahoy!")
     beat = _beat(pirate, on_screen=("lego_man", "pirate captain"), dialogue=[hello])
     r = check(beat, w)
@@ -98,7 +98,7 @@ def test_a_newcomer_is_registered_once_and_stays_the_same():
     assert ent.description == "a castaway who thinks the void is a becalmed sea"
     assert ent.voice.description == "gravelly, booming" and beat.clips[0].dialogue == [hello]
     assert ent.look_short == "a LEGO pirate captain minifigure in a black tricorn hat and red coat"
-    assert ent.now() == "standing on his peg leg; squinting at the horizon; frame right"
+    assert ent.state == "standing on his peg leg at frame right, squinting at the horizon"
     prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=12)
     assert "Entering the picture during this clip: pirate captain (a LEGO pirate captain minifigure" in prompt
     assert 'Pirate captain says in a gravelly, booming voice, "Ahoy!"' in prompt, "the speaker opens a sentence"

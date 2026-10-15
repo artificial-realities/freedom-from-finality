@@ -54,8 +54,7 @@ def _thread_open(messages: list[dict], tid: str) -> bool:
 
 def _op(op: str, entity: str, **over) -> dict:
     base = {"op": op, "entity": entity, "kind": "prop", "description": "", "who": "",
-            "voice": "", "status": "", "location": "", "holder": "", "present": None, "posture": "",
-            "activity": "", "position": ""}
+            "voice": "", "state": "", "location": "", "present": None}
     base.update(over)
     return base
 
@@ -116,8 +115,8 @@ class MockBackend(LLMBackend):
             base["intent"] = "he wakes and looks around"
             base["clips"] = [
                 _clip("Lego Man performs action 1. He looks up.", "Lego Man standing, looking up",
-                      entity_ops=[_op("update", "lego_man", kind="character", posture="standing",
-                                      activity="looking around", position="centre frame")],
+                      entity_ops=[_op("update", "lego_man", kind="character",
+                                      state="standing centre frame, looking around")],
                       dialogue=[{"speaker": "lego_man", "line": "Hello? Anyone?", "delivery": "quiet"}]),
                 _clip("He holds still. Nothing else happens.", "Lego Man standing still"),
             ]
@@ -127,7 +126,7 @@ class MockBackend(LLMBackend):
                 "A soccer ball rolls in and stops at his feet.", "the ball at his feet",
                 on_screen=["lego_man", "soccer_ball"],
                 entity_ops=[_op("introduce", "soccer ball", description="a black-and-white studded LEGO soccer ball",
-                                status="at his feet", present=True)],
+                                state="at his feet", present=True)],
             )]
             base["thread_ops"] = [{"op": "open", "thread": "the soccer ball wants to be kicked", "kind": "setup"}]
             base["intervention"] = "absorbed"
@@ -137,7 +136,7 @@ class MockBackend(LLMBackend):
             base["clips"] = [_clip(
                 "He lifts the ball overhead.", "the ball held overhead",
                 on_screen=["lego_man", "soccer_ball"],
-                entity_ops=[_op("update", "soccer_ball", status="held overhead", holder="lego_man")],
+                entity_ops=[_op("update", "soccer_ball", state="held overhead by Lego Man")],
             )]
             base["intervention"] = "deferred"
             base["intervention_reason"] = "the trick needs a run-up first"
@@ -145,7 +144,7 @@ class MockBackend(LLMBackend):
             base["intent"] = "the trick, and the ball leaves"
             base["clips"] = [_clip(
                 "He flips the ball up and it rolls out of frame.", "the floor empty",
-                entity_ops=[_op("update", "soccer_ball", status="rolled out of frame", holder="nobody", present=False)],
+                entity_ops=[_op("update", "soccer_ball", state="rolled out of frame", present=False)],
             )]
             base["scene_done"] = True
             base["delivered_request"] = _owed_segment(messages)
@@ -165,13 +164,13 @@ class MockBackend(LLMBackend):
             base["clips"] = [_clip(
                 "He kicks the ball across the void.", "the ball far away",
                 on_screen=["lego_man", "soccer_ball"],
-                entity_ops=[_op("update", "soccer_ball", status="kicked across the void")],
+                entity_ops=[_op("update", "soccer_ball", state="kicked across the void")],
             )]
             base["thread_ops"] = [{"op": "pay_off", "thread": "t1", "kind": "setup"}]
         else:
             base["clips"] = [
                 _clip(f"Lego Man performs action {n}.", f"end of segment {n}",
-                      entity_ops=[_op("update", "lego_man", kind="character", posture=f"posture {n}")]),
+                      entity_ops=[_op("update", "lego_man", kind="character", state=f"state {n}")]),
                 _clip("He holds still.", f"still after segment {n}"),
             ]
         return base

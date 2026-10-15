@@ -139,12 +139,12 @@ async def test_director_engine_end_to_end():
         assert world.events[0].dialogue == ["Lego Man: Hello? Anyone?"] and world.events[1].dialogue == []
         assert "soccer_ball" in world.entities and "lego_man_2" not in world.entities
         ball = world.entities["soccer_ball"]
-        assert ball.status == "rolled out of frame" and not ball.present and ball.holder == ""
+        assert ball.state == "rolled out of frame" and not ball.present
         assert world.threads[0].status == "paid_off"
         disp = [(i.text[:12], i.disposition, i.resolved_at) for i in world.interventions]
         assert disp == [("A soccer bal", "absorbed", 3), ("Do a trick w", "absorbed", 7)], disp
         hero = world.entities["lego_man"]
-        assert hero.posture == "posture 5" and hero.activity == "looking around", "character state persists until an op changes it"
+        assert hero.state == "state 5", "character state persists until an op changes it"
         assert "cut short after clip 1 of 2 (the viewer spoke)" in transcript, "the trick line cut the running beat short"
         assert world.showrunner_runs >= 3, "bootstrap + compaction at 4 + scene_done at 7"
         assert world.plan.scene.id >= 2 and world.plan.arc, "the Showrunner replanned after scene_done"
@@ -153,7 +153,7 @@ async def test_director_engine_end_to_end():
 
         assert "first proposal rejected" in transcript and "retry accepted" in transcript
         assert 'Beat 1 "he wakes and looks around" · clip 1 of 2' in transcript and "clip 2 of 2" in transcript
-        assert "- Now: standing; looking around; centre frame" in transcript
+        assert "- Now: standing centre frame, looking around" in transcript
         assert "Showrunner spawned: scene_done" in transcript
         assert "showrunner (bootstrap" in transcript and "scene 1 card" in transcript
         assert "**World**" in transcript and "**Dialogue**\n\n> Lego Man: Hello? Anyone?" in transcript

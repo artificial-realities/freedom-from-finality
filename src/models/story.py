@@ -68,10 +68,9 @@ class Character(BaseModel):
     voice: Voice | None = None  # how they sound when they speak
     look: str = ""              # verbatim for the renderer: the full look, on entering the picture
     look_short: str = ""        # the look on clips that continue the picture ("" → name only)
-    # The starting state (the protagonist's is where the first clip starts).
-    posture: str = ""
-    activity: str = ""
-    position: str = ""
+    # The starting state, in prose (the protagonist's is where the first
+    # clip starts): "standing upright centre frame, arms at his sides".
+    state: str = ""
     # Supporting characters: whether and when they enter the film. The
     # Showrunner decides when an entrance serves the story; the Director
     # stages it. Ignored for the protagonist, who is in the film from the start.
@@ -82,6 +81,17 @@ class Character(BaseModel):
     @classmethod
     def _voice(cls, value):
         return Voice.coerce(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _state(cls, data):
+        """A blueprint written before `state` gave the starting state as
+        `posture`, `activity` and `position`; they are joined into it."""
+        if isinstance(data, dict) and not data.get("state"):
+            old = [str(data.get(k) or "").strip() for k in ("posture", "activity", "position")]
+            if any(old):
+                data = {**data, "state": "; ".join(x for x in old if x)}
+        return data
 
 
 class Cast(BaseModel):

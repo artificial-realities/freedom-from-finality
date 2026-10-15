@@ -29,9 +29,11 @@ class EntityOp(BaseModel):
     `description` (introduce only) is how the new thing looks; a new
     character also says `who` it is in the story and how its `voice`
     sounds, so it is registered once and stays the same.
-    `holder` takes a character id, or the literal `nobody`. `posture`,
-    `activity` and `position` are a character's state at the end of the
-    clip; `status` is a prop's.
+    `state` is the entity at the end of the clip, in prose, replacing
+    its last one: a character's body, place in the frame and what it is
+    doing; a prop's place, condition and who has it. Prose on purpose:
+    who holds what is not a field to point at an id (the model named a
+    prop as its own holder), and nothing in code reads it.
     """
 
     op: Literal["introduce", "update", "remove"]
@@ -40,13 +42,9 @@ class EntityOp(BaseModel):
     description: str = ""
     who: str = ""
     voice: str = ""
-    status: str = ""
+    state: str = ""
     location: str = ""
-    holder: str = ""
     present: bool | None = None
-    posture: str = ""
-    activity: str = ""
-    position: str = ""
 
 
 class ThreadOp(BaseModel):

@@ -180,7 +180,7 @@ def format_plan(world: WorldModel, config: Config, *, paused: bool = False) -> s
 
 
 PRESENT_IN_FULL = 12      # most recently seen present entities get a full line
-STATUS_CHARS = 120        # status text is clipped in the prompt, not in the model
+STATE_CHARS = 160         # state text is clipped in the prompt, not in the model
 GONE_LISTED = 12
 
 
@@ -202,30 +202,26 @@ def format_world_now(world: WorldModel) -> str:
         out.append("Present in the scene:")
         for ent in full:
             if ent.kind == "character":
-                now = ent.now() or "(not recorded yet: describe it in your first op)"
-                held = ", ".join(p.name for p in world.held_props(ent.id))
-                line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATUS_CHARS)}"
+                now = ent.state or "(not recorded yet: describe it in your first op)"
+                line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATE_CHARS)}"
                 if ent.dynamic:
                     # Not on the cast sheet (it came into the film at segment
                     # `first_seen`): who it is and how it sounds.
                     line += (f" · introduced at segment {ent.first_seen}"
                              + (f" · who: {ent.description}" if ent.description else "")
                              + (f" · voice: {ent.voice.description}" if ent.voice and ent.voice.description else ""))
-                if held:
-                    line += f" · holding: {held}"
                 if ent.location:
                     line += f" · at {ent.location}"
                 out.append(line)
                 if ent.notes:
                     out.append("  notes: " + " | ".join(ent.notes[-MAX_NOTES:]))
                 continue
-            status = f" · status: {_clip(ent.status, STATUS_CHARS)}" if ent.status else ""
-            where = f" · held by {ent.holder}" if ent.holder else (
-                f" · at {ent.location}" if ent.location and ent.kind != "location" else "")
+            now = f" · now: {_clip(ent.state, STATE_CHARS)}" if ent.state else ""
+            where = f" · at {ent.location}" if ent.location and ent.kind != "location" else ""
             # No `looks:` here: the renderer's description is the compiler's
             # business (it reads `look` from the model); the Director writes
             # what happens, not what things look like.
-            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{status}{where}")
+            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{now}{where}")
         if rest:
             out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))
     else:
@@ -235,7 +231,7 @@ def format_world_now(world: WorldModel) -> str:
     if away:
         out.append("Characters not in the scene: " + "; ".join(
             f"`{e.id}`" + (" (not yet in the film)" if not e.first_seen and not e.last_seen and e.appears
-                           else f" ({e.now()})" if e.now() else "") for e in away))
+                           else f" ({e.state})" if e.state else "") for e in away))
     dormant = world.dormant_props()
     if dormant:
         out.append(

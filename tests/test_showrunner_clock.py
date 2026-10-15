@@ -120,9 +120,8 @@ async def test_the_showrunner_snapshot_includes_the_clip_that_triggered_it():
     contiguous and include the spawn segment."""
     hat = _beat("a hat appears", scene_done=True, clips=2)
     hat["clips"][0]["entity_ops"] = [{"op": "introduce", "entity": "red hat", "kind": "prop",
-                                      "description": "a red cap", "status": "on the floor", "location": "",
-                                      "holder": "", "present": True, "posture": "", "activity": "",
-                                      "position": ""}]
+                                      "description": "a red cap", "state": "on the floor", "location": "",
+                                      "present": True}]
     engine, stub, state = _engine([_beat("wake"), _beat("look"), hat, _beat("quiet", scene_done=True),
                                    _beat("quiet")], showrunner_min_gap=2)
     for seg in range(1, 12):

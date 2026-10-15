@@ -814,7 +814,6 @@ class DirectorEngine:
         here = world.current_location()
         state.world_state = {
             "protagonist_location": here.id if here else "",
-            "inventory": [p.name for p in world.held_props()],
             "present": [e.id for e in world.present_entities()],
         }
         card = world.plan.scene
@@ -838,8 +837,8 @@ class DirectorEngine:
         if report.warnings:
             out.append("- Warnings: " + "; ".join(report.warnings))
         hero = world.entities.get(world.protagonist)
-        if hero is not None and hero.now():
-            out.append(f"- Now: {hero.now()}")
+        if hero is not None and hero.state:
+            out.append(f"- Now: {hero.state}")
         present = ", ".join(e.line() for e in world.present_entities()) or "(nothing)"
         out.append(f"- Present: {present}")
         dormant = world.dormant_props()

@@ -99,20 +99,12 @@ def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, 
             f"{where}: {op.op} of unknown entity '{op.entity}'; use an id from "
             "'World now' or introduce it first",
         )
-    if op.holder and op.holder.strip().lower() != "nobody":
-        holder = world.resolve(op.holder)
-        if holder is None:
-            r.violations.append(f"{where}: holder '{op.holder}' is not a known entity")
-        elif holder.kind != "character":
-            r.warnings.append(f"{where}: holder '{op.holder}' is not a character; holder unchanged")
-        elif existing is not None and existing.kind == "character":
-            r.warnings.append(f"{where}: a character cannot be held; holder on {existing.id} ignored")
     if op.location:
         loc = resolve_location(world, op.location)
         if loc is None and slugify(op.location) not in introduced:
             r.warnings.append(
                 f"{where}: location '{op.location}' is not a known location id; ignored "
-                "(use `status` for where something sits within the location)",
+                "(use `state` for where something sits within the location)",
             )
 
 
@@ -241,42 +233,21 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             if not ent.gone:
                 ent.gone = True
                 ent.present = False
-                ent.holder = ""
-                ent.status = op.status.strip() or "gone"
+                ent.state = " ".join(op.state.split()) or "gone"
                 ent.last_seen = seg
                 r.applied.append(f"remove {ent.id}")
                 r.changed = True
             continue
 
         changes: list[str] = []
-        status = op.status.strip()
-        if status and status != ent.status:
-            ent.status = status
-            changes.append(f"status={status}")
-        for attr in ("posture", "activity", "position"):
-            value = " ".join(getattr(op, attr).split())
-            if value and value != getattr(ent, attr):
-                if ent.kind != "character":
-                    r.warnings.append(f"{attr} on {ent.id} ignored: not a character")
-                    continue
-                setattr(ent, attr, value)
-                changes.append(f"{attr}={value}")
-        if op.holder:
-            if ent.kind == "character":
-                r.warnings.append(f"holder on character {ent.id} ignored")
-            else:
-                if op.holder.strip().lower() == "nobody":
-                    new_holder = ""
-                else:
-                    holder = world.resolve(op.holder)
-                    new_holder = (
-                        holder.id if holder is not None and holder.kind == "character"
-                        else ent.holder
-                    )
-                if new_holder != ent.holder:
-                    ent.holder = new_holder
-                    changes.append(f"holder={new_holder or 'nobody'}")
-                    r.changed = True
+        # The state is prose and replaced whole; changing it is not a
+        # structural change (a hand-off or a new pose does not move the
+        # story, and counting it kept a ball-passing loop off the pacing
+        # clock: 49 of 119 clips on 2026-10-14).
+        state = " ".join(op.state.split())
+        if state and state != ent.state:
+            ent.state = state
+            changes.append(f"state={state}")
         if op.location:
             loc = resolve_location(world, op.location)
             if loc is not None and loc.id != ent.location:
@@ -290,8 +261,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             ent.present = op.present
             changes.append(f"present={op.present}")
             r.changed = True
-            if not op.present and ent.holder:
-                ent.holder = ""
         ent.last_seen = seg
         if changes:
             r.applied.append(f"update {ent.id}: " + ", ".join(changes))
@@ -422,7 +391,7 @@ def redundant_note(body: str, ent: Entity, world: WorldModel, update: Showrunner
         return "empty"
     if any(note == _norm(n) for n in ent.notes):
         return "already noted"
-    sheet = " ".join((ent.description, ent.look, ent.look_short, ent.wants, ent.nature, ent.now()))
+    sheet = " ".join((ent.description, ent.look, ent.look_short, ent.wants, ent.nature, ent.state))
     if note in _norm(sheet):
         return "contained in the cast description"
     words = _significant(body)

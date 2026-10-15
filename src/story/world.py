@@ -1,9 +1,10 @@
 """Typed world model: the deterministic system of record for a run.
 
-Everything the film has established lives here in structure, not prose:
-entities (characters, props, locations) with status and whereabouts,
-each character's posture, activity and position in the frame, open
-threads, viewer interventions with their disposition, the plan (arc +
+Everything the film has established lives here: entities (characters,
+props, locations) with what code needs in structure (kind, presence,
+location, whether they are gone) and their state in one line of prose
+(a character's "lying on his back centre frame, asleep", a prop's "in
+Spaceman's hands at waist height"), open threads, viewer interventions with their disposition, the plan (arc +
 current scene card), an append-only event log (one record per clip),
 and the summaries the Showrunner compacts the log into.
 
@@ -46,9 +47,11 @@ class Entity(BaseModel):
     description: str = ""        # who/what it is (for the writer): a character's `who`
     look: str = ""               # how it looks (for the renderer; see `render_look`)
     look_short: str = ""         # a few words of look for clips that continue the picture
-    status: str = ""             # props: short free text, "dented", "balanced on his head"
+    # The state the next clip continues from, in prose: a character's body,
+    # place in the frame and what it is doing; a prop's place, condition and
+    # who has it. Replaced whole by the op that changes it.
+    state: str = ""
     location: str = ""           # location id
-    holder: str = ""             # character id, "" when not held
     present: bool = False        # in the current scene
     gone: bool = False           # removed from the story world
     first_seen: int = 0
@@ -63,10 +66,6 @@ class Entity(BaseModel):
     appears: str = ""            # must | should | may (supporting characters of the blueprint)
     appears_when: str = ""
     dynamic: bool = False
-    # Characters: the state the next clip continues from.
-    posture: str = ""            # how the body is arranged: "standing", "lying on his back"
-    activity: str = ""           # what they are doing, sustained: "asleep", "watching the ball"
-    position: str = ""           # where in the frame: "centre frame", "off screen right"
 
     def render_look(self) -> str:
         """How the renderer is told it looks: its look, else (a prop) its
@@ -76,19 +75,11 @@ class Entity(BaseModel):
             return self.look
         return self.name if self.kind == "character" else (self.description or self.name)
 
-    def now(self) -> str:
-        """A character's current state in one clause, or empty."""
-        return "; ".join(x for x in (self.posture, self.activity, self.position) if x)
-
     def line(self) -> str:
         bits = [f"{self.id} ({self.kind}): {self.name}"]
-        if self.kind == "character" and self.now():
-            bits.append(f"now: {self.now()}")
-        if self.status:
-            bits.append(f"status: {self.status}")
-        if self.holder:
-            bits.append(f"held by {self.holder}")
-        elif self.location and self.kind != "location":
+        if self.state:
+            bits.append(f"now: {self.state}")
+        if self.location and self.kind != "location":
             bits.append(f"at {self.location}")
         return " · ".join(bits)
 
@@ -261,8 +252,7 @@ class WorldModel(BaseModel):
                 voice=ch.voice, wants=ch.wants, nature=ch.nature,
                 appears="" if is_lead else ch.appears,
                 appears_when="" if is_lead else ch.appears_when,
-                posture=ch.posture, activity=ch.activity, position=ch.position,
-                present=is_lead, location=home if is_lead else "",
+                state=ch.state, present=is_lead, location=home if is_lead else "",
             )
             if is_lead:
                 world.protagonist = cid
@@ -387,10 +377,6 @@ class WorldModel(BaseModel):
 
     def events_since(self, segment: int) -> list[EventRecord]:
         return [e for e in self.events if e.segment > segment]
-
-    def held_props(self, character_id: str | None = None) -> list[Entity]:
-        cid = character_id or self.protagonist
-        return [e for e in self.by_kind("prop") if e.holder == cid and not e.gone]
 
     # ── Persistence ─────────────────────────────────────────────────
 

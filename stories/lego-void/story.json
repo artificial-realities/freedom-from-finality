@@ -36,8 +36,7 @@
         "voice": {"description": "earnest, slightly formal, a little breathless", "language": "English"},
         "look": "the most default LEGO minifigure: bare yellow head with no hair piece, printed only with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands",
         "look_short": "the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands",
-        "posture": "standing upright, arms at his sides",
-        "position": "centre frame"
+        "state": "standing upright centre frame, arms at his sides"
       },
       {
         "name": "Spaceman",
