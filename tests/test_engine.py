@@ -6,12 +6,13 @@ viewer's line."""
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from unittest import mock
 
-from src.i2v.replay import ReplayI2V
+from src.i2v.base import I2VBackend
 from src.llm.mock_backend import MockBackend
 from src.models.config import Config
 from src.models.story import Story
@@ -38,6 +39,28 @@ class Scripted(Player):
         if item.turn in self.lines:
             self.push_input(self.lines.pop(item.turn))
         await self._hold(item.duration)
+
+
+class Clips(I2VBackend):
+    """Renders by copying one prepared clip: the live loop with real video
+    files and no server."""
+
+    manages_continuity = True
+
+    def __init__(self, clip: Path, output_dir: Path) -> None:
+        self.clip, self.output_dir = Path(clip), Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    async def synthesize(self, *, turn: int, **_) -> str | None:
+        out = self.output_dir / f"turn_{turn:04d}.mp4"
+        shutil.copyfile(self.clip, out)
+        self.last_render = {"source": self.clip.name}
+        return str(out)
+
+
+def rendering(clip: Path):
+    """Video runs inside this block render with `Clips`."""
+    return mock.patch("src.runner.build_i2v_backend", lambda name, *, output_dir, **_: Clips(clip, output_dir))
 
 
 def _config(**over) -> Config:
@@ -149,7 +172,7 @@ async def test_a_failed_render_rolls_the_world_back_and_the_film_goes_on():
     the Director replans segment 3 told that the picture ends on clip 2,
     and the viewer sees every segment once."""
     story = Story.from_json("stories/lego-void")
-    synthesize, generate = ReplayI2V.synthesize, MockBackend.generate_structured
+    synthesize, generate = Clips.synthesize, MockBackend.generate_structured
     left, prompts = {3: 1}, []
 
     async def flaky(backend, *, turn, **kw):
@@ -165,14 +188,13 @@ async def test_a_failed_render_rolls_the_world_back_and_the_film_goes_on():
         return await generate(backend, messages, schema, *a, **kw)
 
     with tempfile.TemporaryDirectory() as d:
-        clips = Path(d) / "clips"
-        clips.mkdir()
+        clip = Path(d) / "a.mp4"
         subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=64x32:r=24",
-                        "-frames:v", "25", "-pix_fmt", "yuv420p", str(clips / "a.mp4")], check=True)
-        config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips),
-                         compaction_interval=100)
+                        "-frames:v", "25", "-pix_fmt", "yuv420p", str(clip)], check=True)
+        config = _config(video_enabled=True, clip_seconds=1, compaction_interval=100)
         player = Scripted()
-        with mock.patch.object(ReplayI2V, "synthesize", flaky), mock.patch.object(MockBackend, "generate_structured", spy):
+        with rendering(clip), mock.patch.object(Clips, "synthesize", flaky), \
+             mock.patch.object(MockBackend, "generate_structured", spy):
             state = await run_live(config=config, story=story, log_dir=d, player=player, max_segments=5)
         session = next((Path(d) / "sessions").iterdir())
         records, world = _records(session), WorldModel.load(session)

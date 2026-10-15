@@ -17,7 +17,7 @@ src/
   story/                     # typed world model (world, with each entity's state), schemas, validator (per clip), context, compiler
   state/story_state.py       # StoryState — the runner-facing surface
   models/                    # config, story (blueprint), responses (the views the runner and player read)
-  i2v/                       # image-to-video backends (base, ltxv, replay) and the clip shape
+  i2v/                       # image-to-video backends (base, ltxv) and the clip shape
   llm/                       # LLM backends (openai, mock for offline tests)
   playback/player.py         # Playable + Player boundary of the live loop; TerminalPlayer (ffplay + stdin)
   web/                       # WebPlayer (aiohttp: SSE stream, /input, clips, /beacon) + player.html
@@ -25,7 +25,7 @@ src/
   util/                      # json sanitizer, langfuse, media, prompt loader, story log, timing log
 tests/                       # pytest: test_story, test_engine, test_render, test_web (mock LLM, no network, seconds)
 scripts/latency_probe.py     # does an LTX-2.5 server setting render in real time
-configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5) · director.replay.yaml (replayed clips)
+configs/                     # director.yaml (headless) · director.live.yaml (LTX-2.5)
 stories/                     # per-story folders (story.json blueprint, reference image, assets); README.md: the field guide
 docs/                        # ARCHITECTURE.md (how it works) · decisions.md (why, with the evidence)
 server/                      # LTX-2.5 inference server (runs on a GPU box; see server/README.md)
@@ -49,7 +49,6 @@ server/                      # LTX-2.5 inference server (runs on a GPU box; see 
 python main.py play --config configs/director.yaml                                        # headless dev — no video or audio
 python main.py play --config configs/director.yaml --player web                           # the film as text in a browser; type to steer
 python main.py play --config configs/director.live.yaml --player web                      # live video in the browser (needs the LTX-2.5 server)
-python main.py play --config configs/director.replay.yaml --player web                    # the player with replayed clips from logs/video, no GPU
 pytest                                                                                    # offline test suite (mock LLM)
 ```
 

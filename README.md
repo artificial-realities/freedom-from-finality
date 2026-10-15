@@ -34,7 +34,6 @@ Concretely, as of today:
 - **Narrative orchestration** is two LLM roles on two clocks over a typed world model. A **Director** makes one structured call per beat, one action or state of the film as a few clips: what the camera sees in each clip, what is said, what changes in the world, and how the viewer's input was handled; the clips are rendered one by one with no model call in between, and a viewer's line cuts the beat short. A **Showrunner** runs off the critical path on triggers to compact the event log into summaries and write the next scene card. Code owns the world model, validation, the prompt compiler and persistence; whether the film is moving is the two roles' judgment. This is one mechanism being explored for coordinating generation, not a fixed part of the design; it replaced a four-role split after an A/B and a 180-segment run.
 - **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which carries visual state forward from clip to clip; only the first clip of a run is seeded from the reference image. It also renders the sound natively: ambient and foley, and the characters' lines when the Director writes them.
 - **Playback** is a web player: the film streams to a browser clip by clip, holds the last frame while the next segment renders, and takes typed input at any moment; the Director reports whether each line was absorbed, deferred or declined. Without a video backend the same page plays the film as text at story pace. The played clips are concatenated into one film with ffmpeg at the end of a run.
-- **Speech** is the characters' own: there is no narrator, and any character may speak in its own voice. Video generation can be disabled entirely for headless development.
 
 The one story is deliberately small: a LEGO minifigure in a white void, one location, who talks, meets a classic LEGO spaceman when a bit first fails badly, and takes visitors from any LEGO theme. It is written in the story blueprint (`stories/lego-void/story.json`: the premise, the question the film keeps open, what keeps happening, what holds whatever the viewer does, and the storyteller's theme, tone, temperament and refusals), and it exercises every feature of the engine while keeping long-horizon continuity, the hard part, in view.
 
@@ -70,13 +69,14 @@ One live film of 64 clips on an H100 SXM, client and server on the box: LTX-2.5 
 
 `main.py` runs the prototype against a config in `configs/`. `docs/ARCHITECTURE.md` describes the current orchestration and `docs/decisions.md` why it is built that way; `stories/README.md` is the field guide to a story blueprint; `server/README.md` covers the LTX-2.5 inference server.
 
+It needs Python 3.10 or newer, ffmpeg (`ffmpeg` and `ffprobe`; `ffplay` for the terminal player) and an OpenAI API key; live video also needs an 80 GB GPU running the LTX-2.5 server.
+
 ```bash
 pip install -r requirements.txt
-cp .env.example .env
+cp .env.example .env                                                   # OPENAI_API_KEY
 
 python main.py play --config configs/director.yaml                     # headless, no video or audio
 python main.py play --config configs/director.yaml --player web        # the film as text in a browser, steer while it plays
 python main.py play --config configs/director.live.yaml --player web   # live video (needs the LTX-2.5 server)
-python main.py play --config configs/director.replay.yaml --player web # the player with replayed clips, no GPU
 pytest                                                                 # offline test suite (mock LLM, no network)
 ```

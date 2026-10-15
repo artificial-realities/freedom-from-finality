@@ -10,7 +10,7 @@ The weights are gated. One-time:
 2. Create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 
 ```bash
-# On the GPU box (an 80 GB card):
+# On the GPU box (an 80 GB card, torch 2.9.1 with CUDA 12.8, ffmpeg on the PATH):
 pip install -r server/requirements.txt
 export HF_TOKEN=hf_...
 . server/server_defaults.sh && python server/ltx2_server.py   # downloads weights on first run, serves on :8000

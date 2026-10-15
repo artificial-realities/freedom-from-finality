@@ -1,14 +1,23 @@
 # Dependencies for the resident LTX-2.5 inference server
-# (server/ltx2_server.py). Install on the GPU box, not locally.
+# (server/ltx2_server.py). Install on the GPU box, not locally; the server
+# also needs ffmpeg on the PATH. remote_setup.sh installs this file.
+#
+# torch comes with the image (pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel);
+# on another machine install torch 2.9.1 first. torchao tracks torch closely:
+# 0.17+ needs torch 2.10 (it imports torch.nn.functional.ScalingType and takes
+# diffusers down with it on import), so bump both together.
 #
 # The LTX-2.5 weights are gated: accept the licence at
 # https://huggingface.co/Lightricks/LTX-2.5-Diffusers and export HF_TOKEN.
 
-diffusers[torch]>=0.36
+diffusers @ git+https://github.com/huggingface/diffusers   # LTX2ConditionPipeline
 transformers>=4.50
 accelerate>=1.0
-peft>=0.12                # required for distilled LoRA loading
+peft>=0.12              # required for distilled LoRA loading
 sentencepiece>=0.2      # Gemma text-encoder tokenizer
 av>=12.0                # encode_video muxes video+audio via PyAV
 fastapi>=0.110
 uvicorn>=0.29
+hf_transfer             # fast weight download (server_defaults.sh turns it on)
+torchao<0.17            # fp8 / mxfp8 / nvfp4 matmuls (LTX2_QUANT)
+kernels>=0.12.3         # FlashAttention-3/4 and SageAttention from the Hub (LTX2_ATTN)

@@ -1,11 +1,9 @@
 from src.i2v.base import I2VBackend
 from src.i2v.ltxv import LtxvI2V
-from src.i2v.replay import ReplayI2V
 
 __all__ = [
     "I2VBackend",
     "LtxvI2V",
-    "ReplayI2V",
     "build_i2v_backend",
 ]
 
@@ -24,8 +22,6 @@ def build_i2v_backend(
     anchor_strength: float = 0.0,
     anchor_index: int = -1,
     restart_recovery: str = "window",
-    replay_dir: str = "",
-    replay_delay: float = 0.0,
     **_extra,
 ) -> I2VBackend:
     """Construct an I2V backend from a config's `i2v_backend` string."""
@@ -47,11 +43,5 @@ def build_i2v_backend(
             anchor_strength=anchor_strength,
             anchor_index=anchor_index,
             restart_recovery=restart_recovery,
-        )
-    if key == "replay":
-        if not replay_dir:
-            raise ValueError("i2v_backend='replay' requires i2v_replay_dir in config")
-        return ReplayI2V(
-            clip_dir=replay_dir, output_dir=output_dir or "logs/video", delay=replay_delay,
         )
     raise ValueError(f"Unknown i2v_backend: {name!r}")

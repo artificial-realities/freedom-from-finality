@@ -145,17 +145,16 @@ async def test_a_run_is_refused_when_its_shape_is_not_warm():
 
 
 async def test_every_consumer_reads_the_selected_shape():
-    """Through the live loop with replayed clips: the Director is
+    """Through the live loop with rendered clip files: the Director is
     told the shape's length, the render request carries its frames, the
     player holds each clip for its delivered seconds, the event record and
     the story clock count them; a clip file of another length is flagged."""
     from src import runner
-    from src.i2v.replay import ReplayI2V
     from src.llm.mock_backend import MockBackend
-    from tests.test_engine import Scripted
+    from tests.test_engine import Clips, Scripted, rendering
     story = Story.from_json("stories/lego-void")
     shapes_seen, systems = [], []
-    synthesize, generate = ReplayI2V.synthesize, MockBackend.generate_structured
+    synthesize, generate = Clips.synthesize, MockBackend.generate_structured
 
     async def spy_render(backend, *, shape, **kw):
         shapes_seen.append(shape)
@@ -166,12 +165,10 @@ async def test_every_consumer_reads_the_selected_shape():
             systems.append(messages[0]["content"])
         return await generate(backend, messages, schema, *a, **kw)
 
-    with tempfile.TemporaryDirectory() as d:
-        clips = Path(d) / "clips"
-        clips.mkdir()
+    with tempfile.TemporaryDirectory() as d, rendering(Path(d) / "a.mp4"):
         subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=64x32:r=24",
-                        "-frames:v", "25", "-pix_fmt", "yuv420p", str(clips / "a.mp4")], check=True)
-        config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips))
+                        "-frames:v", "25", "-pix_fmt", "yuv420p", str(Path(d) / "a.mp4")], check=True)
+        config = _config(video_enabled=True, clip_seconds=1)
         player = Scripted()
         held: list[float] = []
         play = player.play
@@ -180,7 +177,7 @@ async def test_every_consumer_reads_the_selected_shape():
             held.append(item.duration)
             await play(item)
         player.play = spy_play
-        with mock.patch.object(ReplayI2V, "synthesize", spy_render), \
+        with mock.patch.object(Clips, "synthesize", spy_render), \
              mock.patch.object(MockBackend, "generate_structured", spy_llm):
             state = await runner.run_live(config=config, story=story, log_dir=d, player=player, max_segments=3)
         world_dir = next((Path(d) / "sessions").iterdir())
@@ -188,7 +185,7 @@ async def test_every_consumer_reads_the_selected_shape():
         from src.story.world import WorldModel
         world = WorldModel.load(world_dir)
 
-        wrong = _config(video_enabled=True, clip_seconds=2, i2v_backend="replay", i2v_replay_dir=str(clips))
+        wrong = _config(video_enabled=True, clip_seconds=2)
         await runner.run_live(config=wrong, story=story, log_dir=Path(d) / "wrong", player=Scripted(), max_segments=1)
         wrong_records = [json.loads(x) for x in next((Path(d) / "wrong" / "sessions").iterdir())
                          .joinpath("timing.jsonl").read_text().splitlines()]

@@ -98,10 +98,6 @@ class Config(BaseModel):
     # beat. diffusers' long-form recipe uses 0.95.
     ltxv_anchor_strength: float = 0.0
     ltxv_anchor_index: int = -1
-    # Replay backend (i2v_backend == "replay"): pre-rendered clips served
-    # in order from a directory, for developing the player without a GPU.
-    i2v_replay_dir: str = ""
-    i2v_replay_delay: float = 0.0
 
     # ── Director engine (graph: "director") ────────────────────────
     director_model: str = ""            # override `model` for the Director call

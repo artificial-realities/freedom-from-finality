@@ -68,7 +68,7 @@ else:
 ' | { read -r h; read -r p; echo "$h" > "$STATE/host"; echo "$p" > "$STATE/port"; }
   echo "ssh target $(cat "$STATE/host"):$(cat "$STATE/port")"
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
-  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/server_defaults.sh server/remote_setup.sh "root@$(cat "$STATE/host"):/root/"
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/server_defaults.sh server/remote_setup.sh server/requirements.txt "root@$(cat "$STATE/host"):/root/"
   ssh_cmd "chmod +x /root/remote_setup.sh; nohup env $(server_env) /root/remote_setup.sh > /root/setup.log 2>&1 &"
   ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"

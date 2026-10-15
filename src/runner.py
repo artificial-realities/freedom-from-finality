@@ -169,8 +169,6 @@ def _maybe_i2v(config: Config, log_dir: Path | str, session_id: str = "") -> I2V
         anchor_strength=config.ltxv_anchor_strength,
         anchor_index=config.ltxv_anchor_index,
         restart_recovery=config.ltxv_restart_recovery,
-        replay_dir=config.i2v_replay_dir,
-        replay_delay=config.i2v_replay_delay,
     )
 
 

@@ -1,6 +1,6 @@
 """The live loop through the web player: the film streams over HTTP, input
 posted mid-stream reaches the Director, and clips are served to the page.
-Runs on the mock LLM; video comes from the replay backend."""
+Runs on the mock LLM; video comes from a prepared clip file."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from src.models.config import Config
 from src.models.story import Story
 from src.playback.player import Playable, Player
 from src.web import WebPlayer
+from tests.test_engine import rendering
 
 
 def _config(**over) -> Config:
@@ -107,14 +108,11 @@ async def test_web_player_text_mode_streams_and_takes_input():
                 pass  # server already down: also fine
 
 
-async def test_web_player_serves_replayed_clips():
+async def test_web_player_serves_rendered_clips():
     story = Story.from_json("stories/lego-void")
-    with tempfile.TemporaryDirectory() as d:
-        clips = Path(d) / "clips"
-        clips.mkdir()
-        _tiny_clip(clips / "a.mp4")
-        _tiny_clip(clips / "b.mp4")
-        config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips))
+    with tempfile.TemporaryDirectory() as d, rendering(Path(d) / "a.mp4"):
+        _tiny_clip(Path(d) / "a.mp4")
+        config = _config(video_enabled=True, clip_seconds=1)
         player = WebPlayer(port=0, time_scale=50)
         run = asyncio.create_task(run_live(
             config=config, story=story, log_dir=d, player=player, max_segments=3,

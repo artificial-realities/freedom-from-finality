@@ -8,12 +8,8 @@ cd /root
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq ffmpeg rsync >/dev/null 2>&1 || true
 pip install -q --upgrade pip >/dev/null
-# torchao: fp8 / mxfp8 / nvfp4 matmuls (LTX2_QUANT); kernels: FlashAttention-3/4 and SageAttention from the Hub (LTX2_ATTN).
-# torchao tracks torch closely: 0.17+ needs torch 2.10 (it imports torch.nn.functional.ScalingType and takes
-# diffusers down with it on import); the 2.9.1 image runs 0.16. Bump both together.
-pip install -q "git+https://github.com/huggingface/diffusers" "transformers>=4.50" "accelerate>=1.0" \
-  "peft>=0.12" "sentencepiece>=0.2" "av>=12.0" "fastapi>=0.110" "uvicorn>=0.29" "hf_transfer" \
-  "torchao<0.17" "kernels>=0.12.3" 2>&1 | tail -2
+# One list for this script and a box set up by hand (torch comes with the image; see the file).
+pip install -q -r /root/requirements.txt 2>&1 | tail -2
 python -c "import diffusers, transformers, torch, torchao; print('diffusers', diffusers.__version__, 'transformers', transformers.__version__, 'torch', torch.__version__, 'torchao', torchao.__version__, 'cuda', torch.cuda.is_available())"
 python -c "from diffusers import LTX2ConditionPipeline; print('LTX2ConditionPipeline import ok')"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
