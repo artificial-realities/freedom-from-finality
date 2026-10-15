@@ -1,7 +1,7 @@
 """Director: the one LLM call on the critical path, once per beat.
 
 Reads the assembled context (plan, world, threads, viewer, summaries,
-recent clips, where the picture is, gates) and returns a `BeatPlan`:
+recent clips, where the picture is) and returns a `BeatPlan`:
 one action or state of the film as one to a few clips, each with its
 picture, its lines and the world changes that happen in it, plus thread
 ops, the viewer disposition and flags. The world validator checks the
@@ -26,7 +26,6 @@ from src.story.context import (
     format_cast_rules,
     format_cut_rule,
     format_film,
-    format_gates,
     format_interventions,
     format_locations,
     format_picture,
@@ -83,8 +82,6 @@ async def run(
     state: StoryState,
     llm: LLMBackend,
     config: Config,
-    pacing_note: str,
-    scene_note: str,
     beat_status: str,
     clip_seconds: float,
 ) -> tuple[BeatPlan | None, list[str], bool]:
@@ -113,16 +110,11 @@ async def run(
         plan=format_plan(world, config, paused=viewer_direction_active(world, state.user_input)),
         world_now=format_world_now(world),
         threads=format_threads(world),
-        interventions=format_interventions(world, state.user_input),
+        interventions=format_interventions(world, state.user_input, answer_clips=config.answer_max_clips),
         viewer_callbacks=format_viewer_callbacks(world),
         summaries=format_summaries(world),
         recent=format_recent(world, config.recent_clips),
         beat_status=beat_status,
-        gates=format_gates(
-            pacing=pacing_note,
-            scene=scene_note,
-            answer_clips=config.answer_max_clips if (state.user_input or "").strip() else 0,
-        ),
     )
 
     notes: list[str] = []

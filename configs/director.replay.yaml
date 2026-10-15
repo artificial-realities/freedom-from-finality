@@ -29,4 +29,3 @@ scene_seconds: 240
 compaction_interval: 10
 showrunner_min_gap: 4
 buffer_seconds: 4.7
-stagnation_seconds: 90

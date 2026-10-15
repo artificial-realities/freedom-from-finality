@@ -29,7 +29,6 @@ class Report:
     violations: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     applied: list[str] = field(default_factory=list)
-    changed: bool = False
 
 
 _LOCATION_PREFIXES = ("at ", "in ", "on ", "inside ", "the ")
@@ -223,7 +222,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             ent.present = True
             world.entities[eid] = ent
             r.applied.append(f"introduce {ent.kind} {ent.id}" + (f" ({look})" if look else ""))
-            r.changed = True
         if ent is None:
             continue  # reported as a violation by check()
 
@@ -236,14 +234,10 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 ent.state = " ".join(op.state.split()) or "gone"
                 ent.last_seen = seg
                 r.applied.append(f"remove {ent.id}")
-                r.changed = True
             continue
 
         changes: list[str] = []
-        # The state is prose and replaced whole; changing it is not a
-        # structural change (a hand-off or a new pose does not move the
-        # story, and counting it kept a ball-passing loop off the pacing
-        # clock: 49 of 119 clips on 2026-10-14).
+        # The state is prose, replaced whole.
         state = " ".join(op.state.split())
         if state and state != ent.state:
             ent.state = state
@@ -253,14 +247,12 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             if loc is not None and loc.id != ent.location:
                 ent.location = loc.id
                 changes.append(f"location={loc.id}")
-                r.changed = True
                 if ent.id == world.protagonist:
                     for place in world.by_kind("location"):
                         place.present = place.id == loc.id
         if op.present is not None and op.present != ent.present:
             ent.present = op.present
             changes.append(f"present={op.present}")
-            r.changed = True
         ent.last_seen = seg
         if changes:
             r.applied.append(f"update {ent.id}: " + ", ".join(changes))
@@ -319,8 +311,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 thread.status = "paid_off" if top.op == "pay_off" else "dropped"
                 thread.closed_at = seg
                 r.applied.append(f"thread {thread.id} {thread.status}: {thread.text}")
-                if top.op == "pay_off":
-                    r.changed = True
 
         reason = beat.intervention_reason.strip()
         pending = [i for i in world.interventions if i.disposition == "pending"]
@@ -358,8 +348,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             item.resolved_at = seg
             r.applied.append(f"deferred viewer request (segment {item.segment}) now {disposition}: {item.text!r}")
 
-    if r.changed:
-        world.last_change = seg
     return r
 
 
@@ -476,7 +464,6 @@ def apply_showrunner(
         )
         world.plan.scene = card
         world.scene_started = at_segment + 1
-        world.last_change = max(world.last_change, at_segment)
         origin = at_segment if triggered_at is None else triggered_at
         if world.viewer_momentum and origin > world.viewer_momentum_segment:
             world.viewer_momentum = ""

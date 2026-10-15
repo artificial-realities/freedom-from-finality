@@ -225,8 +225,8 @@ async def run(out: Path, calls: int) -> None:
         capture = _captured(engine.llm_director)
         t0 = time.monotonic()
         beat, notes, retried = await director_agent.run(
-            world=world, state=state, llm=capture, config=config, pacing_note="",
-            scene_note="", beat_status=engine._beat_status(), clip_seconds=6.0)
+            world=world, state=state, llm=capture, config=config,
+            beat_status=engine._beat_status(), clip_seconds=6.0)
         whole = {"api_s": capture.calls[0]["api_s"], "turn_s": time.monotonic() - t0, "retried": retried,
                  "valid": beat is not None, "clips": len(beat.clips) if beat else None,
                  "intervention": beat.intervention if beat else None,

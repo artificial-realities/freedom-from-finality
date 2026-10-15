@@ -129,15 +129,14 @@ class Config(BaseModel):
     # A beat that answers a viewer line has at most this many clips: the
     # answer call is the one on the critical path and its latency tracks
     # its length; the next beat continues the idea. Stated in the user
-    # prompt's gates (the system prompt stays cached) and enforced here.
+    # prompt's viewer section (the system prompt stays cached) and enforced here.
     answer_max_clips: int = 2
-    scene_seconds: float = 240.0        # a scene runs about this long; past it the Director is told to close it
+    scene_seconds: float = 240.0        # about how long a scene runs; both roles see the scene's running time against it
     compaction_interval: int = 10       # segments between Showrunner compaction passes
     # Fewest segments between two Showrunner runs (any trigger; the bootstrap
     # is exempt). A trigger that falls inside the gap is noted and looked at
     # again next segment. At most one run is in flight at a time.
     showrunner_min_gap: int = 4
-    stagnation_seconds: float = 90.0    # story seconds without structural change before pressure
     # ARCH-08: a viewer's direction stays active (shaping the Director's beats,
     # the card's candidate beats hidden, ARCH-09) until the next line or this
     # many story seconds, whichever comes first.

@@ -22,7 +22,4 @@ Segment {segment}
 ## Where the picture is
 {beat_status}
 
-## Pacing and gates
-{gates}
-
 Write the next beat now, starting at segment {segment}, as a single JSON object.

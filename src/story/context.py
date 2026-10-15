@@ -264,7 +264,9 @@ def format_threads(world: WorldModel, limit: int = 8) -> str:
     return "\n".join(lines)
 
 
-def format_interventions(world: WorldModel, current_input: str) -> str:
+def format_interventions(world: WorldModel, current_input: str, answer_clips: int = 0) -> str:
+    """The viewer section. `answer_clips` > 0 caps a beat that answers a
+    line (ARCH-11)."""
     out: list[str] = []
     text = (current_input or "").strip()
     if text:
@@ -273,6 +275,9 @@ def format_interventions(world: WorldModel, current_input: str) -> str:
             "Decide its disposition: absorbed (it happens now), deferred (it needs "
             "setup; say what you will do), or declined (only if it breaks the rules)."
         )
+        if answer_clips:
+            out.append(f"This beat answers the viewer: at most {answer_clips} clip{'s' if answer_clips != 1 else ''}. "
+                       "Start the answer now; the next beat continues it.")
     else:
         out.append("No viewer input for this beat.")
         if world.viewer_momentum:
@@ -383,12 +388,3 @@ def format_events(world: WorldModel, since: int) -> str:
         lines.append("\n".join(bits))
     return "\n\n".join(lines)
 
-
-def format_gates(*, pacing: str, scene: str, answer_clips: int = 0) -> str:
-    """The deterministic signals for this beat. `answer_clips` > 0 when the
-    beat answers a viewer line: its clip cap (ARCH-11)."""
-    out = f"Pacing: {pacing}\n{scene}"
-    if answer_clips:
-        out += (f"\nThis beat answers the viewer: at most {answer_clips} clip{'s' if answer_clips != 1 else ''}. "
-                "Start the answer now; the next beat continues it.")
-    return out

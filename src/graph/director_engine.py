@@ -10,8 +10,8 @@ Two LLM roles on two clocks, everything else deterministic:
   at once when the viewer speaks: the rest of the beat is dropped and the
   next call is told where the picture actually ends.
 - **Showrunner** — an async task on a slow clock, triggered at a plan
-  (bootstrap, scene exit, stagnation, a replan flag, or every
-  `compaction_interval` segments) and spawned when the beat's first clip
+  (bootstrap, scene exit, a replan flag, or every `compaction_interval`
+  segments) and spawned when the beat's first clip
   has been applied, so its snapshot and its compaction window include
   the clip that caused it. At most one is in flight and runs are at
   least `showrunner_min_gap` segments apart; a replan flag that has to
@@ -20,7 +20,9 @@ Two LLM roles on two clocks, everything else deterministic:
   Compacts the event log and writes the plan.
 
 Code owns the rest: the typed `WorldModel`, validation and apply, the
-prompt compiler, the pacing gates, and persistence per clip.
+prompt compiler, and persistence per clip. Whether the film is moving or
+going in circles is the two roles' judgment, from what they read: no
+code measures it.
 
 For the runner the engine keeps the `StoryState` surface: it fills
 `current_beat`, `current_shot` and `current_dialogue` as views of the
@@ -48,7 +50,6 @@ from src.models.responses import Beat, Shot
 from src.models.story import Story
 from src.state.story_state import StoryState
 from src.story.compiler import compile_clip
-from src.story.pacing import SHOWRUNNER_REPLAN_AT, pacing_note, scene_note
 from src.story.schemas import BeatPlan, ClipSpec
 from src.story.validator import Report, apply_clip, apply_showrunner
 from src.story.world import ClipRecord, EventRecord, WorldModel
@@ -124,7 +125,7 @@ class DirectorEngine:
         self._beat_no: int = 0
         self._beat_input: str = ""          # the viewer line the beat answered
         self._plan_notes: list[str] = []    # transcript notes from the plan, shown on its first clip
-        self._plan_meta: dict = {}          # pacing, trigger, forced for the transcript
+        self._plan_meta: dict = {}          # the trigger, for the transcript
         self._last_end_state: str = ""      # the image the last emitted clip ends on
         self._viewer_line_ids: list[int] = []  # line ids the current beat answers (for ClipRecord)
         self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
@@ -218,9 +219,6 @@ class DirectorEngine:
             notes.extend(self._showrunner_notes)
             self._showrunner_notes = []
 
-        pnote = pacing_note(world, self.config)
-        snote = scene_note(world, self.config)
-
         # The shape is selected before the Director plans (RUN-01); every
         # clip of this beat is that long. The system prompt states the
         # default shape's length, so it stays byte-identical.
@@ -228,7 +226,6 @@ class DirectorEngine:
         called = time.monotonic()
         beat, dnotes, retried = await director_agent.run(
             world=world, state=state, llm=self.llm_director, config=self.config,
-            pacing_note=pnote, scene_note=snote,
             beat_status=self._beat_status(), clip_seconds=self.shapes.default.delivered_seconds,
         )
         director_s = time.monotonic() - called
@@ -248,18 +245,13 @@ class DirectorEngine:
                          + ("; the viewer's line is answered at the next plan" if text else ""))
         beat.clips = beat.clips[: director_agent.clip_cap(self.config, text)]
 
-        forced_done = False
-        if not beat.scene_done and world.scene_seconds() >= self.config.scene_seconds:
-            beat.scene_done = True
-            forced_done = True
-
         world.beats += 1
         self._beat, self._clip_index, self._beat_no = beat, 0, world.beats
         self._beat_shape = shape
         self._beat_input = text
         self._pending_note = ""
 
-        reason, mode = self._trigger(beat, forced_done)
+        reason, mode = self._trigger(beat)
         # Where the trigger arose: this plan, or the plan a held replan was
         # first asked at (`_trigger` raises a held one only when this beat
         # raised no flag of its own).
@@ -282,7 +274,7 @@ class DirectorEngine:
                 self._pending_spawn = (reason, mode, triggered_at)
                 spawning = reason
         self._plan_notes = notes
-        self._plan_meta = {"pacing": pnote, "trigger": spawning, "forced": forced_done}
+        self._plan_meta = {"trigger": spawning}
         cost = {"beat": world.beats, "clips": len(beat.clips), "director_s": round(director_s, 4),
                 "retry": retried, "fallback": fallback, "bootstrap": bootstrap}
         self._record_plan(seg, beat, {"fallback": fallback, "bootstrap": bootstrap})
@@ -637,24 +629,17 @@ class DirectorEngine:
 
     # ── Showrunner clock ───────────────────────────────────────────
 
-    def _trigger(self, beat: BeatPlan, forced_done: bool) -> tuple[str | None, str]:
+    def _trigger(self, beat: BeatPlan) -> tuple[str | None, str]:
         world = self.world
         assert world is not None
         cfg = self.config
         if beat.scene_done:
-            return ("scene_done" + (" (scene length)" if forced_done else ""), "replan")
+            return ("scene_done", "replan")
         if beat.needs_replan:
             return ("needs_replan", "replan")
         if self._held_trigger is not None:
             reason, mode, since = self._held_trigger
             return (f"{reason} (held since segment {since})", mode)
-        # The Director is told a shift is REQUIRED at 1.5x the threshold;
-        # the Showrunner replans only at 2x, a beat later, so the two never
-        # act on the same stall at once (ARCH-05).
-        quiet = world.seconds_since_change()
-        if (quiet >= SHOWRUNNER_REPLAN_AT * cfg.stagnation_seconds
-                and world.segment - world.last_showrunner >= cfg.showrunner_min_gap):
-            return (f"stagnation: {quiet:.0f} s without change", "replan")
         if world.segment - world.last_compacted >= cfg.compaction_interval:
             return ("compaction interval", "compact")
         return (None, "")
@@ -851,15 +836,13 @@ class DirectorEngine:
             out.append(f"- Viewer: {beat.intervention}" + (f" ({beat.intervention_reason})" if beat.intervention_reason else ""))
         elif first and world.viewer_momentum:
             out.append(f"- Viewer momentum (seg {world.viewer_momentum_segment}): \"{world.viewer_momentum}\"")
-        if first:
-            out.append(f"- Pacing: {meta.get('pacing', '')}")
         clip = beat.clips[index]
         if clip.dialogue:
             out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in clip.dialogue))
         if first:
             flags = [f for f, v in (("scene_done", beat.scene_done), ("needs_replan", beat.needs_replan)) if v]
             if flags:
-                out.append("- Flags: " + ", ".join(flags) + (" (forced by scene length)" if meta.get("forced") else ""))
+                out.append("- Flags: " + ", ".join(flags))
             if meta.get("trigger"):
                 out.append(f"- Showrunner spawned: {meta['trigger']}")
         for n in notes:

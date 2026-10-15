@@ -9,7 +9,6 @@ from pathlib import Path
 from src.models.config import Config
 from src.models.story import Character, Picture, Story
 from src.story.compiler import compile_clip
-from src.story.pacing import pacing_note, scene_note
 from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThreadOp
 from src.story.validator import apply_clip, check
 from src.story.world import EventRecord, WorldModel
@@ -73,26 +72,23 @@ def test_validator_introduce_update_remove_and_character_state():
         EntityOp(op="update", entity="lego_man", kind="character", state="crouching centre frame, eyeing the ball"),
     ])])
     r = _apply(beat, w, 2)
-    assert not r.violations and r.changed
+    assert not r.violations
     ball = w.entities["soccer_ball"]
     assert ball.present and ball.location == "the_white_void" and ball.first_seen == 2
     assert beat.clips[0].on_screen == ["lego_man", "soccer_ball"], "references normalised to ids"
     hero = w.entities["lego_man"]
     assert ball.state == "at his feet" and hero.state == "crouching centre frame, eyeing the ball"
-    assert w.last_change == 2
 
-    # Who holds a prop is its state, in prose: replaced whole, and not a
-    # structural change (a hand-off does not hold off the pacing clock).
+    # Who holds a prop is its state, in prose, replaced whole.
     beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="soccer_ball", state="in Lego Man's hands"),
                                           EntityOp(op="update", entity="lego_man", kind="character", state="standing")])])
     r = _apply(beat, w, 3)
     assert ball.state == "in Lego Man's hands" and hero.state == "standing" and not r.warnings
-    assert not r.changed and w.last_change == 2
     assert r.applied == ["update soccer_ball: state=in Lego Man's hands", "update lego_man: state=standing"]
 
     beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="soccer_ball", state="dropped", present=False)])])
-    r = _apply(beat, w, 5)
-    assert ball.state == "dropped" and not ball.present and ball in w.dormant_props() and r.changed
+    _apply(beat, w, 5)
+    assert ball.state == "dropped" and not ball.present and ball in w.dormant_props()
 
     beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="remove", entity="soccer_ball", state="disassembled")])])
     _apply(beat, w, 6)
@@ -223,26 +219,6 @@ def test_compiler_continuing_clip_is_compact():
     p3 = compile_clip(beat3, 0, w, picture=Picture(style=style), segment_no=4)
     assert "Entering the picture during this clip: cone (a yellow LEGO cone). A cone appears." in p3
     assert "On screen: Lego Man (the same plain" in p3 and "; cone" not in p3, "an entering entity is not listed as present"
-
-
-def test_pacing_in_story_seconds():
-    w = _world()
-    for seg in range(1, 41):
-        w.events.append(EventRecord(segment=seg, scene_id=1, narration="n", duration=6))
-    w.segment = 40
-    w.last_change = 40
-    cfg = _config(stagnation_seconds=90, scene_seconds=240)
-    assert "no pacing pressure" in pacing_note(w, cfg)
-    w.last_change = 20                     # 20 clips × 6 s = 120 s quiet
-    assert "development" in pacing_note(w, cfg)
-    w.last_change = 5                      # 210 s quiet
-    assert "REQUIRED" in pacing_note(w, cfg)
-    from src.story.world import SceneCard
-    w.plan.scene = SceneCard(id=1, goal="g", tension="t", exit_condition="e", opened_at=1)
-    w.scene_started = 1                    # 240 s so far
-    assert "past its intended length" in scene_note(w, cfg)
-    w.scene_started = 21                   # 120 s
-    assert "there is time" in scene_note(w, cfg)
 
 
 def test_context_shows_character_state_and_keeps_notes_out_of_the_cast():
@@ -487,17 +463,18 @@ def test_a_deferred_request_is_resolved_by_identity():
 
 def test_an_answer_beat_is_capped_and_told_so():
     """ARCH-11: a beat that answers a viewer line has at most
-    `answer_max_clips` clips; the cap is in the user prompt's gates (the
-    system prompt stays byte-identical) and the engine enforces it."""
+    `answer_max_clips` clips; the cap is in the user prompt's viewer
+    section (the system prompt stays byte-identical) and the engine enforces it."""
     from src.agents.director import clip_cap
-    from src.story.context import format_gates
+    from src.story.context import format_interventions
     cfg = _config()
     assert cfg.answer_max_clips == 2
     assert clip_cap(cfg, "a ball appears") == 2 and clip_cap(cfg, "  ") == cfg.max_clips_per_beat == 4
     assert clip_cap(_config(answer_max_clips=6), "x") == 4, "never above the beat cap"
-    gates = format_gates(pacing="p", scene="s", answer_clips=2)
-    assert gates.endswith("This beat answers the viewer: at most 2 clips. Start the answer now; the next beat continues it.")
-    assert "answers the viewer" not in format_gates(pacing="p", scene="s")
+    viewer = format_interventions(_world(), "a ball appears", answer_clips=2)
+    assert "This beat answers the viewer: at most 2 clips. Start the answer now; the next beat continues it." in viewer
+    assert "answers the viewer" not in format_interventions(_world(), "", answer_clips=2), "only a beat with a line"
+    assert "answers the viewer" not in format_interventions(_world(), "a ball appears")
     beat = _beat(clips=[_clip(), _clip(), _clip()])
     assert any("only the first 2" in x for x in check(beat, _world(), max_clips=clip_cap(cfg, "x")).warnings)
 

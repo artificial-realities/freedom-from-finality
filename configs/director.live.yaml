@@ -54,4 +54,3 @@ scene_seconds: 240
 compaction_interval: 10
 showrunner_min_gap: 4
 buffer_seconds: 4.7                      # steady state: each clip is ready about this long before it plays
-stagnation_seconds: 90

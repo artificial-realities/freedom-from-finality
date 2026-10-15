@@ -1,7 +1,7 @@
 """Showrunner: the slow-clock LLM call, off the critical path.
 
-Runs on triggers (bootstrap, scene exit, stagnation, a replan flag, or
-every `compaction_interval` segments) and does two things in one call:
+Runs on triggers (bootstrap, scene exit, a replan flag, or every
+`compaction_interval` segments) and does two things in one call:
 compacts the event log into summaries and writes the plan (arc + next
 scene card). Its update is applied deterministically at the next join.
 """
@@ -30,7 +30,6 @@ from src.story.context import (
     format_truths,
     format_world_now,
 )
-from src.story.pacing import stagnation_report
 from src.story.schemas import ShowrunnerUpdate
 from src.story.world import WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
@@ -47,19 +46,18 @@ INSTRUCTIONS = {
         "`scene_summary` and `act_summary` empty, no `entity_notes`)."
     ),
     "replan": (
-        "This is a scene boundary or a stalled scene. Compact the events since "
-        "the last compaction into `scene_summary`, then write the NEXT scene card "
-        "(`replan` = true). Change something structural if the scene stalled; "
-        "otherwise let the next scene grow out of this one."
+        "This is a scene boundary, or the Director found the plan no longer fits. "
+        "Compact the events since the last compaction into `scene_summary`, then "
+        "write the NEXT scene card (`replan` = true). Change something structural "
+        "if the scene went in circles; otherwise let the next scene grow out of this one."
     ),
     "compact": (
         "This is a compaction pass mid-scene. Summarize the events since the last "
-        "compaction. Check the stagnation report: if the scene has stalled (the "
-        "stagnation timer has reached your replan threshold and the recent events show "
-        "no new props, no structural changes, just variations on the same activity), "
-        "set `replan` = true and write a next scene card that introduces something "
-        "new. Otherwise keep the current scene (`replan` = false): below that "
-        "threshold the Director is the one asked to break the rut."
+        "compaction. Then judge the scene: is it still developing, or going in "
+        "circles (the same bit coming round with small variations), or long past "
+        "its intended length with nothing left? If it is stalled or spent, set "
+        "`replan` = true and write a next scene card that changes the situation. "
+        "Otherwise keep the current scene (`replan` = false)."
     ),
 }
 
@@ -91,7 +89,6 @@ async def run(
         world_now=format_world_now(world),
         threads=format_threads(world, limit=12),
         interventions=format_interventions_all(world),
-        pacing=stagnation_report(world, config),
         instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["replan"]),
     )
     parsed = await call_llm_structured(

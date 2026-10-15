@@ -1,8 +1,8 @@
 """The Showrunner's clock and memory, driven plan by plan with a stub LLM:
 held replan flags are remembered (ARCH-02), a run is spawned after the
-beat's first clip is applied (ARCH-03), the stagnation rungs have one
-owner each (ARCH-05), threads show their age (ARCH-16) and notes are
-kept only when they add something (ARCH-17)."""
+beat's first clip is applied (ARCH-03), only the roles end a scene,
+threads show their age (ARCH-16) and notes are kept only when they add
+something (ARCH-17)."""
 
 from __future__ import annotations
 
@@ -14,11 +14,10 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.models.story import Story
 from src.state.story_state import StoryState
-from src.story.context import format_threads
-from src.story.pacing import REQUIRED_AT, SHOWRUNNER_REPLAN_AT, pacing_note
+from src.story.context import format_plan, format_threads
 from src.story.schemas import BeatPlan, EntityNote, SceneCardOut, ShowrunnerUpdate
 from src.story.validator import apply_showrunner
-from src.story.world import MAX_NOTES, EventRecord, Summary, Thread, WorldModel
+from src.story.world import MAX_NOTES, EventRecord, SceneCard, Summary, Thread, WorldModel
 
 
 def _clip(action: str, **over) -> dict:
@@ -70,7 +69,7 @@ class Stub(LLMBackend):
 
 def _engine(beats: list[dict], **over) -> tuple[DirectorEngine, Stub, StoryState]:
     cfg = dict(name="t", graph="director", llm_backend="mock", model="mock", compaction_interval=100,
-               showrunner_min_gap=4, stagnation_seconds=90.0, scene_seconds=10_000)
+               showrunner_min_gap=4, scene_seconds=10_000)
     cfg.update(over)
     stub = Stub(beats)
     engine = DirectorEngine(llm=stub, config=Config(**cfg))
@@ -154,22 +153,22 @@ async def test_a_spawn_waits_for_the_first_clip_and_survives_a_cut():
     assert engine._held_trigger is None
 
 
-def test_stagnation_rungs_have_one_owner_each():
-    """ARCH-05: the Director is told a shift is REQUIRED from 1.5x; the
-    Showrunner's stagnation replan fires only from 2x."""
-    assert (REQUIRED_AT, SHOWRUNNER_REPLAN_AT) == (1.5, 2.0)
-    engine, _, state = _engine([_beat("quiet")], showrunner_min_gap=1)
+def test_only_the_roles_end_a_scene():
+    """No code measures stagnation or ends a scene: a quiet scene far past
+    its intended length raises no trigger of its own (the roles' flags and
+    the compaction pass, where the Showrunner judges the scene, remain),
+    and the plan shows both roles how long the scene has run."""
+    engine, _, state = _engine([_beat("quiet")], showrunner_min_gap=1, scene_seconds=240.0)
     world = WorldModel.from_story(state.story)
     engine.world = world
-    quiet = BeatPlan(**_beat("quiet"))
-    for seconds, required, replan in ((100, False, False), (140, True, False), (175, True, False), (185, True, True)):
-        world.events = [EventRecord(segment=i + 1, scene_id=1, narration="x", duration=5)
-                        for i in range(seconds // 5)]
-        world.segment = len(world.events)
-        note = pacing_note(world, engine.config)
-        reason, _ = engine._trigger(quiet, False)
-        assert ("REQUIRED" in note) is required, (seconds, note)
-        assert (reason is not None and reason.startswith("stagnation")) is replan, (seconds, reason)
+    world.events = [EventRecord(segment=i + 1, scene_id=1, narration="x", duration=6) for i in range(100)]
+    world.segment, world.last_compacted = 100, 99
+    world.plan.scene = SceneCard(id=1, goal="g", tension="t", exit_condition="e", opened_at=1)
+    assert engine._trigger(BeatPlan(**_beat("quiet"))) == (None, "")
+    assert "running 600 s of about 240 s" in format_plan(world, engine.config)
+    assert engine._trigger(BeatPlan(**_beat("done", scene_done=True))) == ("scene_done", "replan")
+    world.last_compacted = 0
+    assert engine._trigger(BeatPlan(**_beat("quiet"))) == ("compaction interval", "compact")
 
 
 def test_threads_show_their_age():

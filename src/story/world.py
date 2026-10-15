@@ -194,7 +194,6 @@ class WorldModel(BaseModel):
     events: list[EventRecord] = Field(default_factory=list)
     beats: int = 0               # beats planned so far
     last_compacted: int = 0
-    last_change: int = 0
     last_showrunner: int = 0
     scene_started: int = 1
     showrunner_runs: int = 0
@@ -341,13 +340,6 @@ class WorldModel(BaseModel):
 
     def scene_seconds(self) -> float:
         return float(sum(e.duration for e in self.events if e.segment >= self.scene_started))
-
-    def stagnation(self) -> int:
-        """Clips since anything in the world changed."""
-        return max(0, self.segment - self.last_change)
-
-    def seconds_since_change(self) -> float:
-        return float(sum(e.duration for e in self.events if e.segment > self.last_change))
 
     def seconds_since(self, segment: int) -> float:
         """Story seconds played from `segment` on (inclusive): a thread's age."""

@@ -19,9 +19,6 @@ Segment: {segment}
 ## Viewer requests
 {interventions}
 
-## Stagnation report
-{pacing}
-
 {instruction}
 
 Return a single JSON object.
