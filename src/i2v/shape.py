@@ -1,4 +1,4 @@
-"""Clip shapes: the one authority on how long a clip is (RUN-01).
+"""Clip shapes: the one authority on how long a clip is.
 
 A `ClipShape` is a clip's length in frames, fixed before the clip is
 planned: the frames the server renders, the frames at its head that
@@ -8,12 +8,10 @@ selected shape: the Director's prompt, the engine's event record and
 story clock, the render request, the player's hold. Nothing derives a
 length from seconds anywhere else.
 
-The `ShapeRegistry` holds the shapes a run may use, built once at start
-from the config and the server's frame rate. The production policy
-selects the default shape for every clip; extra shapes are registered
-(and must be warm on the server, RUN-08) only so an experiment can
-select them (X-18) without a second derivation. A frame count the
-registry does not hold is refused.
+The `ShapeRegistry` holds the run's shape, built once at start from the
+config and the server's frame rate, and refuses a frame count it does
+not hold or a server that has not warmed it: under fp8 every new shape
+compiles on the server for minutes, so a run has one clip length.
 
     python -m src.i2v.shape configs/director.live.yaml   # the frame counts to warm, for LTX2_WARMUP_FRAMES
 """
@@ -27,7 +25,7 @@ from pydantic import BaseModel, ConfigDict
 
 DEFAULT_FPS = 24.0
 # Warm-up renders per shape: compilation plus the CPU warm-up of a fresh
-# box cover the first three clips of a shape (2026-09-16 probes).
+# box cover the first three clips of a shape.
 WARMUP_REPEATS = 3
 
 
@@ -44,7 +42,7 @@ class UnregisteredShape(ValueError):
 class ClipShape(BaseModel):
     """One clip's length in frames. With `seam: "fade"` the whole rendered
     file is delivered (the player shows its first `overlap_frames`, which
-    repeat the previous clip's tail); with `seam: "overlap"` (LTX-12) the
+    repeat the previous clip's tail); with `seam: "overlap"` the
     render carries the overlap on top of the delivered frames and the
     player cuts where the next clip's repeated head begins."""
 
@@ -73,7 +71,7 @@ class ClipShape(BaseModel):
 
     @classmethod
     def overlapped(cls, seconds: float, *, fps: float = DEFAULT_FPS, overlap_frames: int) -> "ClipShape":
-        """The overlap seam's shape (LTX-12, D-03): about `seconds` of new
+        """The overlap seam's shape: about `seconds` of new
         picture plus the `overlap_frames` that repeat the previous clip's
         tail, rendered on the 8k + 1 grid; the new frames are delivered
         (6 s at 24 fps with a 9-frame window: 153 rendered, 144 delivered)."""
@@ -97,23 +95,17 @@ def seconds_label(seconds: float) -> str:
 
 
 class ShapeRegistry:
-    """The shapes a run may use. `default` is the production shape;
-    `select` is the production policy (the default for every clip)."""
+    """The shape a run uses for every clip (`default`, which `select`
+    returns)."""
 
-    def __init__(self, default: ClipShape, extra: list[ClipShape] | None = None) -> None:
+    def __init__(self, default: ClipShape) -> None:
         self.default = default
-        shapes = {default.render_frames: default}
-        for shape in extra or []:
-            if shape.fps != default.fps:
-                raise ValueError(f"shape of {shape.render_frames} frames at {shape.fps} fps; the run is {default.fps} fps")
-            shapes.setdefault(shape.render_frames, shape)
-        self._shapes = shapes
+        self._shapes = {default.render_frames: default}
 
     @classmethod
     def from_config(cls, config, *, fps: float = DEFAULT_FPS) -> "ShapeRegistry":
-        """The config's `clip_seconds` as the default shape and its
-        `extra_clip_seconds` as experiment shapes, at the server's `fps`,
-        with the continuity window as the overlap: delivered whole with
+        """The config's `clip_seconds` as the run's shape at the server's
+        `fps`, with the continuity window as the overlap: delivered whole with
         `seam: "fade"`, rendered on top of the delivered frames with
         `seam: "overlap"`."""
         overlap = int(getattr(config, "ltxv_continuity_frames", 0) or 0)
@@ -121,9 +113,7 @@ class ShapeRegistry:
             make = lambda s: ClipShape.overlapped(s, fps=fps, overlap_frames=overlap)  # noqa: E731
         else:
             make = lambda s: ClipShape.from_seconds(s, fps=fps, overlap_frames=overlap)  # noqa: E731
-        default = make(config.clip_seconds)
-        extra = [make(s) for s in getattr(config, "extra_clip_seconds", []) or []]
-        return cls(default, extra)
+        return cls(make(config.clip_seconds))
 
     @property
     def shapes(self) -> list[ClipShape]:
@@ -141,14 +131,13 @@ class ShapeRegistry:
                 f"no registered clip shape of {render_frames} frames (registered: {self.frames})") from None
 
     def select(self) -> ClipShape:
-        """The shape of the next clip. Production: always the default. A
-        variable-length policy is experiment-gated (RUN-02, X-18)."""
+        """The shape of the next clip: always the run's one shape."""
         return self.default
 
     def check_warm(self, warm_frames) -> None:
-        """Refuse a run whose server has not warmed every registered shape
-        (RUN-08): an unwarmed shape compiles mid-film and holds the picture
-        for minutes."""
+        """Refuse a run whose server has not warmed every registered shape:
+        an unwarmed shape compiles mid-film and holds the picture for
+        minutes."""
         if warm_frames is None:
             raise UnregisteredShape("the server does not report `warm_frames`; it cannot promise a warm shape")
         warm = {int(f) for f in warm_frames}

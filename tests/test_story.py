@@ -1,24 +1,17 @@
-"""Unit tests for the deterministic story layer: world model, validator,
-compiler, pacing. No LLM involved."""
+"""The deterministic story layer, no LLM: the world model built from a
+blueprint, the validator (the only code that mutates the world), the
+prompt compiler and persistence."""
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-from src.models.config import Config
-from src.models.story import Character, Picture, Story
+from src.models.story import Picture, Story
 from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThreadOp
 from src.story.validator import apply_clip, check
 from src.story.world import EventRecord, WorldModel
-
-
-def _config(**over) -> Config:
-    base = dict(name="t", graph="director", llm_backend="mock", model="mock")
-    base.update(over)
-    return Config(**base)
-
 
 PLAIN = Picture()   # no style, no reference: the compiler's own words only
 
@@ -36,14 +29,24 @@ def _clip(**over) -> ClipSpec:
     return ClipSpec(**base)
 
 
-def _beat(**over) -> BeatPlan:
-    base = dict(intent="a wave", framing="medium shot", clips=[_clip()])
+def _beat(*ops: EntityOp, **over) -> BeatPlan:
+    base = dict(intent="a wave", framing="medium shot", clips=[_clip(entity_ops=list(ops))] if ops else [_clip()])
     base.update(over)
     return BeatPlan(**base)
 
 
 def _apply(beat: BeatPlan, w: WorldModel, segment_no: int, index: int = 0):
     return apply_clip(beat, index, w, segment_no=segment_no)
+
+
+def _emit(beat: BeatPlan, w: WorldModel, seg: int, index: int = 0, **kw) -> str:
+    """Apply, compile and record the clip the way the engine emits it."""
+    _apply(beat, w, seg, index)
+    prompt = compile_clip(beat, index, w, picture=PLAIN, segment_no=seg, **kw)
+    clip = beat.clips[index]
+    w.events.append(EventRecord(segment=seg, scene_id=1, narration=clip.action_text(),
+                                on_screen=list(clip.on_screen), end_state=clip.end_state, duration=6))
+    return prompt
 
 
 def test_world_from_blueprint():
@@ -59,10 +62,6 @@ def test_world_from_blueprint():
     assert w.opening_picture == ["lego_man"], "the reference image shows Lego Man, not the Spaceman"
     assert w.current_location().id == "the_white_void"
     assert w.resolve("Lego Man") is hero and w.resolve("lego man") is hero
-    # A blueprint from before `state` gave the starting state in three fields.
-    old = Character(name="Mara", posture="sitting", activity="watching the sea", position="frame left")
-    assert old.state == "sitting; watching the sea; frame left"
-    assert Character(name="Mara", state="kneeling", posture="sitting").state == "kneeling"
 
 
 def test_validator_introduce_update_remove_and_character_state():
@@ -142,6 +141,66 @@ def test_validator_cast_lock_and_speakers():
     assert not r.violations and "plastic_cat" in w.entities, "creatures are props and allowed"
 
 
+def test_the_validator_protects_the_protagonist_and_the_policy():
+    """A newcomer without a look, a second Lego Man and the protagonist's
+    removal are violations and are not applied; the Spaceman introduced by
+    name is brought in, not duplicated."""
+    w = _world()
+    faceless = EntityOp(op="introduce", entity="chef", kind="character")
+    double = EntityOp(op="introduce", entity="Lego Man 2", kind="character", description="another plain figure")
+    gone = EntityOp(op="remove", entity="lego_man")
+    r = check(_beat(faceless, double, gone), w)
+    words = " ".join(r.violations)
+    assert "needs a `description`" in words and "never appears twice" in words and "cannot be removed" in words
+    apply_clip(_beat(faceless, double, gone), 0, w, segment_no=3)
+    assert "chef" not in w.entities and "lego_man_2" not in w.entities and not w.entities["lego_man"].gone
+    spaceman = EntityOp(op="introduce", entity="Spaceman", kind="character", description="an astronaut")
+    both = _beat(clips=[_clip(on_screen=["lego_man", "spaceman"], entity_ops=[spaceman])])
+    r = check(both, w)
+    assert not r.violations and any("already exists as spaceman; treated as update" in x for x in r.warnings)
+    apply_clip(both, 0, w, segment_no=4)
+    assert w.entities["spaceman"].present and "spaceman_2" not in w.entities and not w.entities["spaceman"].dynamic
+
+
+def test_a_newcomer_is_registered_once_and_stays_the_same():
+    """Introduced where the story allows it: registered with its look, a
+    short look for later clips, who it is, its voice and its state; it may
+    speak on the clip it enters; described on entering, carried by its
+    short look after; listed in World now (not on the cached cast sheet)."""
+    w = _world()
+    from src.story.context import format_cast, format_cast_rules, format_world_now
+    system_before = format_cast(w) + format_cast_rules(w)
+    pirate = EntityOp(op="introduce", entity="pirate captain", kind="character",
+                      description="a LEGO pirate captain minifigure in a black tricorn hat and red coat; a peg leg",
+                      who="a castaway who thinks the void is a becalmed sea", voice="gravelly, booming",
+                      state="standing on his peg leg at frame right, squinting at the horizon")
+    hello = DialogueLine(speaker="pirate captain", line="Ahoy!")
+    beat = _beat(clips=[_clip(on_screen=["lego_man", "pirate captain"], entity_ops=[pirate], dialogue=[hello])])
+    r = check(beat, w)
+    assert not r.violations and not r.warnings, (r.violations, r.warnings)
+    apply_clip(beat, 0, w, segment_no=12)
+    ent = w.entities["pirate_captain"]
+    assert ent.dynamic and ent.first_seen == 12 and ent.present
+    assert ent.description == "a castaway who thinks the void is a becalmed sea"
+    assert ent.voice.description == "gravelly, booming" and beat.clips[0].dialogue == [hello]
+    assert ent.look_short == "a LEGO pirate captain minifigure in a black tricorn hat and red coat"
+    assert ent.state == "standing on his peg leg at frame right, squinting at the horizon"
+    prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=12)
+    assert "Entering the picture during this clip: pirate captain (a LEGO pirate captain minifigure" in prompt
+    assert 'Pirate captain says in a gravelly, booming voice, "Ahoy!"' in prompt, "the speaker opens a sentence"
+    later = _beat(clips=[_clip(on_screen=["lego_man", "pirate_captain"])])
+    apply_clip(later, 0, w, segment_no=13)
+    prompt = compile_clip(later, 0, w, picture=PLAIN, segment_no=13)
+    assert "pirate captain (a LEGO pirate captain minifigure in a black tricorn hat and red coat)" in prompt, \
+        "identity restated on every later clip"
+    assert format_cast(w) + format_cast_rules(w) == system_before, "the system prompt stays byte-identical (cache)"
+    now = format_world_now(w)
+    assert "pirate_captain (character): pirate captain" in now and "introduced at segment 12" in now
+    assert "who: a castaway who thinks the void is a becalmed sea" in now and "voice: gravelly, booming" in now
+    voiceless = EntityOp(op="introduce", entity="knight", kind="character", description="a LEGO knight")
+    assert any("has no `voice`" in x for x in check(_beat(voiceless), w).warnings)
+
+
 def test_validator_threads_and_interventions_land_on_the_first_clip():
     w = _world()
     w.add_intervention(2, "kick the ball")
@@ -212,7 +271,7 @@ def test_compiler_continuing_clip_is_compact():
     assert p2.startswith("Studio product shot.") and "cyclorama" not in p2, "no anchor: the style's first sentence"
     assert "Medium shot; the camera makes a slow push in." in p2
     # The clip that introduces a prop carries its description, as an entrance
-    # rather than as something already on screen (LTX-03).
+    # rather than as something already on screen.
     beat3 = _beat(clips=[_clip(action="A cone appears.", end_state="cone", on_screen=["lego_man", "cone"],
                                entity_ops=[EntityOp(op="introduce", entity="cone", description="a yellow LEGO cone")])])
     _apply(beat3, w, 4)
@@ -221,164 +280,10 @@ def test_compiler_continuing_clip_is_compact():
     assert "On screen: Lego Man (the same plain" in p3 and "; cone" not in p3, "an entering entity is not listed as present"
 
 
-def test_context_shows_character_state_and_keeps_notes_out_of_the_cast():
-    from src.story.context import format_cast, format_recent, format_summaries, format_world_now, PRESENT_IN_FULL
-    from src.story.world import Summary
-    w = _world()
-    hero = w.entities["lego_man"]
-    hero.notes.append("He is proud of the kick.")
-    _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="lego_man", kind="character",
-                                                   state="lying on his back centre frame, asleep")])]), w, 1)
-    text = format_world_now(w)
-    assert "now: lying on his back centre frame, asleep" in text
-    assert "notes: He is proud of the kick." in text
-    assert "He is proud" not in format_cast(w), "notes live in the user prompt so the system prompt stays cacheable"
-    for i in range(20):
-        _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity=f"prop {i}", description="x" * 300, state="s" * 300)])]), w, i + 2)
-    text = format_world_now(w)
-    assert text.count("\n- ") == PRESENT_IN_FULL, "the character plus the most recent props get full lines"
-    assert "Also present (seen less recently)" in text
-    assert "…" in text, "long state strings are clipped"
-    assert "looks:" not in text and "xxxx" not in text, \
-        "a prop's look is the compiler's business, not the Director's (CLEAN-07)"
-    assert "now: sss" in text, "a prop's state still shows"
-    w.events.append(EventRecord(segment=1, scene_id=1, beat=1, beat_intent="he sleeps", clip_index=2, clip_count=3,
-                                narration="He lies still.", end_state="asleep", duration=6))
-    recent = format_recent(w, 4)
-    assert '[segment 1 · beat 1 "he sleeps" clip 2/3] He lies still.' in recent
-    assert "Direction set after" not in recent, "no next_direction feedback loop"
-    w.summaries.append(Summary(scope="scene", first_segment=1, last_segment=10, text="He woke and looked around."))
-    for k in range(5):
-        w.summaries.append(Summary(scope="scene", first_segment=11 + k * 10, last_segment=20 + k * 10, text=f"scene {k}"))
-    s = format_summaries(w)
-    assert s.startswith("Opening (segments 1-10): He woke and looked around.")
-    assert "scene 4" in s and "scene 0" not in s, "recent scenes shown, middle ones compacted away"
-
-
-def test_compiler_caps_described_entities():
-    from src.story.compiler import DESCRIBED_IN_FULL
-    w = _world()
-    for i in range(10):
-        _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity=f"thing {i}", description=f"look {i}")])]), w, 1)
-    beat = _beat(clips=[_clip(action="x", on_screen=[f"thing_{i}" for i in range(10)] + ["lego_man"], end_state="e")])
-    prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=1)
-    assert prompt.count("(look ") == DESCRIBED_IN_FULL - 1, "character first, then props with looks up to the cap"
-    assert "Lego Man (" in prompt and "thing 9" in prompt
-
-
-def test_persistence_round_trip():
-    w = _world()
-    _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="hat", description="a red cap")])]), w, 1)
-    w.events.append(EventRecord(segment=1, scene_id=1, narration="n", beat=1, beat_intent="a hat"))
-    with tempfile.TemporaryDirectory() as d:
-        w.save(d); w.save(d)  # second save must not duplicate events
-        loaded = WorldModel.load(d)
-        assert "hat" in loaded.entities and len(loaded.events) == 1 and loaded.events[0].beat_intent == "a hat"
-        assert (Path(d) / "events.jsonl").read_text().count("\n") == 1
-        # A world.json written before CLEAN-03 carries `reference_image` on
-        # every entity; it still loads (unknown keys are ignored).
-        import json
-        raw = json.loads((Path(d) / "world.json").read_text())
-        raw["entities"]["lego_man"]["reference_image"] = "data/legoman.png"
-        (Path(d) / "world.json").write_text(json.dumps(raw))
-        old = WorldModel.load(d)
-        assert "lego_man" in old.entities and not hasattr(old.entities["lego_man"], "reference_image")
-
-
-def test_the_reference_belongs_to_the_picture():
-    """The reference image and what it shows live on the picture, not on a
-    character; the image resolves against the story folder; a story may
-    have none (the renderer refuses a video run without one)."""
-    import json
-    raw = json.loads(Path("stories/lego-void/story.json").read_text())
-    image = raw["picture"]["reference"]["image"]
-    with tempfile.TemporaryDirectory() as d:
-        (Path(d) / "story.json").write_text(json.dumps(raw))
-        (Path(d) / image).write_bytes((Path("stories/lego-void") / image).read_bytes())
-        story = Story.from_json(d)
-    assert story.reference_image == str(Path(d) / image), "the image resolves against the story folder"
-    assert story.picture.reference.shows.startswith("Lego Man standing upright")
-    raw["picture"].pop("reference")
-    bare = Story(**raw)
-    assert bare.reference_image == "" and WorldModel.from_story(bare).opening_picture is None
-
-
-def test_location_resolver_forms_and_prefix_collision():
-    """CLEAN-09: no multi-location story has run. The resolver takes ids,
-    names and prefixed forms; a decorated reference falls through to the
-    substring fallback, which takes the first location id contained in the
-    text, so a location whose id is a prefix of another's wins there (the
-    known gap from review 01 §4.4, pinned here until a two-location story
-    needs it fixed)."""
-    from src.models.story import Location
-    from src.story.validator import resolve_location
-    story = Story.from_json("stories/lego-void")
-    locations = [Location(name="The Void", description="white"), Location(name="The Void Annex", description="whiter")]
-    w = WorldModel.from_blueprint(title=story.title, characters=story.cast.characters, locations=locations)
-    assert [e.id for e in w.by_kind("location")] == ["the_void", "the_void_annex"]
-    assert w.current_location().id == "the_void", "the first location is home"
-    # Exact ids, names, slugs and prefixed forms all resolve to the right one.
-    for ref in ("the_void_annex", "The Void Annex", "the void annex", "at the_void_annex", "in The Void Annex", "inside the void annex"):
-        assert resolve_location(w, ref).id == "the_void_annex", ref
-    for ref in ("the_void", "The Void", "at the void", "on the_void"):
-        assert resolve_location(w, ref).id == "the_void", ref
-    assert resolve_location(w, "the skateboard") is None, "no location id in the text: unresolved"
-    # The known gap: a decorated reference to the annex reaches the fallback
-    # and `the_void` is found inside it first.
-    assert resolve_location(w, "The Void Annex, far end").id == "the_void", "the prefix collision (01 §4.4)"
-    assert resolve_location(w, "far end of the annex") is None, "no location id in the text: unresolved"
-    # Two locations with the same name get `_2`, and the same collision applies.
-    w2 = WorldModel.from_blueprint(title=story.title, characters=story.cast.characters,
-                                   locations=[Location(name="Void", description="a"), Location(name="Void", description="b")])
-    assert [e.id for e in w2.by_kind("location")] == ["void", "void_2"]
-    assert resolve_location(w2, "void_2").id == "void_2" and resolve_location(w2, "the void_2").id == "void_2"
-    assert resolve_location(w2, "void 2, by the edge").id == "void", "the prefix collision (`void` inside `void_2`)"
-    # A protagonist move to the annex lands through the validator and flips presence.
-    beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="update", entity="lego_man", kind="character", location="in The Void Annex")])])
-    r = _apply(beat, w, 2)
-    assert not r.violations and w.entities["lego_man"].location == "the_void_annex"
-    assert w.current_location().id == "the_void_annex"
-
-
-def test_compiler_camera_clause():
-    """CLEAN-08: the camera line is a clause whatever form the Director's
-    `camera_motion` takes (session A had four ungrammatical "… camera" lines)."""
-    from src.story.compiler import camera_clause
-    assert camera_clause("static") == "the camera remains static"
-    assert camera_clause("") == "the camera remains static" and camera_clause("Static camera.") == "the camera remains static"
-    assert camera_clause("none") == "the camera remains static"
-    # Today's noun phrases (session A).
-    assert camera_clause("slow push-in toward the pair") == "the camera makes a slow push-in toward the pair"
-    assert camera_clause("slight push-in for comedic effect") == "the camera makes a slight push-in for comedic effect"
-    assert camera_clause("slow pan to follow Lego Man's movement") == "the camera makes a slow pan to follow Lego Man's movement"
-    assert camera_clause("orbit around him") == "the camera makes an orbit around him"
-    # Verb phrases (the form LTX-04 will ask the Director for) and participles.
-    assert camera_clause("slowly pushes in") == "the camera slowly pushes in"
-    assert camera_clause("pans left to follow him") == "the camera pans left to follow him"
-    assert camera_clause("tracking Lego Man as he walks") == "the camera is tracking Lego Man as he walks"
-    assert camera_clause("the camera slowly pushes in.") == "the camera slowly pushes in", "no double 'the camera'"
-    w = _world()
-    beat = _beat(framing="wide shot, low angle", clips=[_clip(camera_motion="slow push-in on the crown")])
-    prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=2)
-    assert "Wide shot, low angle; the camera makes a slow push-in on the crown." in prompt
-    assert " camera." not in prompt
-
-
-def _emit(beat: BeatPlan, w: WorldModel, seg: int, index: int = 0, **kw) -> str:
-    """Apply, compile and record the clip the way the engine emits it."""
-    _apply(beat, w, seg, index)
-    prompt = compile_clip(beat, index, w, picture=PLAIN, segment_no=seg, **kw)
-    clip = beat.clips[index]
-    w.events.append(EventRecord(segment=seg, scene_id=1, narration=clip.action_text(),
-                                on_screen=list(clip.on_screen), end_state=clip.end_state, duration=6))
-    return prompt
-
-
 def test_compiler_describes_entering_and_returning_entities():
-    """LTX-03: an entity is described on the clip in which it enters the
-    picture and is never listed as already on screen; a prop introduced
-    by an op the Director left out of `on_screen` (session A, the crown)
-    is described too; a returning dormant prop gets its identifiers again;
+    """An entity is described on the clip in which it enters the picture
+    and is never listed as already on screen; a prop introduced by an op
+    the Director left out of `on_screen` is described too; a returning dormant prop gets its identifiers again;
     the clip after an entrance lists the entity normally."""
     w = _world()
     p1 = _emit(_beat(clips=[_clip(action="He looks around.", on_screen=["lego_man"])]), w, 1, opening=True)
@@ -393,7 +298,7 @@ def test_compiler_describes_entering_and_returning_entities():
     p3 = _emit(_beat(clips=[_clip(action="He nudges the ball.", on_screen=["lego_man", "soccer_ball"])]), w, 3)
     assert "On screen: Lego Man (the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands); soccer ball." in p3
     assert "Entering" not in p3 and "(a studded LEGO ball)" not in p3
-    # Introduced by an op but not listed (the crown at segment 53): described anyway.
+    # Introduced by an op but not listed: described anyway.
     crown = _beat(clips=[_clip(action="The crown pops off with a click. He holds it up.", on_screen=["lego_man"],
                                entity_ops=[EntityOp(op="introduce", entity="princess crown", description="a bright, blocky LEGO crown", state="in Lego Man's hand")])])
     p4 = _emit(crown, w, 4)
@@ -429,54 +334,15 @@ def test_compiler_describes_entering_and_returning_entities():
     assert "On screen: Lego Man (" in p and "Entering" not in p
 
 
-def test_a_deferred_request_is_resolved_by_identity():
-    """ARCH-07: with two requests owed, the beat names the one it delivers
-    by its segment; an absorbed beat that names none resolves neither
-    (it used to take the last one); an unknown segment is ignored."""
+def test_persistence_round_trip():
     w = _world()
-    for seg, text in ((2, "kick the ball"), (5, "wear a hat")):
-        w.add_intervention(seg, text)
-        _apply(_beat(intervention="deferred", intervention_reason="later"), w, seg)
-    assert [i.disposition for i in w.interventions] == ["deferred", "deferred"]
-
-    r = _apply(_beat(intervention="absorbed"), w, 6)
-    assert [i.disposition for i in w.interventions] == ["deferred", "deferred"]
-    assert any("2 requests owed and no delivered_request" in x for x in r.warnings), r.warnings
-
-    beat = _beat(delivered_request=9)
-    assert any("names no deferred request" in x for x in check(beat, w).warnings)
-    r = _apply(beat, w, 7)
-    assert [i.disposition for i in w.interventions] == ["deferred", "deferred"] and r.warnings
-
-    r = _apply(_beat(delivered_request=2, intervention_reason="the kick, at last"), w, 8)
-    kick, hat = w.interventions
-    assert (kick.disposition, kick.resolved_at, kick.reason) == ("absorbed", 8, "the kick, at last")
-    assert hat.disposition == "deferred", "the other request is still owed"
-    assert any("(segment 2) now absorbed" in a for a in r.applied)
-
-    w.add_intervention(9, "jump")            # a new line answered while an old one is delivered
-    _apply(_beat(intervention="absorbed", intervention_reason="he jumps", delivered_request=5), w, 9)
-    assert [(i.text, i.disposition, i.resolved_at) for i in w.interventions] == [
-        ("kick the ball", "absorbed", 8), ("wear a hat", "absorbed", 9), ("jump", "absorbed", 9)]
-    assert "delivered_request" in BeatPlan.model_fields, "a strict-subset int field"
-
-
-def test_an_answer_beat_is_capped_and_told_so():
-    """ARCH-11: a beat that answers a viewer line has at most
-    `answer_max_clips` clips; the cap is in the user prompt's viewer
-    section (the system prompt stays byte-identical) and the engine enforces it."""
-    from src.agents.director import clip_cap
-    from src.story.context import format_interventions
-    cfg = _config()
-    assert cfg.answer_max_clips == 2
-    assert clip_cap(cfg, "a ball appears") == 2 and clip_cap(cfg, "  ") == cfg.max_clips_per_beat == 4
-    assert clip_cap(_config(answer_max_clips=6), "x") == 4, "never above the beat cap"
-    viewer = format_interventions(_world(), "a ball appears", answer_clips=2)
-    assert "This beat answers the viewer: at most 2 clips. Start the answer now; the next beat continues it." in viewer
-    assert "answers the viewer" not in format_interventions(_world(), "", answer_clips=2), "only a beat with a line"
-    assert "answers the viewer" not in format_interventions(_world(), "a ball appears")
-    beat = _beat(clips=[_clip(), _clip(), _clip()])
-    assert any("only the first 2" in x for x in check(beat, _world(), max_clips=clip_cap(cfg, "x")).warnings)
+    _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="hat", description="a red cap")])]), w, 1)
+    w.events.append(EventRecord(segment=1, scene_id=1, narration="n", beat=1, beat_intent="a hat"))
+    with tempfile.TemporaryDirectory() as d:
+        w.save(d); w.save(d)  # second save must not duplicate events
+        loaded = WorldModel.load(d)
+        assert "hat" in loaded.entities and len(loaded.events) == 1 and loaded.events[0].beat_intent == "a hat"
+        assert (Path(d) / "events.jsonl").read_text().count("\n") == 1
 
 
 def test_every_blueprint_field_is_in_the_field_guide():

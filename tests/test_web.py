@@ -12,7 +12,7 @@ from pathlib import Path
 
 import aiohttp
 
-from src.eval.runner import run_live
+from src.runner import run_live
 from src.models.config import Config
 from src.models.story import Story
 from src.playback.player import Playable, Player

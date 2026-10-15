@@ -6,3 +6,4 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 aiohttp>=3.9  # the web player (src/web)
 pillow>=10.0  # letterboxing the seed image to the render frame
+pytest>=8.0  # the offline test suite (tests/)

@@ -37,37 +37,19 @@ from src.util.timing_log import TimingLog, git_revision
 
 # Just-in-time rendering: a render fires its estimate plus the config's
 # `buffer_seconds` before its clip is due on air, so the clip is ready that
-# long before it plays (RUN-03). The Director's estimate is scaled by
+# long before it plays. The Director's estimate is scaled by
 # JIT_SAFETY and JIT_MARGIN_S is kept in hand, so a slower than usual call
 # still leaves the render its moment.
 JIT_SAFETY = 1.25
 JIT_MARGIN_S = 0.5
-# Fail-soft (RUN-09): a failed render is retried once only if the retry can
+# Fail-soft: a failed render is retried once only if the retry can
 # still finish before its clip is due (the p95 of the last RENDER_WINDOW
 # renders plus JIT_MARGIN_S); this many failed segments in a row stop the
 # film instead of looping on a renderer that is down.
 RENDER_WINDOW = 20
 MAX_CONSECUTIVE_FAILURES = 3
-# RUN-06's candidate policy (`jit_policy: "deadline"`, X-09 only): estimates
-# are the rolling p95 of the last P95_WINDOW measurements, floored by the
-# runtime baseline; a line is admitted to the clip about to fire only if
-# the Director's p95 lands it before that fire plus ADMISSION_TAU_S.
-P95_WINDOW = 20
-ADMISSION_TAU_S = 1.0
-BASELINE_PATH = Path(__file__).resolve().parents[2] / "benchmarks" / "runtime" / "baseline.json"
 # A `fire_due` record is written again only when the due moment moves by more than this.
 FIRE_DUE_STEP_S = 0.2
-
-
-def _baseline_floors() -> dict[str, float]:
-    """The deadline policy's floors: the baseline's render and Director p95."""
-    import json
-    try:
-        base = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        return {"render": float(base["renders"]["render_s"]["p95"]),
-                "director": float(base["director"]["seconds"]["p95"])}
-    except (OSError, KeyError, ValueError):
-        return {"render": 0.0, "director": 0.0}
 
 logger = logging.getLogger(__name__)
 
@@ -123,16 +105,16 @@ def _log_emit(timing: TimingLog, graph, turn: int) -> None:
 
 
 def _shapes_for(config: Config, i2v: I2VBackend | None) -> ShapeRegistry:
-    """The run's clip shapes, at the renderer's frame rate (RUN-01)."""
+    """The run's clip shape, at the renderer's frame rate."""
     return ShapeRegistry.from_config(config, fps=i2v.frame_rate if i2v is not None else DEFAULT_FPS)
 
 
 def _check_shapes(i2v: I2VBackend | None, shapes: ShapeRegistry, timing: TimingLog,
                   config: Config | None = None) -> None:
     """Refuse the run before anything renders when the renderer has not
-    warmed every registered shape (RUN-08); the verdict goes to the log.
-    A server whose loudness ceiling differs from the config's (AUD-03) is
-    run, with a warning: the film plays either way."""
+    warmed every registered shape; the verdict goes to the log. A server
+    whose loudness ceiling differs from the config's is run, with a
+    warning: the film plays either way."""
     if i2v is None:
         return
     try:
@@ -151,7 +133,7 @@ def _check_shapes(i2v: I2VBackend | None, shapes: ShapeRegistry, timing: TimingL
 
 def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog) -> None:
     """Validate the reference against the render frame before anything
-    renders (RUN-11); the verdict goes to the timing log. A strict
+    renders; the verdict goes to the timing log. A strict
     refusal stops the run here, not at the first render, and so does a
     story without a reference: the renderer starts every film from one."""
     if i2v is None:
@@ -170,7 +152,7 @@ def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog)
 
 def _maybe_i2v(config: Config, log_dir: Path | str, session_id: str = "") -> I2VBackend | None:
     """The run's render backend. Its seeds are derived from
-    `ltxv_seed_key`, or the session id when that is empty (LTX-09)."""
+    `ltxv_seed_key`, or the session id when that is empty."""
     if not config.video_enabled:
         return None
     video_dir = Path(log_dir) / "video"
@@ -332,7 +314,7 @@ async def run_play(
 
     turn_number = 0
     line_no = 0
-    carried = ""        # a line whose answering Director call failed (ARCH-20)
+    carried = ""        # a line whose answering Director call failed
     try:
         while True:
             turn_number += 1
@@ -493,33 +475,16 @@ async def run_live(
     # Running averages of the measured render and Director times, for the
     # just-in-time schedule. None until the first measurement.
     est: dict[str, float | None] = {"render": None, "director": None}
-    samples: dict[str, list[float]] = {"render": [], "director": []}
-    deadline = config.jit_policy == "deadline"
-    if config.jit_policy not in ("current", "deadline"):
-        raise ValueError(f"jit_policy must be 'current' or 'deadline', not {config.jit_policy!r}")
-    floors = _baseline_floors() if deadline else {}
-    if deadline:
-        timing.write("jit_policy", policy="deadline", floors=floors, tau_s=ADMISSION_TAU_S, window=P95_WINDOW)
 
     def _learn(key: str, seconds: float) -> None:
         prev = est[key]
         est[key] = seconds if prev is None else 0.5 * prev + 0.5 * seconds
-        samples[key].append(seconds)
-        del samples[key][:-P95_WINDOW]
 
     def _render_estimate() -> float:
-        if deadline:
-            ordered = sorted(samples["render"])
-            q = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))] if ordered else 0.0
-            return max(q, floors["render"])
         return est["render"] or 0.0
 
     def _director_lead() -> float:
         """How long before the fire the Director call for a new beat starts."""
-        if deadline:
-            ordered = sorted(samples["director"])
-            q = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))] if ordered else 0.0
-            return max(q, floors["director"]) + JIT_MARGIN_S
         return (est["director"] or 0.0) * JIT_SAFETY + JIT_MARGIN_S
 
     async def _enqueue(item: Playable) -> None:
@@ -548,10 +513,10 @@ async def run_live(
         clip_id: int | None = None, parent_clip_id: int | None = None,
     ) -> bool:
         """Render one clip in the background and enqueue it. The
-        player holds it for the shape's delivered frames (RUN-01); the
-        file's measured length is only checked against the shape. A failed
-        render is retried once when the retry can still land before the
-        clip is due (RUN-09). Returns whether the clip was queued."""
+        player holds it for the shape's delivered frames; the file's
+        measured length is only checked against the shape. A failed render
+        is retried once when the retry can still land before the clip is
+        due. Returns whether the clip was queued."""
         assert i2v is not None
         video_path = None
         for attempt in (1, 2):
@@ -582,7 +547,7 @@ async def run_live(
                 return False
         if video_path:
             item.path = video_path
-            # The overlap seam (D-03): the clip's head repeats the previous
+            # The overlap seam: the clip's head repeats the previous
             # clip's tail, over which the page cuts and crossfades, unless the
             # clip was seeded from the reference (the run's first, or a server
             # restart's), which repeats nothing.
@@ -590,7 +555,7 @@ async def run_live(
                 item.overlap_seconds = shape.overlap_seconds
             if i2v.last_render.get("reseeded"):
                 # A restart the client could not restore from the last clip's
-                # tail (RUN-10): the Director hears the picture was reset.
+                # tail: the Director hears the picture was reset.
                 timing.write("reseeded", turn=item.turn)
                 graph.note_reseed(item.turn)
             item.duration = shape.delivered_seconds
@@ -612,13 +577,12 @@ async def run_live(
         _prev_hold = 0.0
         # The viewer text the last plan answered ("" when it answered none),
         # while its beat has not emitted a clip: a line arriving then is
-        # joined to it (ARCH-06).
+        # joined to it.
         planned_text = ""
-        # Fail-soft (RUN-09): viewer text whose answer was rolled back, for
-        # the next plan; the lines that landed on the last clip; failed
-        # segments in a row.
+        # Fail-soft: viewer text whose answer was rolled back, for the next
+        # plan; the lines that landed on the last clip; failed segments in
+        # a row.
         carry_text = ""
-        deferred_text = ""     # a line waiting for the clip after the next (deadline admission, X-09)
         last_landed: tuple[int, list[int]] | None = None
         failures = 0
 
@@ -634,7 +598,7 @@ async def run_live(
 
         def _roll_back(turn_failed: int, reason: str) -> None:
             """The last emitted clip never reached the viewer: take it back
-            (RUN-09) and have the next plan start from the clip before."""
+            and have the next plan start from the clip before."""
             nonlocal carry_text
             carry = graph.rollback_clip(turn_failed, reason)
             if state.history and state.history[-1].turn == turn_failed:
@@ -678,34 +642,17 @@ async def run_live(
 
         async def _take() -> str:
             """Everything the viewer typed since the last call, after any line
-            whose answer never reached the screen (a rolled-back clip) or
-            that waits for the next clip (deadline admission). The lines
-            join the next plan."""
-            nonlocal carry_text, deferred_text
+            whose answer never reached the screen (a rolled-back clip). The
+            lines join the next plan."""
+            nonlocal carry_text
             text = await player.next_input()
             if player.taken:
                 plan_lines.extend(player.taken)
                 timing.write("line_taken", turn=state.turn_number, lines=list(player.taken))
-            if carry_text or deferred_text:
-                text = " ".join(x for x in (carry_text, deferred_text, text) if x)
-                carry_text = deferred_text = ""
+            if carry_text:
+                text = " ".join(x for x in (carry_text, text) if x)
+                carry_text = ""
             return text
-
-        def _admit(text: str, turn: int, fire_at: float) -> bool:
-            """Deadline admission (X-09 only): can the Director answer this
-            line before clip `turn` fires, spending at most ADMISSION_TAU_S
-            of the buffer? If not, the line waits for the clip after it."""
-            nonlocal deferred_text
-            if not deadline or not graph.has_next_clip():
-                return True
-            needs, left = _director_lead() - JIT_MARGIN_S, fire_at - time.monotonic()
-            if needs <= left + ADMISSION_TAU_S:
-                return True
-            deferred_text = text
-            timing.write("line_deferred", turn=turn, lines=list(plan_lines), to=turn + 1,
-                         needs_s=round(needs, 4), left_s=round(left, 4))
-            player.status(f"your line is answered from segment {turn + 1}; segment {turn} is already due")
-            return False
 
         def _abort(reason: str) -> int:
             """Cut the current beat short; lines its plan carried and no clip
@@ -733,7 +680,7 @@ async def run_live(
                     await call
                     _learn("director", time.monotonic() - t0)
                     if getattr(graph, "last_plan_fallback", False):
-                        # ARCH-20: the call answering the line failed and the
+                        # The call answering the line failed and the
                         # picture holds for a clip; the line is not dropped:
                         # the engine took its record back, and it joins the
                         # next plan.
@@ -765,7 +712,7 @@ async def run_live(
             Director returned), that earlier line is joined to this one
             and planned once, as a line that cancels a call in flight is:
             its recorded intervention is dropped so the pair is recorded
-            once, with one disposition (ARCH-06)."""
+            once, with one disposition."""
             if graph.beat_unplayed() and planned_text:
                 graph.discard_pending_input(state.turn_number)
                 plan_lines[:0] = beat_lines     # the earlier line travels with this one
@@ -784,8 +731,6 @@ async def run_live(
             """Wait for the just-in-time moment of segment `turn`, taking the
             viewer's lines as they come: a line cuts the beat short and
             has the Director write the next one at once."""
-            if deferred_text and graph.has_next_clip():
-                await _answer(await _take(), turn)     # a line admitted from this clip (X-09)
             fire_at = None
             while True:
                 need = _needed_at()
@@ -795,14 +740,14 @@ async def run_live(
                 if abs(fire_due.get(turn, float("inf")) - fire_at) > FIRE_DUE_STEP_S:
                     # When this segment's render is due to fire (the record's wall
                     # time plus `in_s`): a scripted viewer can time a line against
-                    # it (X-10); written again only if the moment moves.
+                    # it; written again only if the moment moves.
                     fire_due[turn] = fire_at
                     timing.write("fire_due", turn=turn, in_s=round(fire_at - time.monotonic(), 4))
                 if graph.has_next_clip():
                     wait_until = fire_at
                     player.status(f"listening for your input before segment {turn}")
                 elif config.plan_early:
-                    # RUN-15: plan the next beat now; the loop then waits for
+                    # Plan the next beat now; the loop then waits for
                     # the fire with the beat in hand, still listening.
                     player.status(f"the Director is writing segment {turn}")
                     await _plan(await _take())
@@ -818,15 +763,14 @@ async def run_live(
                 text = await _take()
                 if not text:
                     continue
-                if _admit(text, turn, fire_at):
-                    await _answer(text, turn)
+                await _answer(text, turn)
             # The moment has come. Anything typed since is taken now.
             if not graph.has_next_clip():
                 player.status(f"the Director is writing segment {turn}")
                 await _plan(await _take())
             elif player.has_input():
                 text = await _take()
-                if text and (fire_at is None or _admit(text, turn, fire_at)):
+                if text:
                     await _answer(text, turn)
 
         try:
@@ -844,7 +788,7 @@ async def run_live(
                     metadata={"config": config.name},
                 ):
                     await _listen(turn)
-                    # RUN-07: the previous clip's render is known before this
+                    # The previous clip's render is known before this
                     # clip is emitted (it lands about 1.2 s before this
                     # clip's fire in steady state, so nothing waits).
                     if not await _drain_prev():
@@ -882,7 +826,7 @@ async def run_live(
                             # own duration.
                             await _enqueue(item)
                         else:
-                            # ── The one render path (AUD-04) ────────────
+                            # ── The render path ─────────────────────────
                             # Wait for the previous render (the sliding
                             # window is sequential), then fire this one in
                             # the background.

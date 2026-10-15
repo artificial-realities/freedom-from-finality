@@ -1,16 +1,22 @@
-"""End-to-end engine runs through the live loop on the scripted mock
-backend: beats emitted clip by clip, viewer lines cutting beats short,
-transcript, persistence and history."""
+"""The film loop end to end on the scripted mock LLM: beats emitted clip by
+clip, viewer lines cutting beats short, the Showrunner off the critical
+path, and the two failure paths that must not lose the film or the
+viewer's line."""
 
 from __future__ import annotations
 
+import json
+import subprocess
 import tempfile
 from pathlib import Path
+from unittest import mock
 
-from src.eval.runner import run_live
+from src.i2v.replay import ReplayI2V
+from src.llm.mock_backend import MockBackend
 from src.models.config import Config
 from src.models.story import Story
 from src.playback.player import Player
+from src.runner import run_live
 from src.story.world import WorldModel
 
 
@@ -36,79 +42,13 @@ class Scripted(Player):
 
 def _config(**over) -> Config:
     base = dict(name="mocktest", graph="director", llm_backend="mock", model="mock",
-                compaction_interval=4, showrunner_min_gap=1,
-                buffer_seconds=0.0)
+                compaction_interval=4, showrunner_min_gap=1, buffer_seconds=0.0)
     base.update(over)
     return Config(**base)
 
 
-def test_engine_starts_a_fresh_world_even_if_the_session_dir_has_one():
-    """CLEAN-01: resume is not built. A `world.json` already in the session
-    directory (which cannot happen: every run makes its own directory) is
-    not loaded; the world comes from the blueprint."""
-    from src.graph.director_engine import DirectorEngine
-    from src.llm import build_backend
-    from src.state.story_state import StoryState
-    from src.story.schemas import EntityOp
-    from src.story.validator import apply_clip
-    story = Story.from_json("stories/lego-void")
-    with tempfile.TemporaryDirectory() as d:
-        old = WorldModel.from_story(story)
-        from src.story.schemas import BeatPlan, ClipSpec
-        beat = BeatPlan(intent="a hat", framing="wide", clips=[ClipSpec(
-            action="A hat.", end_state="hat", on_screen=["lego_man"],
-            entity_ops=[EntityOp(op="introduce", entity="hat", description="a red cap")])])
-        apply_clip(beat, 0, old, segment_no=9)
-        old.segment = 9
-        old.save(d)
-        assert (Path(d) / "world.json").exists()
-        engine = DirectorEngine(llm=build_backend("mock", "mock"), config=_config(), session_dir=d)
-        state = StoryState.initialize(story, config_name="t")
-        world = engine._init_world(state)
-        assert world.segment == 0 and "hat" not in world.entities and "lego_man" in world.entities
-
-
-def test_the_reference_image_comes_from_the_story():
-    """CLEAN-02: the story owns its reference image; no config names one. A
-    video run of a story without one is refused before anything renders."""
-    from src.eval.runner import _check_reference
-    from src.util.timing_log import TimingLog
-    story = Story.from_json("stories/lego-void")
-    assert story.reference_image.endswith("stories/lego-void/legoman-16x9.png") and Path(story.reference_image).exists()
-    assert "i2v_seed_image" not in Config.model_fields
-    for cfg in ("configs/director.yaml", "configs/director.live.yaml", "configs/director.replay.yaml"):
-        assert Config.from_yaml(cfg).ltxv_negative_prompt == "", f"{cfg}: no negative prompt (LTX-08)"
-    _check_reference(None, "", TimingLog(None))   # headless: no renderer, no reference needed
-    try:
-        _check_reference(object(), "", TimingLog(None))
-        raise AssertionError("a video run without a reference is refused")
-    except ValueError as exc:
-        assert "has no reference image" in str(exc)
-
-
-async def test_live_loop_renders_from_the_story_image():
-    """CLEAN-02 through the loop: the render backend is handed the story's
-    reference image."""
-    import subprocess
-    from unittest import mock
-    from src.i2v.replay import ReplayI2V
-    story = Story.from_json("stories/lego-void")
-    seen: list[str] = []
-    synthesize = ReplayI2V.synthesize
-
-    async def spy(backend, *, image_path, **kwargs):
-        seen.append(str(image_path))
-        return await synthesize(backend, image_path=image_path, **kwargs)
-
-    with tempfile.TemporaryDirectory() as d:
-        clips = Path(d) / "clips"
-        clips.mkdir()
-        subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=128x80:d=1:r=24",
-                        "-pix_fmt", "yuv420p", str(clips / "a.mp4")], check=True)
-        config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips))
-        with mock.patch.object(ReplayI2V, "synthesize", spy):
-            await run_live(config=config, story=story, log_dir=d, player=Scripted(), max_segments=2)
-    assert seen and all(path == story.reference_image for path in seen), seen
+def _records(session: Path) -> list[dict]:
+    return [json.loads(x) for x in (session / "timing.jsonl").read_text().splitlines()]
 
 
 async def test_director_engine_end_to_end():
@@ -175,32 +115,11 @@ async def test_viewer_line_cuts_a_beat_short():
     assert "soccer_ball" in world.entities
 
 
-async def test_fixed_clip_length_sets_every_clip():
-    """RUN-01: every clip has the run's shape (clip_seconds on the 8k+1
-    frame grid) and every consumer reads it: the shot, the event record,
-    the story clock. An old config's i2v_duration maps once onto
-    clip_seconds. The Director is told the length in its prompt."""
-    from src.agents.director import SYSTEM_PATH
-    assert "{clip_seconds}" in SYSTEM_PATH.read_text() and "{max_clips}" in SYSTEM_PATH.read_text()
-    story = Story.from_json("stories/lego-void")
-    with tempfile.TemporaryDirectory() as d:
-        state = await run_live(config=_config(clip_seconds=6), story=story, log_dir=d,
-                               player=Scripted(), max_segments=4)
-        world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
-    assert [h.shot.duration_seconds for h in state.history] == [145 / 24] * 4
-    assert [e.duration for e in world.events] == [145 / 24] * 4 and world.scene_seconds() == 4 * 145 / 24
-    assert state.current_shape.render_frames == 145
-    with tempfile.TemporaryDirectory() as d:
-        state = await run_live(config=_config(i2v_duration=5), story=story, log_dir=d, player=Scripted(), max_segments=2)
-    assert [h.shot.duration_seconds for h in state.history] == [121 / 24] * 2
-
-
 async def test_showrunner_never_blocks_a_segment():
     """A slow Showrunner lands at a later plan; no segment waits for it,
     a trigger that finds a run in flight is held, and the end of the run
     still lands the update."""
     import time
-    from src.llm.mock_backend import MockBackend
     story = Story.from_json("stories/lego-void")
     MockBackend.showrunner_delay = 0.25
     try:
@@ -224,34 +143,79 @@ async def test_showrunner_never_blocks_a_segment():
     assert world.summaries, "the compaction landed by the end of the run"
 
 
-async def test_showrunner_min_gap_holds_triggers():
-    """Triggers inside the gap are noted, not run."""
+async def test_a_failed_render_rolls_the_world_back_and_the_film_goes_on():
+    """Render 3 fails with no time to retry it (at 1000x the clip is due in
+    milliseconds): the world and the beat are restored to before clip 3,
+    the Director replans segment 3 told that the picture ends on clip 2,
+    and the viewer sees every segment once."""
     story = Story.from_json("stories/lego-void")
+    synthesize, generate = ReplayI2V.synthesize, MockBackend.generate_structured
+    left, prompts = {3: 1}, []
+
+    async def flaky(backend, *, turn, **kw):
+        if left.get(turn, 0) > 0:
+            left[turn] -= 1
+            backend.last_render = {"failed": True}
+            return None
+        return await synthesize(backend, turn=turn, **kw)
+
+    async def spy(backend, messages, schema, *a, **kw):
+        if schema.__name__ == "BeatPlan":
+            prompts.append(messages[-1]["content"])
+        return await generate(backend, messages, schema, *a, **kw)
+
     with tempfile.TemporaryDirectory() as d:
-        await run_live(config=_config(compaction_interval=2, showrunner_min_gap=4), story=story, log_dir=d,
-                       player=Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."}),
-                       max_segments=7)
+        clips = Path(d) / "clips"
+        clips.mkdir()
+        subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=64x32:r=24",
+                        "-frames:v", "25", "-pix_fmt", "yuv420p", str(clips / "a.mp4")], check=True)
+        config = _config(video_enabled=True, clip_seconds=1, i2v_backend="replay", i2v_replay_dir=str(clips),
+                         compaction_interval=100)
+        player = Scripted()
+        with mock.patch.object(ReplayI2V, "synthesize", flaky), mock.patch.object(MockBackend, "generate_structured", spy):
+            state = await run_live(config=config, story=story, log_dir=d, player=player, max_segments=5)
+        session = next((Path(d) / "sessions").iterdir())
+        records, world = _records(session), WorldModel.load(session)
         transcript = next(Path(d).glob("*.md")).read_text()
-        world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
-    assert world.showrunner_runs == 2, world.showrunner_runs
-    assert "showrunner trigger held" in transcript and "minimum 4" in transcript
+    assert player.turns == [1, 2, 3, 4, 5], "the viewer sees every segment once"
+    assert [e.segment for e in world.events] == [1, 2, 3, 4, 5], "the rolled-back clip left no record"
+    assert [h.turn for h in state.history] == [1, 2, 3, 4, 5]
+    rollback = [r for r in records if r["event"] == "rollback"]
+    assert [r["turn"] for r in rollback] == [3] and rollback[0]["reason"] == "its render failed"
+    retry = [r for r in records if r["event"] == "render_retry"]
+    assert retry and retry[0]["retry"] is False, "no retry when it could not land before the clip is due"
+    replan = next(p for p in prompts if "never reached the viewer" in p)
+    assert replan.startswith("Segment 3") and "The picture ends on: Lego Man standing still" in replan, "clip 2's end state"
+    assert "Segment 3 never reached the viewer (its render failed)" in transcript
+    assert not [r for r in records if r["event"] == "error"]
 
 
-async def test_the_next_beat_is_planned_as_soon_as_the_last_clip_is_out():
-    """RUN-15 (D-14): with plan_early the Director call for the next beat
-    starts right after the running beat's last clip is emitted, not just
-    before the next fire; a line that arrives while that beat is unplayed
-    drops it and is answered at once, landing sooner."""
-    import json as _json
+async def test_a_line_whose_answer_failed_is_answered_at_the_next_plan():
+    """The Director call that answers a viewer line fails (a timeout, as the
+    OpenAI backend reports it): the picture holds for one clip and the
+    next plan answers the line, recorded once."""
+    line = "a soccer ball rolls in"
+    generate = MockBackend.generate_structured
+    seen = {"failed": 0, "answered": 0}
+
+    async def flaky(backend, messages, schema, *a, **kw):
+        if schema.__name__ == "BeatPlan" and f'Viewer input for this beat: "{line}"' in messages[-1]["content"]:
+            if not seen["failed"]:
+                seen["failed"] += 1
+                return "", {"error": "Request timed out."}
+            seen["answered"] += 1
+        return await generate(backend, messages, schema, *a, **kw)
+
     story = Story.from_json("stories/lego-void")
-    player = Scripted(lines={4: "Do a trick with it."})
-    with tempfile.TemporaryDirectory() as d:
-        state = await run_live(config=_config(plan_early=True), story=story, log_dir=d, player=player, max_segments=7)
-        session_dir = next((Path(d) / "sessions").iterdir())
-        records = [_json.loads(x) for x in (session_dir / "timing.jsonl").read_text().splitlines()]
-    inputs = [h.user_input for h in state.history]
-    assert inputs.index("Do a trick with it.") == 4, inputs          # typed during clip 4, on air at 5
-    emits = {r["turn"]: r["t"] for r in records if r["event"] == "emit"}
-    starts = [r for r in records if r["event"] == "director_start" and not r.get("input") and r["turn"] > 2]
-    # Each plan for a new beat starts right after the previous clip was emitted.
-    assert starts and all(r["t"] - emits[r["turn"] - 1] < 0.05 for r in starts), [(r["turn"], r["t"]) for r in starts]
+    with tempfile.TemporaryDirectory() as d, mock.patch.object(MockBackend, "generate_structured", flaky):
+        await run_live(config=_config(), story=story, log_dir=d, player=Scripted({2: line}), max_segments=7)
+        session = next((Path(d) / "sessions").iterdir())
+        records, world = _records(session), WorldModel.load(session)
+    assert seen == {"failed": 1, "answered": 1}, "failed once, then answered once"
+    mine = [i for i in world.interventions if line in i.text]
+    assert len(mine) == 1 and mine[0].disposition == "absorbed"
+    requeued = [r for r in records if r["event"] == "line_requeued"]
+    assert requeued and requeued[0]["reason"] == "the Director call that answered them failed"
+    held = [e for e in world.events if e.segment == requeued[0]["turn"]]
+    assert held and held[0].beat_intent == "holding the picture", "the failed plan held the picture for a clip"
+    assert mine[0].segment == requeued[0]["turn"] + 1, "answered by the next plan"

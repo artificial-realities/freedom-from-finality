@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 # Shell-exported values already in the environment win — override=False.
 load_dotenv(override=False)
 
-from src.eval.runner import run_live, run_play  # noqa: E402
+from src.runner import run_live, run_play  # noqa: E402
 from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
 from src.playback import TerminalPlayer  # noqa: E402
