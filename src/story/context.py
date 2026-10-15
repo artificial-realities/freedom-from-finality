@@ -101,8 +101,8 @@ def format_cast_rules(world: WorldModel) -> str:
                    "in with its id (`update`, `present: true`).")
     if world.newcomers:
         out.append(f"- New characters beyond the cast are allowed: {world.newcomers} Introduce one with `introduce`, "
-                   "kind `character`, a `description` of how it looks, `who` it is in the story and its `voice`; it "
-                   "is then registered and must look and sound the same in every later clip.")
+                   "kind `character`, a `description` of how it looks, `who` it is in the story and what it wants, "
+                   "and its `voice`; it is then registered and must look and sound the same in every later clip.")
     else:
         out.append("- No characters beyond the cast: anything else that appears is a prop.")
     persp = world.perspective
@@ -272,8 +272,9 @@ def format_interventions(world: WorldModel, current_input: str, answer_clips: in
     if text:
         out.append(
             f'Viewer input for this beat: "{text}"\n'
-            "Decide its disposition: absorbed (it happens now), deferred (it needs "
-            "setup; say what you will do), or declined (only if it breaks the rules)."
+            "A suggestion, not a command: take it up in the story's own way. Record "
+            "its disposition: absorbed (it changes what happens in this beat), deferred "
+            "(it needs setup; say what you will do), or declined (only if it breaks the truths)."
         )
         if answer_clips:
             out.append(f"This beat answers the viewer: at most {answer_clips} clip{'s' if answer_clips != 1 else ''}. "

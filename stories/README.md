@@ -50,13 +50,13 @@ A list of places, each with a **`name`** and a **`description`**. Both writers s
 
 **`protagonist`**. The name of the character the film follows (empty: the first character). The validator keeps the protagonist single and in the story (never removed, never doubled), and both writers are told to hold its look in every clip.
 
-**`newcomers`**. What kind of characters the film may introduce beyond the cast, with any guidance on them ("Other minifigures from any LEGO theme… with the same fixed printed face"). Empty means none: the validator refuses a new character, and anything else that appears is a prop. A newcomer is registered once with its look, who it is, its voice and its state, and stays the same in every later clip.
+**`newcomers`**. What kind of characters the film may introduce beyond the cast, with any guidance on them ("Other minifigures from any LEGO theme… with the same fixed printed face"). Empty means none: the validator refuses a new character, and anything else that appears is a prop. A newcomer is registered once with its look, who it is and what it wants, its voice and its state, and stays the same in every later clip.
 
 **`characters`**. A list. Each character's id is its name in lower case with underscores ("Lego Man" → `lego_man`). Both writers see each character's cast sheet.
 
 - **`name`** *(required)*. How every prompt names the character.
 - **`who`**. Who the character is in the story, one sentence. The cast sheet's first line.
-- **`wants`**. What the character wants. It lets the Director turn any viewer line into something the character would actually do.
+- **`wants`**. What the character wants. It colours what the character does and how it takes a viewer's suggestion: willingly, its own way, or with resistance.
 - **`nature`**. How the character is: temperament, habits, the flaw. Shapes how the character acts and talks.
 - **`voice`**. How the character sounds, which keeps one voice from clip to clip. Either a plain string, read as the description, or an object:
   - `description`: a few words ("crisp, clipped, with a faint radio crackle");

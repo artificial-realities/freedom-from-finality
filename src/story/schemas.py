@@ -27,8 +27,8 @@ class EntityOp(BaseModel):
     `entity` is an existing entity id for `update`/`remove`, or the name
     of a new thing for `introduce`. Empty strings mean "unchanged".
     `description` (introduce only) is how the new thing looks; a new
-    character also says `who` it is in the story and how its `voice`
-    sounds, so it is registered once and stays the same.
+    character also says `who` it is in the story and what it wants, and
+    how its `voice` sounds, so it is registered once and stays the same.
     `state` is the entity at the end of the clip, in prose, replacing
     its last one: a character's body, place in the frame and what it is
     doing; a prop's place, condition and who has it. Prose on purpose:

@@ -4,7 +4,11 @@ An interactive generative movie platform: a continuously streaming AI-generated 
 
 ## The vision
 
-A movie starts and keeps going. The viewer watches, and while watching can express what they want the story to do — a direction, a turn, an idea. The system reads that as intent and reflects it in what happens next, provided it fits the story's underlying constraints. No pausing, no menus, no branching tree of pre-authored paths. One continuous film that listens.
+The experience should feel like watching a continuously unfolding movie guided by an imaginative, responsive storyteller, much like listening to someone tell a story around a campfire. The story should have a life of its own, progressing naturally and remaining engaging even when the viewer does nothing. Characters should have distinct personalities, motivations, relationships, and autonomy, while the world maintains its own internal logic and consistency.
+
+The viewer should be able to influence the story at any moment through natural, unrestricted input, as if making suggestions to the storyteller rather than issuing commands or selecting from predefined choices. These suggestions should be interpreted creatively and integrated organically into the unfolding narrative, without automatically being obeyed or disrupting its coherence. Viewer input should have the potential to create meaningful consequences, both immediate and long-term, while characters remain free to act according to their motivations. The storyteller should balance responsiveness with creative independence, introducing believable surprises, developing conflicts, and maintaining narrative momentum without relying on the viewer to drive every event.
+
+The experience should feel cinematic, immersive, and continuous, with natural transitions, consistent environments, believable dialogue, and coherent visual and audio progression rather than a sequence of disconnected generated clips. Above all, it should feel like a living story that listens to the viewer, remembers what happens, and evolves naturally in ways that neither the viewer nor the storyteller has completely predetermined.
 
 The goal is not a clip generator with a text box on it. It is a system that can hold a story together across a long runtime while remaining open to influence.
 
