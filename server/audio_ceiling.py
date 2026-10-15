@@ -1,17 +1,17 @@
-"""AUD-03's candidate audio treatment for a clip, shared by the server and
-the offline experiment tool (X-13, X-02). Stdlib and ffmpeg only, so the
-GPU box and a laptop compute the same numbers.
+"""The loudness ceiling for a clip's audio, applied by the server. Stdlib
+and ffmpeg only, so the GPU box and a laptop compute the same numbers.
 
 - pad the audio to the video's length (the 32 ms hole at every clip end);
 - measure the integrated loudness and the true peak (ffmpeg's ebur128,
-  ITU-R BS.1770, the same measurement `scripts/audio_check.py` reports);
+  ITU-R BS.1770);
 - apply one static gain that never boosts: down to the loudness ceiling
   if the clip is louder than it, and further down if the true peak would
   still be above the limit (a static trim, not a dynamic limiter, so
   quiet clips and silence are untouched and nothing pumps).
 
-Off in production: the server applies it only with LTX2_AUDIO_CEILING_LUFS
-set (AUD-03 is EXPERIMENT_REQUIRED with LTX-12 and AUD-02).
+The server applies it only with LTX2_AUDIO_CEILING_LUFS set; the live
+config sets -18 with the overlap seam, so the sound crossfades between
+clips of the same loudness.
 """
 
 from __future__ import annotations

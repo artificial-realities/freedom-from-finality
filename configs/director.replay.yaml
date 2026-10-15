@@ -3,7 +3,7 @@ description: "Director engine with replayed clips: the live loop and the web pla
 graph: "director"
 llm_backend: "openai"
 model: "gpt-4.1"
-# The Director as in the live config (RUN-16).
+# The Director as in the live config.
 director_model: "gpt-5.6-luna"
 showrunner_model: "gpt-5.6-luna"
 showrunner_reasoning_effort: "none"

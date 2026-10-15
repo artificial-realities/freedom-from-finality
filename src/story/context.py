@@ -86,7 +86,7 @@ def format_cast(world: WorldModel) -> str:
 
 
 def format_cast_rules(world: WorldModel) -> str:
-    """The story's cast and perspective policy (ARCH-19), for both system
+    """The story's cast and perspective policy, for both system
     prompts: the protagonist's continuity, whether new characters may be
     introduced and how, and how the film is shot."""
     out: list[str] = []
@@ -116,7 +116,7 @@ def format_cast_rules(world: WorldModel) -> str:
 
 
 def format_cut_rule(world: WorldModel) -> str:
-    """The story's editing (LTX-15), for the Director's system prompt: one
+    """The story's editing, for the Director's system prompt: one
     continuous take, or cuts as a choice with the story's guidance."""
     persp = world.perspective
     if not persp.cuts:
@@ -136,16 +136,16 @@ def format_locations(world: WorldModel) -> str:
 
 def viewer_direction_active(world: WorldModel, current_input: str = "") -> bool:
     """A viewer's direction is active while this beat answers a line or the
-    last absorbed line's momentum has not expired (ARCH-08)."""
+    last absorbed line's momentum has not expired."""
     return bool((current_input or "").strip() or world.viewer_momentum)
 
 
 def format_plan(world: WorldModel, config: Config, *, paused: bool = False) -> str:
     """The arc and the scene card. The Director's copy pauses the card while
-    a viewer's direction is active (ARCH-09, D-01 and D-05): the card is the
-    plan for the quiet stretches, and in X-07/X-08 and BATCH_023 a visible
-    menu, then a visible goal, pulled the film back from the viewer's
-    direction. It returns, whole, when the direction expires. The Showrunner
+    a viewer's direction is active: the card is the plan for the quiet
+    stretches, and shown meanwhile, its candidate beats and then its goal
+    pulled the film back from the viewer's direction. It returns, whole,
+    when the direction expires. The Showrunner
     always sees its own card."""
     out: list[str] = []
     if world.plan.arc:
@@ -249,7 +249,7 @@ def format_world_now(world: WorldModel) -> str:
 def format_threads(world: WorldModel, limit: int = 8) -> str:
     """Open threads, newest last, each with its age (segments and story
     seconds since it opened) so a stale one is visible; nothing expires
-    them in code (ARCH-16)."""
+    them in code."""
     threads = world.open_threads()
     if not threads:
         return "(none open)"
@@ -266,7 +266,7 @@ def format_threads(world: WorldModel, limit: int = 8) -> str:
 
 def format_interventions(world: WorldModel, current_input: str, answer_clips: int = 0) -> str:
     """The viewer section. `answer_clips` > 0 caps a beat that answers a
-    line (ARCH-11)."""
+    line."""
     out: list[str] = []
     text = (current_input or "").strip()
     if text:

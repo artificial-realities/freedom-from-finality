@@ -275,7 +275,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
         if (sp := world.resolve(d.speaker)) is not None and sp.kind == "character"
     ]
 
-    # The shot (LTX-15): a cut is kept only where the story allows cuts and
+    # The shot: a cut is kept only where the story allows cuts and
     # never on the film's first clip, which opens the film.
     cut = " ".join(clip.cut_to.split()).rstrip(".")
     if cut and not world.perspective.cuts:
@@ -323,7 +323,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 item.reason = reason
                 item.resolved_at = None if beat.intervention == "deferred" else seg
             r.applied.append(f"viewer request {beat.intervention}" + (f": {reason}" if reason else ""))
-        # A deferred request is resolved by identity (ARCH-07): the one the
+        # A deferred request is resolved by identity: the one the
         # beat names in `delivered_request`. Without the field, an absorbed
         # or declined beat with no new line still resolves the only one
         # owed; with two or more owed nothing is guessed.
@@ -401,7 +401,7 @@ def apply_showrunner(
 
     `triggered_at` is the segment whose plan raised the run's trigger
     (default: `at_segment`). A new card clears the viewer's momentum only
-    when that is after the momentum's segment (ARCH-08): the replan a
+    when that is after the momentum's segment: the replan a
     viewer's own line provokes, spawned at once or held by the gap and
     spawned later, does not erase that line."""
     notes: list[str] = []

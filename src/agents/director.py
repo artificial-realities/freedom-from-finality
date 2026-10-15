@@ -99,7 +99,7 @@ async def run(
         cut_rule=format_cut_rule(world),
         locations=format_locations(world),
         clip_seconds=seconds_label(clip_seconds),
-        # Beat lengths in whole seconds from the shape and the clip cap (ARCH-10).
+        # Beat lengths in whole seconds from the shape and the clip cap.
         beat_seconds=seconds_label(round(clip_seconds * config.max_clips_per_beat)),
         typical_seconds=f"{round(2 * clip_seconds)} to {round(3 * clip_seconds)}",
         max_clips=config.max_clips_per_beat,

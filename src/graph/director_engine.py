@@ -59,8 +59,8 @@ logger = logging.getLogger(__name__)
 
 
 class EmitFailed(RuntimeError):
-    """Emitting a clip raised; the engine restored the world and cut the beat
-    (RUN-09), and the loop replans the segment."""
+    """Emitting a clip raised; the engine restored the world and cut the beat,
+    and the loop replans the segment."""
 
 
 class DirectorEngine:
@@ -75,7 +75,7 @@ class DirectorEngine:
     ) -> None:
         self.llm = llm
         self.config = config
-        # The run's clip shapes (RUN-01): each beat's clips get the selected
+        # The run's clip shapes: each beat's clips get the selected
         # shape; nothing here derives a length from seconds.
         self.shapes = shapes or ShapeRegistry.from_config(config)
         self._beat_shape: ClipShape = self.shapes.default
@@ -99,21 +99,21 @@ class DirectorEngine:
         # (at_segment, force_replan, reason, triggered_at): `triggered_at` is the
         # segment whose plan first raised the trigger (a held replan keeps the
         # segment it was held since), which decides whether the card it lands
-        # may clear the viewer's momentum (ARCH-08).
+        # may clear the viewer's momentum.
         self._showrunner_meta: tuple[int, bool, str, int] | None = None
         self._showrunner_notes: list[str] = []
         self._last_spawn: int = 0   # segment the last Showrunner run was spawned at
         # A replan the Director asked for (scene_done / needs_replan) that no
         # run has taken yet: (reason, mode, segment first asked). `_trigger`
         # raises it again at every plan until a replan run spawns or a
-        # replan lands (ARCH-02).
+        # replan lands.
         self._held_trigger: tuple[str, str, int] | None = None
-        # The last plan answered a viewer line with a failed Director call (ARCH-20).
+        # The last plan answered a viewer line with a failed Director call.
         self.last_plan_fallback: bool = False
         # The trigger this plan decided on, spawned at the beat's first clip
-        # after it is applied (ARCH-03): (reason, mode, triggered_at).
+        # after it is applied: (reason, mode, triggered_at).
         self._pending_spawn: tuple[str, str, int] | None = None
-        # Fail-soft (RUN-09): the engine and world as they were before the
+        # Fail-soft: the engine and world as they were before the
         # last emitted clip, its segment, and the Showrunner updates landed
         # since (a plan for the next clip may land one before the clip's
         # render is known to have failed).
@@ -131,7 +131,7 @@ class DirectorEngine:
         self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
         self._pending_note: str = ""        # how the previous beat ended, for the next call
         # A renderer restart that re-seeded the picture from the reference
-        # (RUN-10's fallback: the last clip's tail could not be restored), for
+        # (the last clip's tail could not be restored), for
         # the next call only.
         self._reseed_note: str = ""
 
@@ -196,10 +196,10 @@ class DirectorEngine:
         self._showrunner_notes = []
 
         world.segment = seg
-        # ARCH-08: a viewer's direction stays active until the next line or
+        # A viewer's direction stays active until the next line or
         # for `viewer_momentum_seconds` of film, whichever comes first; while
-        # it is active the Director does not see the card's candidate beats
-        # (ARCH-09), which return when it expires.
+        # it is active the Director does not see the card's candidate beats,
+        # which return when it expires.
         if world.viewer_momentum:
             age = world.seconds_since(world.viewer_momentum_segment)
             if age >= self.config.viewer_momentum_seconds:
@@ -219,7 +219,7 @@ class DirectorEngine:
             notes.extend(self._showrunner_notes)
             self._showrunner_notes = []
 
-        # The shape is selected before the Director plans (RUN-01); every
+        # The shape is selected before the Director plans; every
         # clip of this beat is that long. The system prompt states the
         # default shape's length, so it stays byte-identical.
         shape = self.shapes.select()
@@ -233,7 +233,7 @@ class DirectorEngine:
         notes.extend(dnotes)
         fallback = beat is None
         # Whether this plan answered a viewer line and the Director's call
-        # failed: the loop then keeps the line for the next plan (ARCH-20).
+        # failed: the loop then keeps the line for the next plan.
         self.last_plan_fallback = fallback and bool(text)
         if self.last_plan_fallback:
             # Taken back before the held clip is emitted, which would record
@@ -327,7 +327,7 @@ class DirectorEngine:
 
     def note_reseed(self, segment: int) -> None:
         """The renderer restarted and segment `segment` was rendered from the
-        reference image, not from the picture before it (RUN-10's fallback):
+        reference image, not from the picture before it:
         the next plan is told, since what the world model says is on screen
         is no longer in the picture."""
         self._reseed_note = (f"At segment {segment} the renderer restarted and the picture was re-seeded from "
@@ -354,7 +354,7 @@ class DirectorEngine:
         world = self.world
         if world is not None and world.perspective.cuts and world.shot:
             # Where cuts are allowed the shot can change between beats, so
-            # the next beat is told which one the picture is in (LTX-15).
+            # the next beat is told which one the picture is in.
             status += f" The picture is in this shot: {world.shot}."
         return status
 
@@ -404,8 +404,8 @@ class DirectorEngine:
         return state
 
     def rollback_clip(self, segment: int, reason: str) -> str:
-        """Take back the last emitted clip, `segment`, whose render failed
-        (RUN-09): the world and the beat return to before it (Showrunner
+        """Take back the last emitted clip, `segment`, whose render failed:
+        the world and the beat return to before it (Showrunner
         updates landed since are applied again), the beat is cut, and the
         next plan is told the picture ends on the clip before. Returns the
         viewer text to answer again: the line the dropped beat answered, if

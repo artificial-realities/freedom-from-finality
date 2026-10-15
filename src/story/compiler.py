@@ -12,7 +12,7 @@ an entity's description goes on the clip in which it enters the picture
 in the reference image), and an entering entity is never listed as
 already on screen, because the conditioning frames do not have it. Later clips carry the blueprint's
 short visual anchor and each character's short look, which hold framing
-and identity over long chains. A clip that cuts (LTX-15, where the story
+and identity over long chains. A clip that cuts (where the story
 allows it) opens on the shot the picture is in and says "The view cuts to
 …" before its action, LTX-2.5's convention for a cut in prose; the clips
 after it open on the new shot. When the model changes, this file
@@ -125,7 +125,7 @@ def speech(name: str, line: str, *, delivery: str = "", voice: Voice | None = No
     """One spoken line in LTX-2's form: `Name says in a {delivery} voice,
     "line"`, the delivery being the line's own, then the speaker's
     default, then the speaker's vocal characteristics; language and
-    accent follow when the voice gives them (LTX-05)."""
+    accent follow when the voice gives them."""
     words = [_voice_words(delivery or (voice.delivery if voice else ""))]
     if voice is not None and voice.description.strip():
         words.append(_voice_words(voice.description))
@@ -143,7 +143,7 @@ DESCRIBED_IN_FULL = 6   # entities described with a look; the rest by name only
 
 def shot_before(beat: BeatPlan, index: int) -> str:
     """The shot clip `index` of `beat` opens on: the beat's framing, or the
-    last cut of an earlier clip in the beat (LTX-15)."""
+    last cut of an earlier clip in the beat."""
     shot = beat.framing
     for clip in beat.clips[:index]:
         if clip.cut_to.strip():
@@ -207,7 +207,7 @@ def compile_clip(
     cut = " ".join(clip.cut_to.split()).rstrip(".")
     if cut:
         # The clip opens on the shot the picture is in and cuts at once;
-        # the camera move belongs to the new shot (LTX-15).
+        # the camera move belongs to the new shot.
         parts.append(_sentence(framing))
     else:
         parts.append(_sentence(f"{framing}; {camera_clause(clip.camera_motion)}"))
@@ -256,7 +256,7 @@ def compile_clip(
         parts.append("On screen: " + "; ".join(named) + ".")
     # The first clip starts from the reference image, so it must open from
     # what that image shows; a pose mismatch in the first frames is what
-    # drags the picture off the sheet (2026-09-08 sweep).
+    # drags the picture off the sheet.
     shows = " ".join(picture.reference.shows.split()).rstrip(".") if picture.reference else ""
     if opening and shows:
         parts.append(f"The shot opens with {shows}, then the action begins.")

@@ -199,7 +199,7 @@ class WorldModel(BaseModel):
     showrunner_runs: int = 0
     viewer_momentum: str = ""    # the viewer's last absorbed input; persists across beats
     viewer_momentum_segment: int = 0
-    shot: str = ""               # the shot the picture is in: the last beat's framing or a clip's cut (LTX-15)
+    shot: str = ""               # the shot the picture is in: the last beat's framing or a clip's cut
 
     _saved_events: int = PrivateAttr(default=0)
     _clip_counter: int = PrivateAttr(default=0)

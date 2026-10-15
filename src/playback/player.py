@@ -36,7 +36,7 @@ class Playable(BaseModel):
     clip_id: int = 0                 # monotonic identity (never reused; 0 = legacy)
     path: str | None = None          # mp4 to play; None = text-only segment (no video backend)
     duration: float = 5.0            # seconds on air (the hold)
-    # The overlap seam (AUD-02 / LTX-12, D-03; the config's and the page's
+    # The overlap seam (the config's and the page's
     # `seam: "overlap"`): the seconds at this clip's head that repeat the
     # previous clip's tail, over which the page cuts the picture and
     # crossfades the sound (0 for a clip seeded from the reference), and

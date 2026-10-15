@@ -110,7 +110,7 @@ class Perspective(BaseModel):
     "first-person", "observer", …), the perspectives a beat may switch to,
     and when a switch is right. The Director declares a switch in
     `BeatPlan.perspective`; the validator refuses one the story does not
-    allow. `cuts` (LTX-15): whether a clip may cut to a new shot
+    allow. `cuts`: whether a clip may cut to a new shot
     (`ClipSpec.cut_to`), with `cutting` as the story's guidance on when;
     without it the film is one continuous take and a cut is dropped."""
 
@@ -190,7 +190,7 @@ class Story(BaseModel):
         return story
 
     def check_reference(self) -> None:
-        """The static half of the reference check (RUN-11): the image exists
+        """The static half of the reference check: the image exists
         and decodes. How it fits the render frame is checked against the
         server's size when a run starts (`LtxvI2V.check_reference`).
         Raises ValueError."""

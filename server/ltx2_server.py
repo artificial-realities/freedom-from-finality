@@ -11,10 +11,10 @@ Which weights, which recipe
 must run unguided on the fixed `DISTILLED_SIGMA_VALUES` schedule (8
 steps, one forward each). `transformer_full/` is the full / SFT DiT and
 runs 30 steps with the pipeline's default guidance (which are the SFT
-values) and a shifted schedule. Until 2026-09-09 this server ran the
-distilled weights with the full recipe (15 linear steps, CFG 3, STG),
-which the model card says will "quietly cost quality"; the "broken
-distilled LoRA" was that LoRA stacked on already-distilled weights.
+values) and a shifted schedule. The distilled weights on the full recipe
+(15 linear steps, CFG 3, STG) "quietly cost quality", as the model card
+says: the figure drifted within every clip. The distilled LoRA is for
+distilling `transformer_full/`, not for the already-distilled weights.
 
     LTX2_VARIANT=distilled   (default) transformer/, DISTILLED_SIGMA_VALUES, all guidance off
     LTX2_VARIANT=full        transformer_full/, 30 steps, SFT guidance defaults, dynamic shifting
@@ -71,7 +71,7 @@ Environment variables:
     LTX2_VAE_TILING   "1" to enable VAE tiling (lower peak VRAM on decode)
     LTX2_HOST/PORT    bind address (default: 0.0.0.0:8000)
 
-Speed (docs/reviews/2026-09-16-real-time-plan.md):
+Speed:
     LTX2_ATTN         attention backend for the DiT: "" (PyTorch SDPA, default), "fa3"
                       (FlashAttention-3 from the Hub, Hopper), "fa4" (Blackwell), "sage",
                       "cudnn", or any diffusers backend name. Falls back to SDPA if the
@@ -91,15 +91,15 @@ Speed (docs/reviews/2026-09-16-real-time-plan.md):
                       autotuning and the CPU warm-up never land on a viewer's clip.
                       /health reports "warming" until it is done and /generate says 503;
                       then `warm_frames` lists the frame counts warmed. The client
-                      refuses to start when a shape it will render is not listed
-                      (RUN-08); `python -m src.i2v.shape <config>` prints the list a
+                      refuses to start when a shape it will render is not listed;
+                      `python -m src.i2v.shape <config>` prints the list a
                       config needs, and server/vast_run.sh passes it.
     LTX2_ENCODER      "auto" (default: h264_nvenc when ffmpeg and the driver support it,
                       else libx264), "x264", "nvenc", or "av" (diffusers' PyAV path).
     LTX2_X264_PRESET  libx264 preset (default "ultrafast").
 
-Render-time headroom (RUN-14; `server/encode.py`), each off until a GPU
-session measures it:
+Render-time headroom (`server/encode.py`), each off here and on in
+`server_defaults.sh`:
     LTX2_GPU_FRAMES   "1": the pipeline returns its frames as a GPU tensor
                       (`output_type="pt"`) and they become uint8 there, the
                       same bytes as the host path, without converting 390 MB
@@ -172,7 +172,7 @@ _attn_backend: str = "native"
 _quant: str = "bf16"
 _compiled: bool = False
 _encoder: str = "x264"
-# RUN-14 settings (see the docstring); off by default until measured.
+# Render-time headroom (see the docstring); `server_defaults.sh` turns these on.
 _gpu_frames: bool = os.getenv("LTX2_GPU_FRAMES", "0").strip() == "1"
 _pipe_format: str = os.getenv("LTX2_PIPE_FORMAT", "rgb24").strip().lower() or "rgb24"
 _x264_threads: int = int(os.getenv("LTX2_X264_THREADS", "0") or 0)
@@ -186,7 +186,7 @@ if _pipe_format == "yuv420p" and not _gpu_frames:
 # tail of the last generated chunk (uint8 ndarray, shape (F, H, W, 3)).
 session: dict = {}
 # This process's identity: a restart gives a new one (/health, X-Session-Epoch),
-# so a client can tell a restarted server from a reset session (RUN-10).
+# so a client can tell a restarted server from a reset session.
 SESSION_EPOCH = os.urandom(4).hex()
 _lock = asyncio.Lock()
 
@@ -206,7 +206,7 @@ class GenerateRequest(BaseModel):
     # `anchor_index` (latent frames; -1 = last) with this strength. 0 = off.
     anchor_strength: float = Field(default=0.0, ge=0.0, le=1.0)
     anchor_index: int = -1
-    # RUN-10's arm (X-11 only): after a restart, the client's copy of the last
+    # After a restart, the client's copy of the last
     # clip's tail (base64 PNGs); the session continues from it instead of the
     # reference, so costume and position survive the restart.
     window_frames: list[str] | None = None
@@ -529,7 +529,7 @@ def _uncompile(p) -> None:
     torch._dynamo.reset()
 
 
-# A story-agnostic warm-up sentence (CLEAN-05): compilation and autotuning
+# A story-agnostic warm-up sentence: compilation and autotuning
 # depend on the shape, not the words.
 WARMUP_PROMPT = ("A person stands in a softly lit, plain room and slowly raises one hand, "
                  "then lowers it. The camera remains static.")
@@ -619,7 +619,7 @@ async def health():
         "gpu_frames": _gpu_frames,
         "pipe_format": _pipe_format,
         "x264_threads": _x264_threads,
-        # AUD-03: the loudness ceiling this server applies (None = off).
+        # The loudness ceiling this server applies (None = off).
         "session_epoch": SESSION_EPOCH,
         "audio_ceiling_lufs": float(os.environ["LTX2_AUDIO_CEILING_LUFS"])
         if os.getenv("LTX2_AUDIO_CEILING_LUFS", "").strip() else None,
@@ -667,7 +667,7 @@ def _run_pipeline(req: GenerateRequest) -> dict:
         elif req.parent_clip_id in tails:
             session["window"] = tails[req.parent_clip_id]
         elif req.window_frames:
-            pass  # client sent its own copy (the RUN-10 path)
+            pass  # client sent its own copy after a restart
         elif session.get("window") is None:
             pass  # no window at all: reference will be used
         else:
@@ -681,7 +681,7 @@ def _run_pipeline(req: GenerateRequest) -> dict:
     if req.window_frames and session.get("window") is None and not req.reset_window:
         frames = [np.asarray(_decode_image(f).resize((WIDTH, HEIGHT))) for f in req.window_frames]
         session["window"] = np.stack(frames).astype(np.uint8)
-        logger.info("Session window restored from %d frames of the client's last clip (RUN-10)", len(frames))
+        logger.info("Session window restored from %d frames of the client's last clip", len(frames))
 
     session["turn_count"] += 1
     turn = session["turn_count"]

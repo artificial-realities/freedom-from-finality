@@ -1,12 +1,12 @@
 """The CPU side of a clip on the LTX-2.5 server: the pipeline's frames to
-uint8, and the MP4 (RUN-14, render-time headroom).
+uint8, and the MP4.
 
-GPU session 1 found 1.4 s of every 4.9 s clip outside the model: the
+Without these, 1.4 s of a 4.9 s render was spent outside the model: the
 float-to-uint8 conversion of the pipeline's output on the CPU (after the
 measured generate time), ffmpeg's RGB-to-YUV conversion and the x264
-encode (1.1 s on that box). Each step here is chosen by a server setting
-(`LTX2_GPU_FRAMES`, `LTX2_PIPE_FORMAT`, `LTX2_X264_THREADS`) so a GPU
-session can measure it against the default.
+encode. Each step here is chosen by a server setting (`LTX2_GPU_FRAMES`,
+`LTX2_PIPE_FORMAT`, `LTX2_X264_THREADS`; `server_defaults.sh` turns all
+three on).
 
 - `frames_to_uint8` takes the pipeline's output as it comes: a torch
   tensor on the GPU (`output_type="pt"`) is converted there, with the
@@ -19,7 +19,7 @@ session can measure it against the default.
   the numpy path is for tests (it costs seconds per clip on a CPU).
 - `encode_mp4` pipes either into ffmpeg (libx264 on the CPU, or
   h264_nvenc), with the audio from a WAV and, with a loudness ceiling
-  set, AUD-03's padding and gain.
+  set, the padding and gain of `audio_ceiling.py`.
 
 Imported by `ltx2_server.py`; numpy only at import, torch only when a
 tensor is passed, so the tests run without torch.
@@ -110,8 +110,8 @@ def encode_mp4(frames_u8: np.ndarray, fps: int, audio, sample_rate: int, path: s
 
     `yuv`: the frames already as planar YUV 4:2:0 (`yuv420p_planes`),
     piped instead of RGB so ffmpeg does no conversion. `threads`: x264's
-    thread count (0 = ffmpeg's choice). With LTX2_AUDIO_CEILING_LUFS set
-    (AUD-03), the audio is padded to the video and given one static,
+    thread count (0 = ffmpeg's choice). With LTX2_AUDIO_CEILING_LUFS set,
+    the audio is padded to the video and given one static,
     never-boosting gain to the ceiling and under -1 dBTP; the measurements
     come back for the response headers (LUFS, TP, Gain-dB)."""
     n, h, w, _ = frames_u8.shape

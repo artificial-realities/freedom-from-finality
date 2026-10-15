@@ -58,7 +58,7 @@ class WebPlayer(Player):
         self.host = host
         self.port = port
         # How the page joins clips (the config's `seam`): "fade" (a 250 ms
-        # crossfade of two elements) or "overlap" (AUD-02 / LTX-12, D-03: a
+        # crossfade of two elements) or "overlap" (a
         # pool of three elements, the picture cut at the outgoing clip's
         # media time where the next clip's overlap begins, an equal-power
         # audio crossfade over the overlap).

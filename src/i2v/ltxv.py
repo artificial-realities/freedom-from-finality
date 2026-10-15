@@ -50,7 +50,7 @@ REFERENCE_SCALE = 0.8
 RENDER_HEADERS: dict[str, tuple[str, type]] = {
     "X-Latency-S": ("latency_s", float),
     "X-Encode-S": ("encode_s", float),
-    "X-Post-S": ("post_s", float),       # frames to uint8 after the pipeline (RUN-14)
+    "X-Post-S": ("post_s", float),       # frames to uint8 after the pipeline
     "X-Timings": ("timings", str),
     "X-Num-Frames": ("num_frames", int),
     "X-Duration-S": ("duration_s", float),
@@ -58,8 +58,8 @@ RENDER_HEADERS: dict[str, tuple[str, type]] = {
     "X-Has-Audio": ("has_audio", str),
     "X-Variant": ("variant", str),
     "X-Encoder": ("encoder", str),
-    "X-Session-Epoch": ("session_epoch", str),   # a new value after a server restart (RUN-10)
-    # AUD-03's candidate (the server's LTX2_AUDIO_CEILING_LUFS; experiment only)
+    "X-Session-Epoch": ("session_epoch", str),   # a new value after a server restart
+    # The server's loudness ceiling (LTX2_AUDIO_CEILING_LUFS), when set
     "X-Audio-LUFS": ("audio_lufs", float),
     "X-Audio-TP": ("audio_tp", float),
     "X-Audio-Gain-dB": ("audio_gain_db", float),
@@ -90,7 +90,7 @@ class LtxvI2V(I2VBackend):
     ) -> None:
         self.server_url = server_url.rstrip("/")
         # After a server restart: send the last clip's tail so the picture
-        # continues (RUN-10, default), or re-seed from the reference.
+        # continues (the default), or re-seed from the reference.
         if restart_recovery not in ("reference", "window"):
             raise ValueError(f"restart_recovery must be 'reference' or 'window', not {restart_recovery!r}")
         self.restart_recovery = restart_recovery
@@ -115,7 +115,7 @@ class LtxvI2V(I2VBackend):
         self.negative_prompt = negative_prompt  # "" → the server's default; only the full variant encodes it
         # Every clip's seed is derived from this key and its segment
         # (`derive_seed`), so a rerun under the same key reproduces the
-        # noise and experiment arms share it. "" → the server draws one.
+        # noise. "" → the server draws one.
         self.seed_key = seed_key
         self.model = "ltx-2.5"
         self.output_dir = Path(output_dir)
@@ -161,7 +161,7 @@ class LtxvI2V(I2VBackend):
         return rate
 
     def check_shapes(self, registry: ShapeRegistry) -> dict:
-        """RUN-08: the server must report every registered shape among the
+        """The server must report every registered shape among the
         frame counts it warmed (`/health` `warm_frames`), at the frame rate
         the shapes were built for; otherwise the run is refused before it
         starts, not stalled for minutes mid-film by a compile."""
@@ -285,7 +285,7 @@ class LtxvI2V(I2VBackend):
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
 
         # Server lost its session (restart / reset): re-seed and retry once,
-        # from the reference or (RUN-10's arm) from the last clip's tail.
+        # from the reference or from the last clip's tail.
         if resp.status_code == 400 and "reference_image" in resp.text:
             payload["reference_image"] = self._encode_reference(self._seed_image_path)
             window = (self._tail_frames(self._last_clip, self.continuity_frames)
@@ -440,8 +440,8 @@ def fit_reference(
     path: Path | str, width: int, height: int, *, fit: str = "pad", fill: str = "auto",
 ) -> tuple[bytes, list[str]]:
     """The reference fitted to a `width`x`height` render frame, as PNG
-    bytes, and what is wrong with it. `fit="strict"` (RUN-17, D-15: one
-    standard size) takes a reference at the render aspect to the pixel
+    bytes, and what is wrong with it. `fit="strict"` (one standard size)
+    takes a reference at the render aspect to the pixel
     (`exact_aspect`) and resizes it whole, no crop and no padding, and
     raises `ReferenceRefused` for any other. Otherwise, within
     `ASPECT_TOLERANCE` of the render aspect it is cover-resized (an

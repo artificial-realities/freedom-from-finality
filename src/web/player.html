@@ -28,7 +28,7 @@
   .stage { position: relative; flex: 1; min-height: 0; background: #000; border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
   .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .25s ease; background: #000; }
   .stage video.active { opacity: 1; }
-  /* The overlap seam (D-03): the picture cuts, no opacity fade. */
+  /* The overlap seam: the picture cuts, no opacity fade. */
   .stage.cut video { transition: none; }
   .textstage { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 8% 12%; text-align: center; background: radial-gradient(ellipse at center, #17171c 0%, #0a0a0c 75%); }
   .textstage.active { display: flex; }
@@ -130,7 +130,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   // "fade" (production) plays on two elements with a 250 ms crossfade;
-  // "overlap" (D-03) uses a pool of three and cuts at the
+  // "overlap" uses a pool of three and cuts at the
   // overlap. The server says which in `hello`.
   let seam = 'fade';
   let videos = [$('vA'), $('vB')];
@@ -233,7 +233,7 @@
     }
   }
 
-  // ── The overlap seam (AUD-02 / LTX-12, D-03) ────────────────────────
+  // ── The overlap seam ────────────────────────
   // Clip N+1's first `overlap_seconds` repeat clip N's tail. The picture
   // cuts from N to N+1 when N's media time reaches that point (N+1 starts
   // at its own head, the same picture), with no opacity fade; the sound

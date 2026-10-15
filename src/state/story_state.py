@@ -38,9 +38,9 @@ class StoryState(BaseModel):
     current_clip: str = ""          # "2/3": the clip's place in its beat
     # The clip's spoken lines ("Name: line"): the player shows them, and the
     # overlap seam brings a clip with speech in at once instead of
-    # crossfading its first syllable (AUD-02).
+    # crossfading its first syllable.
     current_dialogue: list[str] = Field(default_factory=list)
-    current_shape: ClipShape | None = None   # the clip's selected shape (RUN-01): what is rendered and held
+    current_shape: ClipShape | None = None   # the clip's selected shape: what is rendered and held
     current_clip_id: int = 0                # monotonic clip identity (never reused)
     current_parent_clip_id: int = 0         # the clip this one continues from (0 = reference)
     turn_notes: str = ""  # engine-specific markdown appended to the transcript

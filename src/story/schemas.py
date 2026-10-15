@@ -66,7 +66,7 @@ class ClipSpec(BaseModel):
     `action` is the only prose the film has; the transcript, the player
     and the Showrunner's log all read it.
 
-    `cut_to` (LTX-15, only where the story allows cuts; "" = the clip
+    `cut_to` (only where the story allows cuts; "" = the clip
     continues the shot): the shot the clip cuts to, at its start; the
     clip's action, end state and camera move then belong to that shot,
     which holds after the clip until a camera move or another cut. It
