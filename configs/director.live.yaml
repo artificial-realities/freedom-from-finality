@@ -27,14 +27,14 @@ startup_clips: 1
 
 # ── LTX-2.5 video backend ──────────────────────────────────────────
 i2v_backend: "ltxv"
-clip_seconds: 6                          # the one clip shape: 145 frames at 24 fps (6.04 s on air); the server warms it
+clip_seconds: 6                          # the one clip shape: 6 s on air (153 frames with the overlap seam); the server warms it
 ltxv_server_url: "http://localhost:8000"
 ltxv_continuity_strength: 1.0
 ltxv_continuity_frames: 9
 # The overlap seam: the server renders 153 frames (144 new + the 9 repeated), the page cuts where
-# the repeat begins and crossfades the sound over it, and the server keeps each clip under -18 LUFS with its audio padded to
-# the video. vast_run.sh reads both lines (the warm shape and the ceiling). `seam: "fade"` and no
-# ceiling is the way back (145 frames).
+# the repeat begins and crossfades the sound over it, and the server keeps each clip under -18 LUFS
+# with its audio padded to the video. vast_run.sh reads both lines (the warm shape and the ceiling).
+# `seam: "fade"` and no ceiling is the way back (145 frames).
 seam: "overlap"
 audio_ceiling_lufs: -18
 # One standard size, 512x288 (the server's default), and the

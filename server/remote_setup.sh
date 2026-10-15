@@ -19,7 +19,7 @@ python -c "from diffusers import LTX2ConditionPipeline; print('LTX2ConditionPipe
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc && echo "ffmpeg has h264_nvenc" || echo "ffmpeg without h264_nvenc (libx264 will be used)"
 echo "cgroup memory limit: $(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"; free -g | sed -n 2p; df -h /root | tail -1
-# The defaults (fp8, compile, 640x352, warm-up shapes) live in one file, shared with `vast_run.sh restart`.
+# The defaults (fp8, compile, 512x288, warm-up shapes) live in one file, shared with `vast_run.sh restart`.
 . /root/server_defaults.sh
 nohup python ltx2_server.py > server.log 2>&1 &
 echo "server started pid $! (variant=$LTX2_VARIANT offload=$LTX2_OFFLOAD)"
