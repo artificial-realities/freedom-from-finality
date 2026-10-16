@@ -87,8 +87,12 @@ class LtxvI2V(I2VBackend):
         anchor_strength: float = 0.0,
         anchor_index: int = -1,
         restart_recovery: str = "window",
+        api_key: str = "",
     ) -> None:
         self.server_url = server_url.rstrip("/")
+        # The server's shared key (LTX2_API_KEY), sent as a bearer token
+        # when set; a server started without one ignores it.
+        self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         # After a server restart: send the last clip's tail so the picture
         # continues (the default), or re-seed from the reference.
         if restart_recovery not in ("reference", "window"):
@@ -167,7 +171,18 @@ class LtxvI2V(I2VBackend):
         starts, not stalled for minutes mid-film by a compile."""
         health = self._probe_health()
         if health is None:
-            raise UnregisteredShape(f"the LTX-2.5 server at {self.server_url} is not reachable; cannot check its warm shapes")
+            raise UnregisteredShape(
+                f"the LTX-2.5 server at {self.server_url} is not reachable; start it (or open the ssh tunnel), "
+                f"or point LTXV_SERVER_URL / ltxv_server_url at it")
+        if health.get("auth_required") and not health.get("authorized"):
+            raise UnregisteredShape(
+                f"the LTX-2.5 server at {self.server_url} requires a key: set LTX2_API_KEY to the server's value")
+        status = health.get("status", "ready")
+        if status != "ready":
+            # Loading the weights and warming every shape takes minutes; the
+            # warm list is empty until then, so say so instead of naming shapes.
+            raise UnregisteredShape(
+                f"the LTX-2.5 server at {self.server_url} is still {status}; wait until /health says \"ready\"")
         rate = float(health.get("frame_rate", DEFAULT_FRAME_RATE))
         if rate != registry.default.fps:
             raise UnregisteredShape(f"the server renders at {rate:g} fps; the shapes were built for {registry.default.fps:g}")
@@ -187,7 +202,7 @@ class LtxvI2V(I2VBackend):
 
     def _probe_health(self) -> dict | None:
         try:
-            resp = requests.get(f"{self.server_url}/health", timeout=PROBE_TIMEOUT_S)
+            resp = requests.get(f"{self.server_url}/health", headers=self._headers, timeout=PROBE_TIMEOUT_S)
             if resp.status_code == 200:
                 return resp.json()
         except Exception:
@@ -282,7 +297,7 @@ class LtxvI2V(I2VBackend):
                             "clip_id": clip_id, "parent_clip_id": parent_clip_id}
 
         url = f"{self.server_url}/generate"
-        resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
+        resp = requests.post(url, json=payload, headers=self._headers, timeout=REQUEST_TIMEOUT_S)
 
         # Server lost its session (restart / reset): re-seed and retry once,
         # from the reference or from the last clip's tail.
@@ -297,7 +312,7 @@ class LtxvI2V(I2VBackend):
             else:
                 logger.warning("LTX-2.5 server lost state — re-seeding reference")
                 self.last_render = {**self.last_render, "reference": True, "reseeded": True}
-            resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
+            resp = requests.post(url, json=payload, headers=self._headers, timeout=REQUEST_TIMEOUT_S)
 
         # Fenced render: the server does not hold the parent's tail.
         if resp.status_code == 409 and "unknown_parent" in resp.text:
@@ -307,7 +322,7 @@ class LtxvI2V(I2VBackend):
             if window:
                 payload["window_frames"] = window
                 self.last_render = {**self.last_render, "restored": len(window)}
-                resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
+                resp = requests.post(url, json=payload, headers=self._headers, timeout=REQUEST_TIMEOUT_S)
             else:
                 self.last_render = {**self.last_render, "unknown_parent": True}
                 return None

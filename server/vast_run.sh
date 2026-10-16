@@ -21,8 +21,14 @@
 # VAST_ENV passes container options (see `up`).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+[ -f .env ] || { echo "no .env here: cp .env.example .env and fill in VAST_API_KEY, HF_TOKEN and OPENAI_API_KEY" >&2; exit 1; }
 set -a; . ./.env; set +a
 export VAST_API_KEY
+# What a command needs before it rents or reaches anything: the vastai CLI and these .env variables.
+need() {
+  command -v vastai >/dev/null || { echo "the vastai CLI is not installed: pip install vastai" >&2; exit 1; }
+  local v; for v in "$@"; do [ -n "${!v:-}" ] || { echo "$v is not set in .env (see .env.example)" >&2; exit 1; }; done
+}
 STATE=logs/vast; mkdir -p "$STATE"
 IMAGE=${VAST_IMAGE:-pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel}
 # H100 SXM and NVL: cheaper than the PCIe on Vast and ~1.3x faster on this compute-bound model.
@@ -47,6 +53,7 @@ ceiling_env() { local v=${LTX2_AUDIO_CEILING_LUFS:-$(config_ceiling)}; [ -n "$v"
 server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-$(warm_frames)} $(ceiling_env) $(env | grep '^LTX2_' | grep -v -e '^LTX2_WARMUP_FRAMES=' -e '^LTX2_AUDIO_CEILING_LUFS=' | tr '\n' ' ')"; }
 
 up() {
+  need VAST_API_KEY HF_TOKEN
   local offer=${1:-$(pick_offer)}
   echo "renting offer $offer"
   # VAST_ENV reaches the container, e.g. VAST_ENV='-e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video' to ask
@@ -86,6 +93,7 @@ wait_ready() {
   return 1
 }
 restart() {
+  need VAST_API_KEY HF_TOKEN
   # Same box, new server process: switch any LTX2_* setting (variant, size, attention, quant, compile) without re-renting.
   # The weights are cached on the box, so this is load time only (a few minutes).
   scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/server_defaults.sh "root@$(cat "$STATE/host"):/root/"
@@ -99,6 +107,7 @@ restart() {
   wait_ready 80 || exit 1
 }
 run() {
+  need OPENAI_API_KEY
   # The film runs on the GPU box next to the server, so no clip crosses the
   # internet (the MP4 through the tunnel cost 1.5-4.6 s per clip). The
   # committed tree goes over with git archive, the client's keys from .env,
@@ -107,7 +116,8 @@ run() {
   local config=${1:-configs/director.live.yaml} log_dir=${2:-logs/live}; shift $(( $# > 2 ? 2 : $# ))
   # The working tree as it is (tracked files, committed or not), so what you have is what runs.
   local tree; tree=$(git stash create); git archive --format=tar "${tree:-HEAD}" | ssh_cmd "mkdir -p /root/ar && tar -x -C /root/ar"
-  grep -E '^(OPENAI|LANGFUSE)_' .env | ssh_cmd "cat > /root/ar/.env && chmod 600 /root/ar/.env"
+  # The client's keys only (the box is someone else's machine: see docs/self-hosting.md).
+  grep -E '^(OPENAI|LANGFUSE)_|^LTX2_API_KEY=' .env | ssh_cmd "cat > /root/ar/.env && chmod 600 /root/ar/.env"
   ssh_cmd "cd /root/ar && pip install -q -r requirements.txt 2>&1 | grep -v 'WARNING: Running pip' | tail -1"
   echo "the film runs on the box: open http://127.0.0.1:8765/  (Ctrl+C stops it; logs stay in /root/ar/$log_dir, fetch them with: $0 pull)"
   ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -L 8765:localhost:8765 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" \
@@ -125,6 +135,7 @@ status() {
   curl -s -m 5 localhost:8000/health || echo "no server on localhost:8000"; echo
 }
 down() {
+  need VAST_API_KEY
   pkill -f "ssh -f -N .* -L 8000:localhost:8000" 2>/dev/null || true
   if [ -f "$STATE/id" ]; then vastai destroy instance "$(cat "$STATE/id")" -y; rm -f "$STATE/id" "$STATE/host" "$STATE/port"; fi
   echo "tunnel closed, instance destroyed"

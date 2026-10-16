@@ -47,8 +47,8 @@ model was trained with, so no PNG round trip is needed here.
 Native audio: LTX-2.5 generates a synchronized audio track, so the MP4
 this server returns already carries ambient sound and effects.
 
-Setup on a GPU box: see server/remote_setup.sh (diffusers from main; the
-LTX-2.5 pipelines are not in a release yet). The weights are gated:
+Setup on a GPU box: see server/remote_setup.sh (diffusers pinned to the
+0.41.0 release in requirements.txt). The weights are gated:
 accept the licence on the model page and export HF_TOKEN.
 
 The prompt enhancer is not part of the Diffusers pack (it loads as None)
@@ -69,7 +69,13 @@ Environment variables:
                       peak), "sequential", or "gpu"/unset (everything resident;
                       ~72 GB + activations)
     LTX2_VAE_TILING   "1" to enable VAE tiling (lower peak VRAM on decode)
-    LTX2_HOST/PORT    bind address (default: 0.0.0.0:8000)
+    LTX2_HOST/PORT    bind address (default: 127.0.0.1:8000, reached through an
+                      ssh tunnel or from the same box; 0.0.0.0 only inside a
+                      container or behind a firewall, and then with LTX2_API_KEY)
+    LTX2_API_KEY      optional shared key: when set, /generate and /reset need
+                      `Authorization: Bearer <key>` (the client sends its own
+                      LTX2_API_KEY); /health stays open and reports whether a
+                      key is required and whether the request carried it
 
 Speed:
     LTX2_ATTN         attention backend for the DiT: "" (PyTorch SDPA, default), "fa3"
@@ -119,6 +125,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import io
 import logging
 import os
@@ -129,7 +136,7 @@ import time
 import numpy as np
 import torch
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -189,6 +196,21 @@ session: dict = {}
 # so a client can tell a restarted server from a reset session.
 SESSION_EPOCH = os.urandom(4).hex()
 _lock = asyncio.Lock()
+# Every render costs GPU time and moves the shared sliding window, so a
+# server reachable beyond this machine needs a key (see the docstring).
+API_KEY = os.getenv("LTX2_API_KEY", "").strip()
+
+
+def _key_ok(authorization: str | None) -> bool:
+    if not API_KEY:
+        return True
+    scheme, _, token = (authorization or "").partition(" ")
+    return scheme.lower() == "bearer" and hmac.compare_digest(token.strip().encode(), API_KEY.encode())
+
+
+def _require_key(authorization: str | None = Header(default=None)) -> None:
+    if not _key_ok(authorization):
+        raise HTTPException(401, "missing or wrong key: send Authorization: Bearer <LTX2_API_KEY>")
 
 
 class GenerateRequest(BaseModel):
@@ -576,7 +598,7 @@ def _pick_encoder() -> str:
 
 # ── Endpoints ─────────────────────────────────────────────────────
 
-@app.post("/generate")
+@app.post("/generate", dependencies=[Depends(_require_key)])
 async def generate(req: GenerateRequest):
     """Generate one chunk. Returns an MP4 with LTX-2.5's native audio."""
     if pipe is None:
@@ -590,7 +612,7 @@ async def generate(req: GenerateRequest):
     return await asyncio.to_thread(_encode_response, req, result)
 
 
-@app.post("/reset")
+@app.post("/reset", dependencies=[Depends(_require_key)])
 async def reset():
     """Drop session state (reference + window). Keeps the pipeline loaded."""
     session.clear()
@@ -599,9 +621,11 @@ async def reset():
 
 
 @app.get("/health")
-async def health():
+async def health(authorization: str | None = Header(default=None)):
     return {
         "status": "ready" if _ready else ("warming" if pipe is not None else "loading"),
+        "auth_required": bool(API_KEY),
+        "authorized": _key_ok(authorization),
         "model": MODEL_ID,
         "variant": VARIANT,
         "distilled": VARIANT == "distilled",
@@ -967,7 +991,10 @@ def _cleanup(path: str) -> None:
 
 
 if __name__ == "__main__":
-    host = os.getenv("LTX2_HOST", "0.0.0.0")
+    host = os.getenv("LTX2_HOST", "127.0.0.1")
     port = int(os.getenv("LTX2_PORT", "8000"))
+    if host not in ("127.0.0.1", "localhost", "::1") and not API_KEY:
+        logger.warning("Listening on %s without LTX2_API_KEY: anyone who can reach port %d can render on this GPU",
+                       host, port)
     logger.info("Starting LTX-2.5 server on %s:%d", host, port)
     uvicorn.run(app, host=host, port=port)

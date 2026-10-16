@@ -1,7 +1,10 @@
 from src.llm.base import LLMBackend
 from src.llm.openai_backend import OpenAIBackend
 
-__all__ = ["LLMBackend", "OpenAIBackend", "build_backend"]
+__all__ = ["LLMBackend", "OpenAIBackend", "OPENAI_NAMES", "build_backend"]
+
+# The `llm_backend` values that mean the OpenAI API (and need OPENAI_API_KEY).
+OPENAI_NAMES = {"openai", "gpt-4o", "gpt-4.1", "gpt"}
 
 
 def build_backend(name: str, model: str, *, service_tier: str = "", reasoning_effort: str = "") -> LLMBackend:
@@ -11,7 +14,7 @@ def build_backend(name: str, model: str, *, service_tier: str = "", reasoning_ef
     model and sets its effort ("none" for the fastest). Other backends
     ignore both."""
     key = name.lower()
-    if key in {"openai", "gpt-4o", "gpt-4.1", "gpt"}:
+    if key in OPENAI_NAMES:
         return OpenAIBackend(model=model, service_tier=service_tier, reasoning_effort=reasoning_effort)
     if key == "mock":
         from src.llm.mock_backend import MockBackend

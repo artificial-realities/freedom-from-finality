@@ -1,43 +1,102 @@
-# Artificial Realities
+# Untitled Project
 
-An interactive generative movie platform: a continuously streaming AI-generated film whose story responds to the viewer while it plays.
+An experimental interactive video generation system: an AI-generated film that keeps playing in your browser while you type suggestions into it.
 
-## The vision
+An [Artificial Realities](https://github.com/artificial-realities) project. *Untitled Project* is a working title.
 
-The experience should feel like watching a continuously unfolding movie guided by an imaginative, responsive storyteller, much like listening to someone tell a story around a campfire. The story should have a life of its own, progressing naturally and remaining engaging even when the viewer does nothing. Characters should have distinct personalities, motivations, relationships, and autonomy, while the world maintains its own internal logic and consistency.
+> **Work in progress.** It runs end to end, from a typed line to a clip on screen, but it is a prototype: video needs an 80 GB GPU, there is one small bundled story, and several problems are open (see [Status](#status)).
 
-The viewer should be able to influence the story at any moment through natural, unrestricted input, as if making suggestions to the storyteller rather than issuing commands or selecting from predefined choices. These suggestions should be interpreted creatively and integrated organically into the unfolding narrative, without automatically being obeyed or disrupting its coherence. Viewer input should have the potential to create meaningful consequences, both immediate and long-term, while characters remain free to act according to their motivations. The storyteller should balance responsiveness with creative independence, introducing believable surprises, developing conflicts, and maintaining narrative momentum without relying on the viewer to drive every event.
+## Overview
 
-The experience should feel cinematic, immersive, and continuous, with natural transitions, consistent environments, believable dialogue, and coherent visual and audio progression rather than a sequence of disconnected generated clips. Above all, it should feel like a living story that listens to the viewer, remembers what happens, and evolves naturally in ways that neither the viewer nor the storyteller has completely predetermined.
+```
+┌─▶ the viewer types a suggestion (or doesn't)
+│     → Director (LLM) writes the next beat: 1-4 clips of action, dialogue and world changes
+│     → code checks it against the world model and compiles a video prompt per clip
+│     → LTX-2.5 renders each 6-second clip with sound, continuing from the end of the last one
+└──── the browser plays the clips back to back
+      (meanwhile the Showrunner, a second LLM, condenses the story so far and plans the next scene)
+```
 
-The goal is not a clip generator with a text box on it. It is a system that can hold a story together across a long runtime while remaining open to influence.
+- **Story.** Two LLM roles write the film over a typed world model (characters, props, story threads, an event log) that only code changes. The Director writes one beat per call; the Showrunner runs in the background and never holds up the picture. The story keeps moving when nobody types.
+- **Suggestions.** A typed line is a suggestion to the storyteller, not a command. The Director takes it up in the story's own way, maybe with a twist, a character who resists, or a consequence that comes later, and reports whether it was absorbed, deferred or declined. A line reaches the screen about two clips after you type it.
+- **Video.** [LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5-Diffusers) runs on a GPU server you host. Each clip is conditioned on the last frames of the one before, so the picture stays continuous; the first clip starts from the story's reference image. All the sound, the characters' lines included, comes from the video model.
+- **Without a GPU** the same film plays as text in the browser or the terminal.
 
-## The problem
+Built with Python (asyncio, Pydantic), the OpenAI API, aiohttp with server-sent events and one HTML page for the player, and FastAPI with Hugging Face `diffusers` on the GPU server. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Getting there means solving several things at once:
+The bundled story is deliberately small: a LEGO minifigure in a white void who talks, meets a spaceman when a bit first fails badly, and gets visitors from other LEGO themes. A story is a folder with a `story.json` and a reference image ([stories/README.md](stories/README.md)).
 
-- **Continuous generation** — produce and present video without the stream stopping to think.
-- **Continuity over time** — keep story, characters, world, and narrative thread coherent as the runtime grows.
-- **Influence** — accept user input and interpret it as story intent rather than as a raw prompt.
-- **Translation** — turn that intent into concrete changes in future scenes.
-- **Constraints** — preserve higher-level story guidelines while still letting influence matter. Steering should bend the story, not break it.
-- **Cinematic cohesion** — connect scenes so the result reads as one film, not a reel of isolated AI clips.
+## Demo
 
-None of these is fully solved here. The prototype is one attempt at attacking them together.
+There is no hosted version and no published footage yet. Text mode runs on any computer with an OpenAI key (below).
 
-## Current prototype
+## Requirements
 
-The prototype generates the film as a sequence of short segments that are stitched into a continuous stream. An LLM layer decides what happens next and how to shoot it; an image-to-video model renders it; the viewer types free-text guidance between clips, and the story keeps moving whether they do or not.
+| | Text mode | Video mode, in addition |
+|---|---|---|
+| Hardware | Any computer | A Linux machine with an 80 GB NVIDIA GPU (tested on H100), yours or rented |
+| Software | Python 3.11-3.14 | ffmpeg; on the GPU machine torch 2.9.1 with CUDA 12.8 |
+| Models | OpenAI `gpt-5.6-luna` for both roles | LTX-2.5 weights (~72 GB, gated: accept the licence on Hugging Face) |
+| Accounts | [OpenAI API key](https://platform.openai.com/api-keys) | Hugging Face token; optionally Vast.ai to rent the GPU |
+| Cost | About $0.50 per hour of film in OpenAI calls | GPU time: a rented H100 has cost about $3 per hour |
 
-Concretely, as of today:
+## Quickstart
 
-- **Narrative orchestration** is two LLM roles on two clocks over a typed world model. A **Director** makes one structured call per beat, one action or state of the film as a few clips: what the camera sees in each clip, what is said, what changes in the world, and how the viewer's input was handled; the clips are rendered one by one with no model call in between, and a viewer's line cuts the beat short. A **Showrunner** runs off the critical path on triggers to compact the event log into summaries and write the next scene card. Code owns the world model, validation, the prompt compiler and persistence; whether the film is moving is the two roles' judgment. This is one mechanism being explored for coordinating generation, not a fixed part of the design; it replaced a four-role split after an A/B and a 180-segment run.
-- **Video** comes from LTX-2.5 running as a resident inference server on a GPU box. It owns a sliding window: the tail of each generated chunk conditions the next one, which carries visual state forward from clip to clip; only the first clip of a run is seeded from the reference image. It also renders the sound natively: ambient and foley, and the characters' lines when the Director writes them.
-- **Playback** is a web player: the film streams to a browser clip by clip, holds the last frame while the next segment renders, and takes typed input at any moment; the Director reports whether each line was absorbed, deferred or declined. Without a video backend the same page plays the film as text at story pace. The played clips are concatenated into one film with ffmpeg at the end of a run.
+Text mode, on Linux or WSL2:
 
-The one story is deliberately small: a LEGO minifigure in a white void, one location, who talks, meets a classic LEGO spaceman when a bit first fails badly, and takes visitors from any LEGO theme. It is written in the story blueprint (`stories/lego-void/story.json`: the premise, the question the film keeps open, what keeps happening, what holds whatever the viewer does, and the storyteller's theme, tone, temperament and refusals), and it exercises every feature of the engine while keeping long-horizon continuity, the hard part, in view.
+```bash
+git clone https://github.com/artificial-realities/untitled-project.git
+cd untitled-project
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env              # then add your OpenAI API key to .env
+python main.py check              # checks the setup without calling OpenAI
+python main.py play --config configs/director.yaml --player web
+```
 
-## Where it stands
+Open <http://127.0.0.1:8765/> and type into the box whenever you like. Ctrl+C stops the film; `--segments 20` stops it after 20 clips. Every run writes a transcript and the world model to `logs/`.
+
+Or with Docker (new, and so far only tested in CI): `cp .env.example .env`, add the key, `docker compose up --build`.
+
+## Video
+
+Video needs the LTX-2.5 server (`server/`) running on a GPU machine. On its first start it downloads the weights and compiles for the clip shape, which takes 5-20 minutes; after that each 6-second clip renders in about 3.5 s on an H100. Then run the film with the live config, ideally on the same machine:
+
+```bash
+python main.py check --config configs/director.live.yaml     # is the server reachable, ready and warm?
+python main.py play --config configs/director.live.yaml --player web
+```
+
+Three ways to get the server, all in [docs/self-hosting.md](docs/self-hosting.md#gpu-server-video-mode):
+
+- **Rent one on Vast.ai** with `server/vast_run.sh up | run | pull | down`: the route the project is developed on.
+- **Your own GPU machine** (or another provider): `pip install -r server/requirements.txt` and start it; see [server/README.md](server/README.md).
+- **Docker** on a GPU machine: `docker compose --profile gpu up ltx-server` (untested).
+
+## Configuration
+
+Keys go in `.env` (from `.env.example`), never in the configs:
+
+| Variable | |
+|---|---|
+| `OPENAI_API_KEY` | Required. |
+| `HF_TOKEN` | On the GPU machine, to download the gated weights. |
+| `LTXV_SERVER_URL` | Where the client finds the LTX-2.5 server (default `http://localhost:8000`). |
+| `LTX2_API_KEY` | Optional shared key between the client and the server. |
+| `VAST_API_KEY` | Only for `server/vast_run.sh`. |
+| `LANGFUSE_*` | Optional tracing (sends prompts and outputs to Langfuse). |
+
+Everything else is in the run configs: `configs/director.yaml` (text) and `configs/director.live.yaml` (video), with every field explained in [`src/models/config.py`](src/models/config.py). The full table and the server's settings are in [docs/self-hosting.md](docs/self-hosting.md#configuration).
+
+The player and the GPU server listen on `127.0.0.1` and have no login, so anyone who can reach them can steer the film and spend your credit. Keep them there, or read [exposing it beyond your computer](docs/self-hosting.md#exposing-it-beyond-your-computer) first.
+
+## Architecture
+
+A deterministic engine drives two LLM roles on two clocks: the Director on the critical path (one structured call per beat, validated against the world model, emitted clip by clip with no model call in between, cut short when the viewer speaks), and the Showrunner off it (memory compaction and the next scene card). A prompt compiler is the only code that knows the video model's dialect. The live loop renders each clip just in time, so that it is ready about 4.7 s before it is due on air and a viewer's line reaches the earliest clip that isn't rendering yet.
+
+The orchestration is one mechanism being explored, not the definition of the project. [docs/vision.md](docs/vision.md) says what it is reaching for, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) how it works, and [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence.
+
+## Status
 
 Working: end-to-end generation from viewer input to a film streaming in the browser, steered while it plays. A 64-clip live film on one H100 played without a stall, every viewer line on screen two clips after it was typed. Open:
 
@@ -45,11 +104,9 @@ Working: end-to-end generation from viewer input to a film streaming in the brow
 - **Re-seeding resets the look.** Seeding a clip from the reference image reverts anything the story has changed about a character (a cap picked up mid-film), so only the first clip is seeded and every other continues the one before. A new angle has to be a camera move, or a written cut where the story allows one.
 - **Continuity against steering.** The sliding window trades one for the other directly (`ltxv_continuity_strength`): high continuity means new input barely lands, low means the picture jumps. A better mechanism is needed, not a better setting.
 - **Long films drift.** As props accumulate, the LEGO story's white void turns into a baseplate floor.
-- **Unverified on the GPU:** two speakers in one clip, and a minifigure's printed face while it speaks.
+- **Unverified on the GPU:** two speakers in one clip, a minifigure's printed face while it speaks, and the server on the diffusers 0.41.0 release (the live runs used a development build).
 
-Why the design is what it is, with the evidence: [`docs/decisions.md`](docs/decisions.md).
-
-## Performance
+### Performance
 
 One live film of 64 clips on an H100 SXM, client and server on the box: LTX-2.5 distilled (8 sigmas, unguided), fp8, regional `torch.compile`, 512×288 at 24 fps, 6 s clips with the overlap seam; gpt-5.4-mini as Director.
 
@@ -65,18 +122,20 @@ One live film of 64 clips on an H100 SXM, client and server on the box: LTX-2.5 
 
 `scripts/latency_probe.py` checks whether a server setting renders in real time. Every run writes `logs/sessions/<id>/timing.jsonl` (fires, renders, queue margins, stalls, viewer lines, Director calls) next to its world model and transcript.
 
-## Repository
-
-`main.py` runs the prototype against a config in `configs/`. `docs/ARCHITECTURE.md` describes the current orchestration and `docs/decisions.md` why it is built that way; `stories/README.md` is the field guide to a story blueprint; `server/README.md` covers the LTX-2.5 inference server.
-
-It needs Python 3.10 or newer, ffmpeg (`ffmpeg` and `ffprobe`; `ffplay` for the terminal player) and an OpenAI API key; live video also needs an 80 GB GPU running the LTX-2.5 server.
+## Development
 
 ```bash
-pip install -r requirements.txt
-cp .env.example .env                                                   # OPENAI_API_KEY
-
-python main.py play --config configs/director.yaml                     # headless, no video or audio
-python main.py play --config configs/director.yaml --player web        # the film as text in a browser, steer while it plays
-python main.py play --config configs/director.live.yaml --player web   # live video (needs the LTX-2.5 server)
-pytest                                                                 # offline test suite (mock LLM, no network)
+pip install -r requirements-dev.txt
+python -m pytest        # offline: mock LLM, no key, no network beyond this machine
+ruff check .
 ```
+
+[AGENTS.md](AGENTS.md) has the repository map, the conventions and the rules for coding agents (and people): it's written so that an agent asked to "set this up so I can run it" can do most of the work. Contributions are welcome: see [CONTRIBUTING.md](.github/CONTRIBUTING.md), and [SECURITY.md](.github/SECURITY.md) for reporting vulnerabilities. Generating anything real costs money, so the tests never call a model or a GPU.
+
+## License and credits
+
+The code is [MIT](LICENSE). Created by Simen Bihaug-Frøyland ([@sbfroy](https://github.com/sbfroy)) and published by [Artificial Realities](https://github.com/artificial-realities).
+
+The LTX-2.5 weights by [Lightricks](https://huggingface.co/Lightricks) are not part of this repository and not covered by its licence: they are downloaded from Hugging Face under the LTX-2 Community License Agreement, which has its own conditions (including a revenue threshold for commercial use). The story and the dialogue are written by OpenAI models.
+
+LEGO® is a trademark of the LEGO Group, which does not sponsor, authorize or endorse this project.

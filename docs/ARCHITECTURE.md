@@ -1,6 +1,6 @@
 # Architecture
 
-Artificial Realities generates a film as a sequence of short clips while a viewer watches and steers. This document describes the current orchestration, the **Director engine** (`graph: "director"`). It replaced a four-role engine after a 30-turn A/B and a 180-segment run; why it is built the way it is, with the evidence, is in [`decisions.md`](decisions.md).
+Untitled Project generates a film as a sequence of short clips while a viewer watches and steers. This document describes the current orchestration, the **Director engine** (`graph: "director"`). It replaced a four-role engine after a 30-turn A/B and a 180-segment run; why it is built the way it is, with the evidence, is in [`decisions.md`](decisions.md).
 
 ## Design in one paragraph
 
@@ -136,7 +136,7 @@ ltxv_seed_key: ""              # render seeds derive from this key and the segme
 
 ## Testing
 
-`pytest` runs the offline suite on the mock LLM (`llm_backend: "mock"`), in a few seconds and without an API key: `tests/test_story.py` (the world model, the validator and the cast policy, the compiler, persistence, and that every blueprint field is in the field guide), `tests/test_engine.py` (the film loop end to end: beats emitted clip by clip, a viewer line cutting a beat short, the re-ask path, the non-blocking Showrunner, a failed render rolled back and replanned, a line whose answer failed answered at the next plan), `tests/test_render.py` (the clip shape every consumer reads and the server must have warmed, and the strict reference fit) and `tests/test_web.py` (the live loop through the web player over HTTP, in text mode and with clip files). The video tests render with a stand-in that copies one prepared clip.
+`pytest` runs the offline suite on the mock LLM (`llm_backend: "mock"`), in a few seconds and without an API key: `tests/test_story.py` (the world model, the validator and the cast policy, the compiler, persistence, and that every blueprint field is in the field guide), `tests/test_engine.py` (the film loop end to end: beats emitted clip by clip, a viewer line cutting a beat short, the re-ask path, the non-blocking Showrunner, a failed render rolled back and replanned, a line whose answer failed answered at the next plan), `tests/test_render.py` (the clip shape every consumer reads and the server must have warmed, and the strict reference fit), `tests/test_web.py` (the live loop through the web player over HTTP, in text mode and with clip files, and what `/input` accepts) and `tests/test_setup.py` (`main.py check` and `play` without a key, the server address from the environment, the setup check against a stand-in LTX-2.5 server, and the real OpenAI client against a local stand-in of the API). The video tests render with a stand-in that copies one prepared clip; a fixture fails any connection beyond this machine and clears keys from the environment.
 
 ## Not built yet, by design
 

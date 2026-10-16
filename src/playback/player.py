@@ -196,7 +196,7 @@ async def _launch_persistent_ffplay(clip_path: str) -> asyncio.subprocess.Proces
     try:
         return await asyncio.create_subprocess_exec(
             "ffplay", "-noborder", "-loglevel", "quiet",
-            "-window_title", "Artificial Realities", clip_path,
+            "-window_title", "Untitled Project", clip_path,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
     except Exception:

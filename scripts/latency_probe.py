@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -29,12 +30,17 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))  # repo root, so `src` imports
 
 import requests  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
 
 from src.i2v.ltxv import fit_reference  # noqa: E402
 from src.i2v.shape import ShapeRegistry  # noqa: E402
 from src.models.config import Config  # noqa: E402
 from src.models.story import Story  # noqa: E402
 from src.util.timing_log import git_revision  # noqa: E402
+
+load_dotenv(override=False)
+# The server's shared key, when it was started with one (LTX2_API_KEY).
+HEADERS = {"Authorization": f"Bearer {os.environ['LTX2_API_KEY']}"} if os.getenv("LTX2_API_KEY") else {}
 
 RENDER_TIMEOUT_S = 900
 WARMUP = 3
@@ -71,7 +77,7 @@ def parse_timings(text: str) -> dict[str, float]:
 def render(server: str, payload: dict) -> tuple[dict | None, bytes, str]:
     """One /generate call: (row, mp4 bytes, error)."""
     t0 = time.monotonic()
-    resp = requests.post(f"{server}/generate", json=payload, timeout=RENDER_TIMEOUT_S)
+    resp = requests.post(f"{server}/generate", json=payload, headers=HEADERS, timeout=RENDER_TIMEOUT_S)
     wall = time.monotonic() - t0
     if resp.status_code != 200:
         return None, b"", f"HTTP {resp.status_code} {resp.text[:200]}"
@@ -102,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         print("the story has no reference image", file=sys.stderr)
         return 2
 
-    health = requests.get(f"{args.server}/health", timeout=10).json()
+    health = requests.get(f"{args.server}/health", headers=HEADERS, timeout=10).json()
     if health.get("status") != "ready":
         print(f"server is {health.get('status')}; wait for ready", file=sys.stderr)
         return 1
@@ -117,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     ref_png, _ = fit_reference(story.reference_image, width, height,
                                fit=config.i2v_reference_fit, fill=config.i2v_reference_fill)
     ref_b64 = base64.b64encode(ref_png).decode()
-    requests.post(f"{args.server}/reset", timeout=10)
+    requests.post(f"{args.server}/reset", headers=HEADERS, timeout=10)
     prompts = prompts_for(story)
 
     rows: list[dict] = []

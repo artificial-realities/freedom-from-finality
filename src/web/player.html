@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Artificial Realities</title>
+<title>Untitled Project</title>
 <style>
   :root {
     --bg: #0a0a0c; --panel: #111115; --line: #1f1f26; --text: #e9e7e1; --muted: #8b8a94;
@@ -90,7 +90,7 @@
 </head>
 <body>
 <header>
-  <h1 id="title">Artificial Realities</h1>
+  <h1 id="title">Untitled Project</h1>
   <span class="count" id="count"></span>
   <div class="status"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
 </header>
@@ -462,7 +462,7 @@
       if (s.seam === 'overlap' && seam !== 'overlap') {
         seam = 'overlap'; videos = pool; $('stage').classList.add('cut');
       }
-      if (s.title) { $('title').textContent = s.title; document.title = s.title + ' — Artificial Realities'; }
+      if (s.title) { $('title').textContent = s.title; document.title = s.title + ' — Untitled Project'; }
       ended = s.ended;
       s.history.forEach(entryFor);
       s.inputs.filter(r => r.after_turn >= (s.history.length ? s.history[s.history.length - 1].turn : 0)).forEach(addPendingInput);

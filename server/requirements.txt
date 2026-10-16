@@ -9,15 +9,20 @@
 #
 # The LTX-2.5 weights are gated: accept the licence at
 # https://huggingface.co/Lightricks/LTX-2.5-Diffusers and export HF_TOKEN.
+#
+# The live runs used diffusers 0.41.0.dev0 from main (September 2026) with
+# transformers 5.17-5.19 and torchao 0.16.0. 0.41.0 is the release cut from
+# that line and has every pipeline and helper ltx2_server.py imports; main
+# moves on without notice, so the server is pinned to the release.
 
-diffusers @ git+https://github.com/huggingface/diffusers   # LTX2ConditionPipeline
-transformers>=4.50
-accelerate>=1.0
-peft>=0.12              # required for distilled LoRA loading
-sentencepiece>=0.2      # Gemma text-encoder tokenizer
-av>=12.0                # encode_video muxes video+audio via PyAV
-fastapi>=0.110
-uvicorn>=0.29
-hf_transfer             # fast weight download (server_defaults.sh turns it on)
-torchao<0.17            # fp8 / mxfp8 / nvfp4 matmuls (LTX2_QUANT)
-kernels>=0.12.3         # FlashAttention-3/4 and SageAttention from the Hub (LTX2_ATTN)
+diffusers==0.41.0       # LTX2ConditionPipeline
+transformers>=5.17,<6
+accelerate>=1.0,<2
+peft>=0.12,<1           # required for distilled LoRA loading
+sentencepiece>=0.2,<1   # Gemma text-encoder tokenizer
+av>=12.0,<20            # encode_video muxes video+audio via PyAV
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+hf_transfer>=0.1,<1     # fast weight download (server_defaults.sh turns it on)
+torchao>=0.16,<0.17     # fp8 / mxfp8 / nvfp4 matmuls (LTX2_QUANT)
+kernels>=0.12.3,<1      # FlashAttention-3/4 and SageAttention from the Hub (LTX2_ATTN)

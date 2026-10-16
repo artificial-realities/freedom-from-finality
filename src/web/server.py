@@ -13,7 +13,8 @@ the whole history in its first event and seeks into the current item.
 Routes:
     GET  /              the player page
     GET  /events        server-sent events: hello, queued, playing, input, status, ended
-    POST /input         {"text": "..."} → queued for the next segment
+    POST /input         {"text": "..."} (application/json, at most MAX_INPUT_CHARS) → queued
+                        for the next segment
     POST /beacon        {"kind": "swap" | "loadstart_on_playing" | "waiting", ...}: the
                         page's own timing, written to the run's timing log
     GET  /clips/N.mp4   the clip that played for segment N (Range requests supported)
@@ -43,6 +44,10 @@ BEACON_KINDS = {"swap", "loadstart_on_playing", "waiting"}
 BEACON_NUMBERS = ("turn", "ms", "media_time", "offset")
 BEACON_FLAGS = ("armed", "prefetched")
 BEACON_MAX_BYTES = 2048
+# A viewer line, as long as the page's text box allows. Every line costs a
+# Director call, so the server holds the same limit.
+MAX_INPUT_CHARS = 400
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 class WebPlayer(Player):
@@ -102,6 +107,11 @@ class WebPlayer(Player):
         if server is not None and server.sockets:
             self.port = server.sockets[0].getsockname()[1]
         print(f"Player: {self.url}  (type there to steer the story)", flush=True)
+        if self.host not in LOOPBACK_HOSTS:
+            # In a container this is expected (the published port decides who
+            # reaches it); anywhere else it opens the film to the network.
+            print(f"Note: the player listens on {self.host} and has no login; anyone who can reach port "
+                  f"{self.port} can steer the film, and every line costs a Director call.", flush=True)
 
     @property
     def url(self) -> str:
@@ -143,13 +153,22 @@ class WebPlayer(Player):
         return web.json_response(self._snapshot())
 
     async def _input(self, request: web.Request) -> web.Response:
+        # JSON only: a browser cannot send it cross-site without a CORS
+        # preflight, which this server never grants, so another page open in
+        # the viewer's browser cannot type into the film.
+        if request.content_type != "application/json":
+            return web.json_response({"error": "expected application/json"}, status=415)
         try:
             body = await request.json()
         except Exception:
             return web.json_response({"error": "expected a JSON body"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"error": "expected a JSON object"}, status=400)
         text = str(body.get("text", "")).strip()
         if not text:
             return web.json_response({"error": "empty input"}, status=400)
+        if len(text) > MAX_INPUT_CHARS:
+            return web.json_response({"error": f"at most {MAX_INPUT_CHARS} characters"}, status=413)
         if self._ended:
             return web.json_response({"error": "the film has ended"}, status=409)
         input_id = str(body.get("id", "")).strip()

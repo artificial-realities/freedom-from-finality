@@ -23,9 +23,12 @@ ENV/
 .env.*
 !.env.example
 
-# Logs
+# Run output: transcripts, world models, timing logs, clips
 logs/
 *.log
+
+# Model and download caches, if pointed inside the checkout
+.cache/
 
 # IDE
 .vscode/

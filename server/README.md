@@ -4,23 +4,32 @@ Resident image-to-video server for the prototype's video path. It holds the pipe
 
 ## Setup
 
+Needs Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL), torch 2.9.1 with CUDA 12.8, ffmpeg on the PATH, and about 72 GB of disk for the weights. What's verified and what isn't, the costs, and the three ways to run it (rented on Vast.ai, a machine of your own, Docker) are in [docs/self-hosting.md](../docs/self-hosting.md#gpu-server-video-mode).
+
 The weights are gated. One-time:
 
-1. Open [Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers) and click **Agree and access repository**.
-2. Create a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+1. Open [Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers), read the LTX-2 Community License and click **Agree and access repository**.
+2. Create a read token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and put it in `.env` as `HF_TOKEN`.
 
 ```bash
-# On the GPU box (an 80 GB card, torch 2.9.1 with CUDA 12.8, ffmpeg on the PATH):
+# On the GPU box (torch 2.9.1 + CUDA 12.8 already installed, e.g. the pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel image):
 pip install -r server/requirements.txt
-export HF_TOKEN=hf_...
-. server/server_defaults.sh && python server/ltx2_server.py   # downloads weights on first run, serves on :8000
+set -a; . ./.env; set +a                                       # HF_TOKEN (and LTX2_API_KEY if you use one)
+. server/server_defaults.sh && python server/ltx2_server.py   # downloads weights on first run, serves on 127.0.0.1:8000
 
-# On the client machine: tunnel, then run.
-ssh -N -L 8000:localhost:8000 -p <PORT> root@<HOST>
+# The client on the same box (best), or on your computer through a tunnel:
+ssh -N -L 8000:localhost:8000 -p <PORT> <user>@<HOST>
+python main.py check --config configs/director.live.yaml
 python main.py play --config configs/director.live.yaml --player web
 ```
 
+Or in Docker with the NVIDIA Container Toolkit: `docker compose --profile gpu up -d --build ltx-server` from the repository root, or the commands at the top of [`Dockerfile`](Dockerfile).
+
 The client belongs on the GPU box if it can be: an MP4 through an ssh tunnel costs 1.5-4.6 s per clip.
+
+**Access.** The server listens on `127.0.0.1` (`LTX2_HOST`, `LTX2_PORT`) and has no accounts. With `LTX2_API_KEY` set, `/generate` and `/reset` need `Authorization: Bearer <key>`, which the client sends from its own `LTX2_API_KEY`; `/health` stays open and reports `auth_required` and `authorized`. Set the key whenever the server listens beyond loopback (the Docker image listens on `0.0.0.0` inside the container, published on `127.0.0.1`).
+
+**Dependencies.** `requirements.txt` pins diffusers to the 0.41.0 release. The live runs used 0.41.0.dev0 builds from diffusers' main branch; the release has every class and helper the server imports, but it has not yet rendered a film. If it misbehaves, `diffusers @ git+https://github.com/huggingface/diffusers` is the previous setting.
 
 ## Renting a GPU on Vast.ai
 
@@ -35,7 +44,7 @@ python scripts/latency_probe.py --label h100-fp8       # does this setting rende
 server/vast_run.sh down                                # always, or the meter keeps running
 ```
 
-Needs `VAST_API_KEY` and `HF_TOKEN` in `.env`, the `vastai` CLI, credit on the account, and your ssh key registered on Vast. Never edit `vast_run.sh` while it runs: bash reads the file as it goes.
+Needs `VAST_API_KEY` and `HF_TOKEN` in `.env` (and `OPENAI_API_KEY` for `run`), the `vastai` CLI (`pip install vastai`), credit on the account, and your ssh key registered on Vast. Renting bills by the hour until `down`. Never edit `vast_run.sh` while it runs: bash reads the file as it goes.
 
 ## Notes
 

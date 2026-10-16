@@ -339,7 +339,8 @@ def test_persistence_round_trip():
     _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="hat", description="a red cap")])]), w, 1)
     w.events.append(EventRecord(segment=1, scene_id=1, narration="n", beat=1, beat_intent="a hat"))
     with tempfile.TemporaryDirectory() as d:
-        w.save(d); w.save(d)  # second save must not duplicate events
+        w.save(d)
+        w.save(d)  # second save must not duplicate events
         loaded = WorldModel.load(d)
         assert "hat" in loaded.entities and len(loaded.events) == 1 and loaded.events[0].beat_intent == "a hat"
         assert (Path(d) / "events.jsonl").read_text().count("\n") == 1

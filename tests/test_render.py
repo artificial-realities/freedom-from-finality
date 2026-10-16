@@ -65,10 +65,12 @@ def test_the_registry_holds_the_run_s_shape():
 
 
 class _Health:
-    """requests.get/post stand-ins answering /health with `warm` frames."""
+    """requests.get/post stand-ins answering /health with `warm` frames;
+    `status` and `key` play a server still warming or one that needs a key."""
 
-    def __init__(self, warm, fps=24, up=True):
+    def __init__(self, warm, fps=24, up=True, status="ready", key=""):
         self.warm, self.fps, self.up, self.posts = warm, fps, up, []
+        self.status, self.key, self.headers = status, key, []
 
     def __enter__(self):
         from src.i2v import ltxv
@@ -80,16 +82,20 @@ class _Health:
             def json(self):
                 return self._js
 
-        def get(url, timeout=0):
+        def get(url, headers=None, timeout=0):
             if not self.up:
                 raise ConnectionError("down")
-            js = {"status": "ready", "frame_rate": self.fps, "width": 640, "height": 352}
+            self.headers.append(headers or {})
+            js = {"status": self.status, "frame_rate": self.fps, "width": 640, "height": 352,
+                  "auth_required": bool(self.key),
+                  "authorized": not self.key or (headers or {}).get("Authorization") == f"Bearer {self.key}"}
             if self.warm is not None:
                 js["warm_frames"] = self.warm
             return _Resp(js=js)
 
-        def post(url, json=None, timeout=0):
+        def post(url, json=None, headers=None, timeout=0):
             self.posts.append(json)
+            self.headers.append(headers or {})
             return _Resp(body=b"\x00" * 64)
 
         self._orig = ltxv.requests.get, ltxv.requests.post
@@ -112,7 +118,9 @@ def test_the_client_checks_the_server_s_warm_shape():
         with _Health([145]):
             assert client.check_shapes(one) == {"frames": [145], "warm_frames": [145]}
         for health, words in ((_Health([121]), "[145]"), (_Health(None), "warm_frames"),
-                              (_Health([145], fps=25), "25 fps"), (_Health([145], up=False), "not reachable")):
+                              (_Health([145], fps=25), "25 fps"), (_Health([145], up=False), "not reachable"),
+                              (_Health([], status="warming"), "still warming"),
+                              (_Health([145], key="k"), "LTX2_API_KEY")):
             with health:
                 try:
                     LtxvI2V(server_url="http://x", output_dir=d).check_shapes(one)
@@ -122,6 +130,13 @@ def test_the_client_checks_the_server_s_warm_shape():
         with _Health([145]) as http:
             client._synthesize_sync("stories/lego-void/legoman-16x9.png", "p", 1, one.default)
         assert http.posts[0]["num_frames"] == 145, "the request carries the shape's frames"
+        assert all("Authorization" not in h for h in http.headers), "no key, no header"
+        keyed = LtxvI2V(server_url="http://x", output_dir=d, api_key="k")
+        with _Health([145], key="k") as http:
+            keyed.check_shapes(one)
+            keyed._synthesize_sync("stories/lego-void/legoman-16x9.png", "p", 1, one.default)
+        assert http.headers and all(h["Authorization"] == "Bearer k" for h in http.headers), \
+            "a keyed client sends its key on every request"
 
 
 async def test_a_run_is_refused_when_its_shape_is_not_warm():

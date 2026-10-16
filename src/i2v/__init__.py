@@ -22,6 +22,7 @@ def build_i2v_backend(
     anchor_strength: float = 0.0,
     anchor_index: int = -1,
     restart_recovery: str = "window",
+    api_key: str = "",
     **_extra,
 ) -> I2VBackend:
     """Construct an I2V backend from a config's `i2v_backend` string."""
@@ -29,7 +30,7 @@ def build_i2v_backend(
     if key == "ltxv":
         if not server_url:
             raise ValueError(
-                "i2v_backend='ltxv' requires ltxv_server_url in config"
+                "i2v_backend='ltxv' requires ltxv_server_url in the config (or LTXV_SERVER_URL in the environment)"
             )
         return LtxvI2V(
             server_url=server_url,
@@ -43,5 +44,6 @@ def build_i2v_backend(
             anchor_strength=anchor_strength,
             anchor_index=anchor_index,
             restart_recovery=restart_recovery,
+            api_key=api_key,
         )
     raise ValueError(f"Unknown i2v_backend: {name!r}")

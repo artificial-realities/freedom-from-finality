@@ -1,0 +1,56 @@
+name: CI
+
+# Offline checks only: no secrets, no OpenAI key, no GPU, no paid calls.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]  # oldest and newest supported
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install ffmpeg (the video tests make and serve small clips)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: python -m pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: python -m pytest
+      - name: The setup check names a missing key and passes with one (never calls OpenAI)
+        run: |
+          if python main.py check --config configs/director.yaml > out.txt; then exit 1; fi
+          grep -q "OPENAI_API_KEY is not set" out.txt
+          OPENAI_API_KEY=sk-test-not-a-real-key python main.py check --config configs/director.yaml
+      - name: The GPU server's files parse (it needs a GPU to run)
+        run: |
+          python -m py_compile server/ltx2_server.py server/encode.py server/audio_ceiling.py scripts/latency_probe.py
+          for f in server/*.sh; do bash -n "$f"; done
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t untitled-project .
+      - name: The image starts and checks its setup without a key
+        run: |
+          if docker run --rm untitled-project python main.py check > out.txt; then exit 1; fi
+          cat out.txt
+          grep -q "OPENAI_API_KEY is not set" out.txt
+          docker run --rm -e OPENAI_API_KEY=sk-test-not-a-real-key untitled-project python main.py check
+      - name: Compose file is valid
+        run: |
+          touch .env
+          docker compose config --quiet
+          docker compose --profile gpu config --quiet

@@ -169,3 +169,27 @@ async def test_player_input_joins_lines_and_pipelined_items_keep_views():
     assert p.items[0].dialogue == ["Lego Man: Hello? Anyone?"] and p.items[1].dialogue == []
     assert p.items[1].scene.startswith("scene "), "each item carries the scene it played in"
     assert len(state.history) == 3
+
+
+async def test_input_takes_json_lines_only_and_caps_their_length():
+    """Another page in the viewer's browser can post a form or plain text
+    without asking, but not JSON: /input takes only JSON, so it cannot type
+    into the film. A line longer than the page allows is refused, since each
+    costs a Director call."""
+    from src.web.server import MAX_INPUT_CHARS
+    player = WebPlayer(host="127.0.0.1", port=0)
+    await player.start(title="t", session_id="s")
+    try:
+        async with aiohttp.ClientSession() as http:
+            async with http.post(player.url + "input", data='{"text": "a dog appears"}',
+                                 headers={"Content-Type": "text/plain"}) as r:
+                assert r.status == 415
+            async with http.post(player.url + "input", json={"text": "x" * (MAX_INPUT_CHARS + 1)}) as r:
+                assert r.status == 413
+            async with http.post(player.url + "input", json=["a dog appears"]) as r:
+                assert r.status == 400
+            async with http.post(player.url + "input", json={"text": "a dog appears"}) as r:
+                assert r.status == 200
+        assert [i["text"] for i in player.inputs] == ["a dog appears"]
+    finally:
+        await player.stop()

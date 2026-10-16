@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
@@ -165,4 +166,10 @@ class Config(BaseModel):
     @classmethod
     def from_yaml(cls, path: Path | str) -> "Config":
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        # Where the LTX-2.5 server runs is the machine's business, not the
+        # film's: LTXV_SERVER_URL overrides the config's address (a container,
+        # a server on another host) without editing the config.
+        server_url = os.getenv("LTXV_SERVER_URL", "").strip()
+        if server_url:
+            data["ltxv_server_url"] = server_url
         return cls(**data)

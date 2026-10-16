@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -169,6 +170,8 @@ def _maybe_i2v(config: Config, log_dir: Path | str, session_id: str = "") -> I2V
         anchor_strength=config.ltxv_anchor_strength,
         anchor_index=config.ltxv_anchor_index,
         restart_recovery=config.ltxv_restart_recovery,
+        # A secret, so it comes from the environment, never from a config file.
+        api_key=os.getenv("LTX2_API_KEY", "").strip(),
     )
 
 
