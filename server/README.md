@@ -29,7 +29,7 @@ The client belongs on the GPU box if it can be: an MP4 through an ssh tunnel cos
 
 **Access.** The server listens on `127.0.0.1` (`LTX2_HOST`, `LTX2_PORT`) and has no accounts. With `LTX2_API_KEY` set, `/generate` and `/reset` need `Authorization: Bearer <key>`, which the client sends from its own `LTX2_API_KEY`; `/health` stays open and reports `auth_required` and `authorized`. Set the key whenever the server listens beyond loopback (the Docker image listens on `0.0.0.0` inside the container, published on `127.0.0.1`).
 
-**Dependencies.** `requirements.txt` pins diffusers to the 0.41.0 release. The live runs used 0.41.0.dev0 builds from diffusers' main branch; the release has every class and helper the server imports, but it has not yet rendered a film. If it misbehaves, `diffusers @ git+https://github.com/huggingface/diffusers` is the previous setting.
+**Dependencies.** `requirements.txt` pins diffusers to the 0.41.0 release. The earlier live runs used 0.41.0.dev0 builds from diffusers' main branch; on the release a 20-clip live film played on an H100 NVL without a stall (2.7 s per 6-s clip). If it misbehaves, `diffusers @ git+https://github.com/huggingface/diffusers` is the previous setting.
 
 ## Renting a GPU on Vast.ai
 

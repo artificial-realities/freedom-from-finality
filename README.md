@@ -100,11 +100,11 @@ The orchestration is one mechanism being explored, not the definition of the pro
 
 Working: end-to-end generation from viewer input to a film streaming in the browser, steered while it plays. A 64-clip live film on one H100 played without a stall, every viewer line on screen two clips after it was typed. Open:
 
-- **The Director's latency tail.** A slow call at a beat's end or on a viewer's line can still hold the picture: a 300-clip film had three stalls, all from Director calls of 6-14 s. The current Director (gpt-5.6-luna) has run headless, not yet in a live film with video.
+- **The Director's latency tail.** A slow call at a beat's end or on a viewer's line can still hold the picture: a 300-clip film had three stalls, all from Director calls of 6-14 s. The current Director (gpt-5.6-luna) has played one 20-clip live film without a stall, not yet a long one.
 - **Re-seeding resets the look.** Seeding a clip from the reference image reverts anything the story has changed about a character (a cap picked up mid-film), so only the first clip is seeded and every other continues the one before. A new angle has to be a camera move, or a written cut where the story allows one.
 - **Continuity against steering.** The sliding window trades one for the other directly (`ltxv_continuity_strength`): high continuity means new input barely lands, low means the picture jumps. A better mechanism is needed, not a better setting.
 - **Long films drift.** As props accumulate, the LEGO story's white void turns into a baseplate floor.
-- **Unverified on the GPU:** two speakers in one clip, a minifigure's printed face while it speaks, and the server on the diffusers 0.41.0 release (the live runs used a development build).
+- **Unverified on the GPU:** two speakers in one clip, and a minifigure's printed face while it speaks.
 
 ### Performance
 

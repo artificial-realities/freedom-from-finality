@@ -10,9 +10,9 @@
 # The LTX-2.5 weights are gated: accept the licence at
 # https://huggingface.co/Lightricks/LTX-2.5-Diffusers and export HF_TOKEN.
 #
-# The live runs used diffusers 0.41.0.dev0 from main (September 2026) with
+# The earlier live runs used diffusers 0.41.0.dev0 from main with
 # transformers 5.17-5.19 and torchao 0.16.0. 0.41.0 is the release cut from
-# that line and has every pipeline and helper ltx2_server.py imports; main
+# that line, and a live film has played on it (with transformers 5.20); main
 # moves on without notice, so the server is pinned to the release.
 
 diffusers==0.41.0       # LTX2ConditionPipeline
