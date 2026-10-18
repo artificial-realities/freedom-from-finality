@@ -1,9 +1,9 @@
-"""Markdown story transcript — agent outputs only, for narrative review.
+"""Markdown story transcript: what each segment showed and said, for
+reading the film back.
 
-Contains per-turn outputs (Beat, Shot, Dialogue, World) and
-nothing else — no prompts, no token counts, no parameters. The full
-LLM call detail lives in Langfuse; this file is for skimming the story
-flow.
+Per turn: the beat, the compiled shot, the dialogue and the world. The
+models' raw outputs are in the session directory (`plans.jsonl`,
+`showrunner.jsonl`).
 """
 
 from __future__ import annotations
@@ -23,13 +23,11 @@ class StoryLogger:
         *,
         session_id: str,
         config_name: str,
-        scenario: str,
         story_title: str,
         log_dir: Path | str = "logs",
     ) -> None:
         self.session_id = session_id
         self.config_name = config_name
-        self.scenario = scenario
         self.story_title = story_title
 
         log_dir = Path(log_dir)
@@ -39,9 +37,8 @@ class StoryLogger:
         self._write_header()
 
     def _write_header(self) -> None:
-        scenario = self.scenario or "interactive"
         header = (
-            f"# Story transcript — {self.config_name} / {scenario}\n\n"
+            f"# Story transcript — {self.config_name}\n\n"
             f"- Session: `{self.session_id}`\n"
             f"- Story: {self.story_title or '(untitled)'}\n"
             f"- Started: {datetime.now().isoformat(timespec='seconds')}\n\n"

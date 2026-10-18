@@ -9,9 +9,8 @@ and ffmpeg only, so the GPU box and a laptop compute the same numbers.
   still be above the limit (a static trim, not a dynamic limiter, so
   quiet clips and silence are untouched and nothing pumps).
 
-The server applies it only with LTX2_AUDIO_CEILING_LUFS set; the live
-config sets -18 with the overlap seam, so the sound crossfades between
-clips of the same loudness.
+The server holds every clip under -18 LUFS, so the player's crossfade at
+each seam joins clips of the same loudness.
 """
 
 from __future__ import annotations

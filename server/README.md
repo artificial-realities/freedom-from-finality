@@ -1,70 +1,50 @@
 # LTX-2.5 inference server
 
-Resident image-to-video server for the prototype's video path. It holds the pipeline in memory and owns the sliding window: it keeps the tail of each generated chunk and conditions the next one on it, so the client only ever sends a prompt. LTX-2.5 generates synchronized audio alongside the video, so clips arrive with their sound already on them.
+The video half of the film. `ltx2_server.py` holds LTX-2.5 resident on the GPU and owns the sliding window: it keeps the tail of each clip and conditions the next one on it, so the client only ever sends a prompt and gets back an MP4 with its sound.
 
-## Setup
+It runs one recipe, the one every number in the README was measured with: the distilled model on its own schedule (8 steps, unguided), everything resident on an 80 GB card (about 72 GB), fp8 matmuls, compiled transformer blocks, 512×288 at 24 fps, frames converted on the GPU and encoded with x264, and every clip's audio held under -18 LUFS. On a GPU without fp8 (before Hopper) it falls back to bf16, slower than real time.
 
-Needs Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL), torch 2.9.1 with CUDA 12.8, ffmpeg on the PATH, and about 72 GB of disk for the weights. What's verified and what isn't, the costs, and the three ways to run it (rented on Vast.ai, a machine of your own, Docker) are in [docs/self-hosting.md](../docs/self-hosting.md#gpu-server-video-mode).
+## Requirements
 
-The weights are gated. One-time:
+Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL), torch 2.9.1 with CUDA 12.8 (the `pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel` image has it), ffmpeg, and about 72 GB of disk for the weights. The weights are gated; once:
 
 1. Open [Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers), read the LTX-2 Community License and click **Agree and access repository**.
 2. Create a read token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and put it in `.env` as `HF_TOKEN`.
 
-```bash
-# On the GPU box (torch 2.9.1 + CUDA 12.8 already installed, e.g. the pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel image):
-pip install -r server/requirements.txt
-set -a; . ./.env; set +a                                       # HF_TOKEN (and LTX2_API_KEY if you use one)
-. server/server_defaults.sh && python server/ltx2_server.py   # downloads weights on first run, serves on 127.0.0.1:8000
-
-# The client on the same box (best), or on your computer through a tunnel:
-ssh -N -L 8000:localhost:8000 -p <PORT> <user>@<HOST>
-python main.py check --config configs/director.live.yaml
-python main.py play --config configs/director.live.yaml --player web
-```
-
-Or in Docker with the NVIDIA Container Toolkit: `docker compose --profile gpu up -d --build ltx-server` from the repository root, or the commands at the top of [`Dockerfile`](Dockerfile).
-
-The client belongs on the GPU box if it can be: an MP4 through an ssh tunnel costs 1.5-4.6 s per clip.
-
-**Access.** The server listens on `127.0.0.1` (`LTX2_HOST`, `LTX2_PORT`) and has no accounts. With `LTX2_API_KEY` set, `/generate` and `/reset` need `Authorization: Bearer <key>`, which the client sends from its own `LTX2_API_KEY`; `/health` stays open and reports `auth_required` and `authorized`. Set the key whenever the server listens beyond loopback (the Docker image listens on `0.0.0.0` inside the container, published on `127.0.0.1`).
-
-**Dependencies.** `requirements.txt` pins diffusers to the 0.41.0 release. The earlier live runs used 0.41.0.dev0 builds from diffusers' main branch; on the release a 20-clip live film played on an H100 NVL without a stall (2.7 s per 6-s clip). If it misbehaves, `diffusers @ git+https://github.com/huggingface/diffusers` is the previous setting.
-
 ## Renting a GPU on Vast.ai
 
-`server/vast_run.sh` automates the whole loop: rent the cheapest matching 80 GB offer, install the dependencies and start the server, open the tunnel, wait for `/health`, run the film on the box, destroy the instance.
+`vast_run.sh` rents the cheapest matching H100, installs and starts the server, tunnels it to `localhost:8000`, and runs the film on the box, so no clip crosses the internet (an MP4 through the tunnel costs 1.5-4.6 s).
 
 ```bash
-server/vast_run.sh up                                  # ~5-20 min, prints "server ready"; H100 SXM/NVL with server_defaults.sh
-server/vast_run.sh run                                 # the film on the box; open http://127.0.0.1:8765/  (Ctrl+C stops it)
-server/vast_run.sh pull                                # the run's transcript, world model and clips → logs/live-box/
-LTX2_WIDTH=640 LTX2_HEIGHT=352 server/vast_run.sh restart   # any LTX2_* setting, same box; unset ones keep server_defaults.sh
-python scripts/latency_probe.py --label h100-fp8       # does this setting render in real time?
-server/vast_run.sh down                                # always, or the meter keeps running
+server/vast_run.sh up        # rent and start; ready in 5-20 min (weights download, then the warm-up)
+server/vast_run.sh run       # the film on the box; open http://127.0.0.1:8765/ (Ctrl+C stops it)
+server/vast_run.sh pull      # its transcript, world model, timing log and film → logs/box/
+server/vast_run.sh down      # always: renting bills by the hour until this
+server/vast_run.sh status    # what is rented, and the server's /health
 ```
 
-Needs `VAST_API_KEY` and `HF_TOKEN` in `.env` (and `OPENAI_API_KEY` for `run`), the `vastai` CLI (`pip install vastai`), credit on the account, and your ssh key registered on Vast. Renting bills by the hour until `down`. Never edit `vast_run.sh` while it runs: bash reads the file as it goes.
+Needs `VAST_API_KEY`, `HF_TOKEN` and `OPENAI_API_KEY` in `.env`, the `vastai` CLI (`pip install vastai`), credit on the account, and your ssh key registered on Vast. Arguments after `run` reach `main.py` (`server/vast_run.sh run configs/video.yaml --segments 20`). Never edit `vast_run.sh` while it runs: bash reads the file as it goes.
+
+## On your own GPU machine
+
+```bash
+pip install -r server/requirements.txt                 # torch 2.9.1 + CUDA 12.8 already installed
+set -a; . ./.env; set +a                               # HF_TOKEN
+LTX2_WARMUP_FRAMES=$(python -m src.i2v.shape configs/video.yaml) python server/ltx2_server.py   # 127.0.0.1:8000
+
+# then, in a second shell on the same machine:
+python main.py check --config configs/video.yaml       # reachable, ready, the clip shape warmed?
+python main.py play --config configs/video.yaml
+```
+
+Open the player through a tunnel from your computer: `ssh -N -L 8765:localhost:8765 <user>@<gpu-host>`. The server listens on `127.0.0.1` (`LTX2_HOST`, `LTX2_PORT`) and has no authentication: reach it through ssh or from the same machine.
 
 ## Notes
 
-**Two transformers, two recipes.** `Lightricks/LTX-2.5-Diffusers` ships `transformer/` (the **distilled** DiT, what `from_pretrained` loads by default) and `transformer_full/` (the full / SFT DiT). They need different recipes, and the server picks one with `LTX2_VARIANT`:
+**Warm-up.** Under fp8 every frame count compiles for 90-170 s, so a film has one clip length and the server renders throwaway clips at startup for it (`LTX2_WARMUP_FRAMES`, default the video config's 153 frames, three times). `/health` says `loading`, then `warming`, then `ready`, and lists `warm_frames`; the client refuses a server that has not warmed its shape, so a compile never lands on a viewer's clip.
 
-| `LTX2_VARIANT` | Weights | Recipe | Cost per clip |
-|---|---|---|---|
-| `distilled` (default) | `transformer/` | `sigmas=DISTILLED_SIGMA_VALUES` (8 steps), `guidance_scale=1.0`, STG and modality guidance off, one forward per step | 8 forwards |
-| `full` | `transformer_full/` | 30 steps (`LTX2_STEPS`), the pipeline's default SFT guidance (CFG 3.0, STG 1.0, modality 3.0, rescale 0.7), `use_dynamic_shifting=True, shift_terminal=0.1` | 90 forwards |
+**Continuity.** Only a film's first clip is conditioned on the reference image; every other clip on the last 9 frames of the one before. After a restart the client sends its copy of that tail (`window_frames`) and the picture continues instead of resetting. `ltxv_continuity_strength` in the client config trades continuity against steering: at 1.0 a new prompt barely lands.
 
-Use the distilled recipe. The distilled weights on the full recipe "quietly cost quality", as the model card says: the figure drifted within every clip, and no prompt fixed it. The full model on its own recipe gives the same identity at 3.5× the time. `ltx-2.5-22b-distilled-lora-450-bf16.safetensors` is for distilling `transformer_full/`, not for `transformer/`.
+**Why the distilled recipe.** The distilled weights sampled with the full model's recipe (15 steps, CFG 3, STG) made the figure drift within every clip, and no prompt fixed it. On their own recipe the figure holds; the full model on its recipe gives the same identity at 3.5× the time. See [docs/decisions.md](../docs/decisions.md).
 
-**Settings.** Every setting is an `LTX2_*` variable, listed in the docstring of `ltx2_server.py`. `server_defaults.sh` holds the ones `vast_run.sh` starts with: the distilled recipe, everything resident (`LTX2_OFFLOAD=gpu`, about 70 GB), fp8 matmuls (`LTX2_QUANT=fp8`), regional `torch.compile` (`LTX2_COMPILE=1`), 512×288 (exactly 16:9, the size the reference images are made for), and frames converted on the GPU and piped to ffmpeg as YUV (`LTX2_GPU_FRAMES`, `LTX2_PIPE_FORMAT`, `LTX2_X264_THREADS`). Without it the server runs bf16, uncompiled, at 960×544. The forwards are compute-bound, so the levers are the GPU, low-precision matmuls, compilation and fewer tokens. `LTX2_ATTN` picks the attention backend (FlashAttention-3 refuses LTX-2's attention masks and falls back to SDPA) and `LTX2_ENCODER` the encoder (`auto`: h264_nvenc where the container has it, which Vast's do not, else libx264). Offloading is slow: `text` (the Gemma encoder offloaded) about 2× per clip, `cpu` about 4×.
-
-**Warm-up.** Under fp8 every frame count compiles separately (90-170 s), so a film has one clip length and the server renders throwaway clips at startup (`LTX2_WARMUP`, the frame counts in `LTX2_WARMUP_FRAMES`, which `vast_run.sh` takes from the client: `python -m src.i2v.shape <config>`). `/health` says `warming` until then and lists what it warmed in `warm_frames`; the client refuses to start without its shape, so a compile never lands on a viewer's clip. A backend or the compiler that fails the warm-up is dropped with a warning rather than killing the server. Each turn logs a per-stage breakdown (`timings:`), also sent in the `X-Timings` header.
-
-**Continuity.** Only a film's first clip is conditioned on the reference image (`reset_window: true`); every other clip on the tail of the one before, which the server keeps. After a server restart the client sends that tail (`window_frames`) so the picture continues instead of resetting to the reference. `ltxv_continuity_strength` in the client config trades continuity against steering: at `1.0` continuity is maximal but new prompts barely land; lower values let steering through at the cost of visual continuity.
-
-**Reference image.** The client fits the reference image to the server's render size before sending it. The live config's `i2v_reference_fit: strict` takes only a reference at the render aspect to the pixel and resizes it whole; `pad` cover-resizes a reference within 5 % of the aspect and letterboxes any other with a warning (fill `auto` continues the image's own border colour). Every request carries a seed derived from the run's seed key and the segment, so a rerun reproduces the noise.
-
-**Identity anchor.** `LTX2ConditionPipeline` accepts several `LTX2VideoCondition`s: one at latent index 0 overwrites the leading tokens (the reference or the previous chunk's tail), and any other index is a *guiding keyframe* appended as its own tokens. A request with `anchor_strength > 0` adds the reference image at `anchor_index` (default -1, the last latent frame). It is off in the configs: on the distilled recipe identity holds without it, an end anchor suppresses the clip's closing action and a mid anchor inserts an idle beat.
-
-**Not wired yet.** Two-stage distilled generation (stage 1 at half size, ×2 latent upsample, a 3-sigma tail at full size; the model card's "better quality" path) and the Ingredients IC-LoRA (`Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients`, a reference sheet of characters and props read in context; Lightricks say it works on 2.5 at LoRA strength ~1.3, via `reference_conditions=` in the in-context / modular pipelines).
+**Dependencies.** `requirements.txt` pins diffusers to the 0.41.0 release. torchao 0.17+ needs torch 2.10, so bump the two together.

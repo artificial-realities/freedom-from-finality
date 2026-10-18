@@ -1,0 +1,12 @@
+# The film as video with sound: needs the LTX-2.5 server (server/README.md)
+# and OPENAI_API_KEY. Every setting and its default is in src/models/config.py.
+director_model: "gpt-5.6-luna"
+showrunner_model: "gpt-5.6-luna"
+director_reasoning_effort: "none"
+showrunner_reasoning_effort: "none"
+
+video_enabled: true
+clip_seconds: 6                           # the one clip length: 153 frames, which the server warms
+startup_clips: 1                          # one clip queued before playback starts
+ltxv_server_url: "http://localhost:8000"  # or LTXV_SERVER_URL
+ltxv_continuity_strength: 1.0             # 1.0: the most continuity, the least steering

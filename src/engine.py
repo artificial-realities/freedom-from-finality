@@ -1,4 +1,4 @@
-"""Director engine (`graph: "director"`).
+"""The engine: two LLM roles on two clocks, everything else deterministic.
 
 Two LLM roles on two clocks, everything else deterministic:
 
@@ -26,25 +26,23 @@ code measures it.
 
 For the runner the engine keeps the `StoryState` surface: it fills
 `current_beat`, `current_shot` and `current_dialogue` as views of the
-clip, which rendering, playback, history and the transcript read. `ainvoke` is the one-call form (plan if needed, then emit)
-for the terminal loop and tests; the live loop calls `plan`, `emit` and
-`abort_beat` itself so it can render just in time and interrupt.
+clip, which rendering, playback, history and the transcript read. The
+live loop calls `plan`, `emit` and `abort_beat` itself so it can render
+just in time and interrupt.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import time
 from pathlib import Path
 
 from src.agents import director as director_agent
-from src.i2v.shape import ClipShape, ShapeRegistry
+from src.i2v.shape import ClipShape
 from src.agents import showrunner as showrunner_agent
 from src.llm import build_backend
-from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.models.responses import Beat, Shot
 from src.models.story import Story
@@ -52,7 +50,7 @@ from src.state.story_state import StoryState
 from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ClipSpec
 from src.story.validator import Report, apply_clip, apply_showrunner
-from src.story.world import ClipRecord, EventRecord, WorldModel
+from src.story.world import EventRecord, WorldModel
 from src.util.timing_log import TimingLog
 
 logger = logging.getLogger(__name__)
@@ -67,34 +65,24 @@ class DirectorEngine:
     def __init__(
         self,
         *,
-        llm: LLMBackend,
         config: Config,
         session_dir: Path | str | None = None,
         timing: TimingLog | None = None,
-        shapes: ShapeRegistry | None = None,
+        shape: ClipShape | None = None,
     ) -> None:
-        self.llm = llm
         self.config = config
-        # The run's clip shapes: each beat's clips get the selected
-        # shape; nothing here derives a length from seconds.
-        self.shapes = shapes or ShapeRegistry.from_config(config)
-        self._beat_shape: ClipShape = self.shapes.default
+        # The run's one clip shape: every clip is that long; nothing here
+        # derives a length from seconds.
+        self.shape = shape or ClipShape.from_config(config)
         self.session_dir = Path(session_dir) if session_dir else None
         # The run's timing log: each plan writes director_start/director_end.
         self.timing = timing or TimingLog(None)
         self.world: WorldModel | None = None
         self.story: Story | None = None     # the blueprint, set with the world
-        self.llm_director = (
-            build_backend(config.llm_backend, config.director_model or config.model,
-                          service_tier=config.director_service_tier,
-                          reasoning_effort=config.director_reasoning_effort)
-            if (config.director_model or config.director_service_tier or config.director_reasoning_effort) else llm
-        )
-        self.llm_showrunner = (
-            build_backend(config.llm_backend, config.showrunner_model or config.model,
-                          reasoning_effort=config.showrunner_reasoning_effort)
-            if (config.showrunner_model or config.showrunner_reasoning_effort) else llm
-        )
+        self.llm_director = build_backend(config.llm_backend, config.director_model,
+                                          reasoning_effort=config.director_reasoning_effort)
+        self.llm_showrunner = build_backend(config.llm_backend, config.showrunner_model,
+                                            reasoning_effort=config.showrunner_reasoning_effort)
         self._showrunner_task: asyncio.Task | None = None
         # (at_segment, force_replan, reason, triggered_at): `triggered_at` is the
         # segment whose plan first raised the trigger (a held replan keeps the
@@ -127,29 +115,12 @@ class DirectorEngine:
         self._plan_notes: list[str] = []    # transcript notes from the plan, shown on its first clip
         self._plan_meta: dict = {}          # the trigger, for the transcript
         self._last_end_state: str = ""      # the image the last emitted clip ends on
-        self._viewer_line_ids: list[int] = []  # line ids the current beat answers (for ClipRecord)
         self._last_beat: tuple[str, int, int] | None = None   # (intent, clips emitted, clips planned)
         self._pending_note: str = ""        # how the previous beat ended, for the next call
         # A renderer restart that re-seeded the picture from the reference
         # (the last clip's tail could not be restored), for
         # the next call only.
         self._reseed_note: str = ""
-
-    # ── The one-call form ───────────────────────────────────────────
-
-    async def ainvoke(self, state: StoryState) -> StoryState:
-        """Plan a beat if none is in progress (a viewer line cuts a beat in
-        progress short), then emit its next clip."""
-        text = (state.user_input or "").strip()
-        if text and self.has_next_clip():
-            self.abort_beat("the viewer spoke")
-        if not self.has_next_clip():
-            await self.plan(state)
-        return await self.emit(state)
-
-    def set_viewer_line_ids(self, ids: list[int]) -> None:
-        """The line IDs this beat answers, set by the runner before emit."""
-        self._viewer_line_ids = list(ids)
 
     def has_next_clip(self) -> bool:
         return self._beat is not None and self._clip_index < len(self._beat.clips)
@@ -219,14 +190,10 @@ class DirectorEngine:
             notes.extend(self._showrunner_notes)
             self._showrunner_notes = []
 
-        # The shape is selected before the Director plans; every
-        # clip of this beat is that long. The system prompt states the
-        # default shape's length, so it stays byte-identical.
-        shape = self.shapes.select()
         called = time.monotonic()
         beat, dnotes, retried = await director_agent.run(
             world=world, state=state, llm=self.llm_director, config=self.config,
-            beat_status=self._beat_status(), clip_seconds=self.shapes.default.delivered_seconds,
+            beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
         )
         director_s = time.monotonic() - called
         self._reseed_note = ""
@@ -247,7 +214,6 @@ class DirectorEngine:
 
         world.beats += 1
         self._beat, self._clip_index, self._beat_no = beat, 0, world.beats
-        self._beat_shape = shape
         self._beat_input = text
         self._pending_note = ""
 
@@ -386,12 +352,10 @@ class DirectorEngine:
     async def emit(self, state: StoryState) -> StoryState:
         """Emit the next clip of the current beat as segment `state.turn_number`:
         apply its world changes, compile its prompt, fill the views, log it.
-        With `fail_soft` the engine and world are kept as they were before
-        the clip, so a clip that never renders can be taken back
-        (`rollback_clip`); an exception here restores them, cuts the beat
-        and raises `EmitFailed` instead of ending the film."""
-        if not self.config.fail_soft:
-            return await self._emit(state)
+        The engine and world are kept as they were before the clip, so a
+        clip that never renders can be taken back (`rollback_clip`); an
+        exception here restores them, cuts the beat and raises `EmitFailed`
+        instead of ending the film."""
         snapshot = self._snapshot(state.turn_number)
         try:
             state = await self._emit(state)
@@ -443,7 +407,7 @@ class DirectorEngine:
             "plan_notes": list(self._plan_notes), "plan_meta": dict(self._plan_meta),
             "last_end_state": self._last_end_state, "last_beat": self._last_beat,
             "pending_note": self._pending_note, "pending_spawn": self._pending_spawn,
-            "held_trigger": self._held_trigger, "beat_shape": self._beat_shape,
+            "held_trigger": self._held_trigger,
             "clip_counter": self.world._clip_counter if self.world is not None else 0,
             "last_clip_id": self.world._last_clip_id if self.world is not None else 0,
         }
@@ -476,26 +440,16 @@ class DirectorEngine:
             logger.exception("Could not write showrunner record to %s", path)
 
     def _restore(self, snap: dict, landings: list[tuple]) -> None:
-        # Record a drop marker for the clip being rolled back (clip IDs never reuse).
-        current_world = self.world
-        rolled_clip_id = current_world._last_clip_id if current_world is not None else 0
-        clip_counter = current_world._clip_counter if current_world is not None else 0
-        clip_records = list(current_world._clip_records) if current_world is not None else []
-        saved_clips = current_world._saved_clips if current_world is not None else 0
+        clip_counter = self.world._clip_counter if self.world is not None else 0
         self.world = snap["world"]
         self._beat, self._clip_index, self._beat_no = snap["beat"], snap["clip_index"], snap["beat_no"]
         self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
         self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
         self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
-        self._held_trigger, self._beat_shape = snap["held_trigger"], snap["beat_shape"]
+        self._held_trigger = snap["held_trigger"]
         # Clip counter must never go backwards; restore only the parent pointer.
         self.world._clip_counter = max(clip_counter, snap.get("clip_counter", 0))
         self.world._last_clip_id = snap.get("last_clip_id", 0)
-        # Carry forward clip records (append-only, never rewritten).
-        self.world._clip_records = clip_records
-        self.world._saved_clips = saved_clips
-        if rolled_clip_id:
-            self.world.record_drop(rolled_clip_id, f"rollback of segment {snap['segment']}")
         for update, at_segment, force_replan, triggered_at in landings:
             apply_showrunner(self.world, update, at_segment=at_segment, force_replan=force_replan,
                              triggered_at=triggered_at)
@@ -536,39 +490,13 @@ class DirectorEngine:
             world.viewer_momentum = self._beat_input
             world.viewer_momentum_segment = seg
         prompt = compile_clip(beat, i, world, picture=state.story.picture, opening=(seg == 1), segment_no=seg)
-        shape = self._beat_shape
+        shape = self.shape
         state.current_shape = shape
         state.current_clip_id = clip_id
         state.current_parent_clip_id = parent_clip_id
         duration = shape.delivered_seconds
         said = [f"{world.resolve(d.speaker).name}: {d.line}" for d in clip.dialogue]   # apply_clip kept known speakers
         self._write_views(state, beat, clip, prompt, duration, said, first)
-
-        world_hash = hashlib.sha1(
-            world.model_dump_json(exclude={"events"}).encode()
-        ).hexdigest()[:12]
-
-        world.record_clip(ClipRecord(
-            clip_id=clip_id,
-            beat_id=self._beat_no,
-            parent_clip_id=parent_clip_id,
-            segment=seg,
-            beat_intent=beat.intent,
-            framing=beat.framing,
-            intervention=beat.intervention if first else "none",
-            intervention_reason=beat.intervention_reason if first else "",
-            perspective=beat.perspective,
-            dialogue=said,
-            action=clip.action_text(),
-            end_state=clip.end_state,
-            camera_motion=clip.camera_motion,
-            on_screen=list(clip.on_screen),
-            prompt=prompt,
-            shape_frames=shape.render_frames,
-            shape_seconds=duration,
-            viewer_line_ids=list(self._viewer_line_ids) if first else [],
-            world_hash=world_hash,
-        ))
 
         card = world.plan.scene
         world.events.append(EventRecord(
@@ -849,9 +777,3 @@ class DirectorEngine:
             out.append(f"- {n}")
         return "\n".join(out) + "\n"
 
-
-def build_director_engine(
-    *, llm: LLMBackend, config: Config, session_dir: Path | str | None = None,
-    timing: TimingLog | None = None, shapes: ShapeRegistry | None = None,
-) -> DirectorEngine:
-    return DirectorEngine(llm=llm, config=config, session_dir=session_dir, timing=timing, shapes=shapes)

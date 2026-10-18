@@ -1,19 +1,17 @@
-"""Clip shapes: the one authority on how long a clip is.
+"""The clip shape: the one authority on how long a clip is.
 
 A `ClipShape` is a clip's length in frames, fixed before the clip is
 planned: the frames the server renders, the frames at its head that
 repeat the previous clip's tail (the continuity window), and the frames
 the viewer is given. Everything that needs a clip's length reads the
-selected shape: the Director's prompt, the engine's event record and
-story clock, the render request, the player's hold. Nothing derives a
-length from seconds anywhere else.
+run's shape: the Director's prompt, the engine's event record and story
+clock, the render request, the player's hold. Nothing derives a length
+from seconds anywhere else.
 
-The `ShapeRegistry` holds the run's shape, built once at start from the
-config and the server's frame rate, and refuses a frame count it does
-not hold or a server that has not warmed it: under fp8 every new shape
-compiles on the server for minutes, so a run has one clip length.
+Under fp8 every new frame count compiles on the server for minutes, so a
+run has one shape, and the client refuses a server that has not warmed it.
 
-    python -m src.i2v.shape configs/director.live.yaml   # the frame counts to warm, for LTX2_WARMUP_FRAMES
+    python -m src.i2v.shape configs/video.yaml   # the frame counts to warm, for LTX2_WARMUP_FRAMES
 """
 
 from __future__ import annotations
@@ -24,8 +22,12 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 DEFAULT_FPS = 24.0
-# Warm-up renders per shape: compilation plus the CPU warm-up of a fresh
-# box cover the first three clips of a shape.
+# The frames at the head of every clip that repeat the previous clip's
+# tail: the server conditions the clip on them, and the page cuts to the
+# clip where they begin, so the viewer sees each frame once.
+WINDOW_FRAMES = 9
+# Warm-up renders: compilation plus the CPU warm-up of a fresh box cover
+# the first three clips of a shape.
 WARMUP_REPEATS = 3
 
 
@@ -34,17 +36,16 @@ def snap_to_frame_grid(raw_frames: int) -> int:
     return ((max(raw_frames, 1) - 2) // 8 + 1) * 8 + 1
 
 
-class UnregisteredShape(ValueError):
-    """A frame count the run's registry does not hold (or a server that has
-    not warmed one the registry holds)."""
+class RendererNotReady(ValueError):
+    """The renderer cannot render the run's shape without compiling mid-film,
+    or cannot be used at all (unreachable, still loading)."""
 
 
 class ClipShape(BaseModel):
-    """One clip's length in frames. With `seam: "fade"` the whole rendered
-    file is delivered (the player shows its first `overlap_frames`, which
-    repeat the previous clip's tail); with `seam: "overlap"` the
-    render carries the overlap on top of the delivered frames and the
-    player cuts where the next clip's repeated head begins."""
+    """One clip's length in frames: about `seconds` of new picture rendered
+    on top of the `overlap_frames` that repeat the previous clip's tail, on
+    the 8k + 1 grid; the new frames are delivered (6 s at 24 fps: 153
+    rendered, 144 delivered)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -52,6 +53,17 @@ class ClipShape(BaseModel):
     render_frames: int
     overlap_frames: int
     delivered_frames: int
+
+    @classmethod
+    def for_seconds(cls, seconds: float, *, fps: float = DEFAULT_FPS,
+                    overlap_frames: int = WINDOW_FRAMES) -> "ClipShape":
+        render = snap_to_frame_grid(round(seconds * fps) + overlap_frames)
+        return cls(fps=fps, render_frames=render, overlap_frames=overlap_frames,
+                   delivered_frames=render - overlap_frames)
+
+    @classmethod
+    def from_config(cls, config, *, fps: float = DEFAULT_FPS) -> "ClipShape":
+        return cls.for_seconds(config.clip_seconds, fps=fps)
 
     @property
     def delivered_seconds(self) -> float:
@@ -62,31 +74,29 @@ class ClipShape(BaseModel):
     def render_seconds(self) -> float:
         return self.render_frames / self.fps
 
-    @classmethod
-    def from_seconds(cls, seconds: float, *, fps: float = DEFAULT_FPS, overlap_frames: int = 0) -> "ClipShape":
-        """The shape of a clip of about `seconds`: the frame count on the
-        8k + 1 grid at `fps`, all of it delivered."""
-        frames = snap_to_frame_grid(round(seconds * fps))
-        return cls(fps=fps, render_frames=frames, overlap_frames=overlap_frames, delivered_frames=frames)
-
-    @classmethod
-    def overlapped(cls, seconds: float, *, fps: float = DEFAULT_FPS, overlap_frames: int) -> "ClipShape":
-        """The overlap seam's shape: about `seconds` of new
-        picture plus the `overlap_frames` that repeat the previous clip's
-        tail, rendered on the 8k + 1 grid; the new frames are delivered
-        (6 s at 24 fps with a 9-frame window: 153 rendered, 144 delivered)."""
-        render = snap_to_frame_grid(round(seconds * fps) + overlap_frames)
-        return cls(fps=fps, render_frames=render, overlap_frames=overlap_frames,
-                   delivered_frames=render - overlap_frames)
-
     @property
     def overlap_seconds(self) -> float:
         return self.overlap_frames / self.fps
 
     def record(self) -> dict:
-        """The shape as the timing log and the transcript keep it."""
+        """The shape as the timing log keeps it."""
         return {"fps": self.fps, "render_frames": self.render_frames, "overlap_frames": self.overlap_frames,
                 "delivered_frames": self.delivered_frames, "delivered_seconds": round(self.delivered_seconds, 4)}
+
+    def warmup_frames(self, repeats: int = WARMUP_REPEATS) -> list[int]:
+        """The frame counts the server should warm."""
+        return [self.render_frames] * repeats
+
+    def check_warm(self, warm_frames) -> None:
+        """Refuse a run whose server has not warmed this shape: an unwarmed
+        shape compiles mid-film and holds the picture for minutes."""
+        if warm_frames is None:
+            raise RendererNotReady("the server does not report `warm_frames`; it cannot promise a warm shape")
+        warm = {int(f) for f in warm_frames}
+        if self.render_frames not in warm:
+            raise RendererNotReady(
+                f"the server has not warmed [{self.render_frames}] frames (warm: {sorted(warm)}); start it with "
+                f"LTX2_WARMUP_FRAMES={','.join(str(f) for f in self.warmup_frames())}")
 
 
 def seconds_label(seconds: float) -> str:
@@ -94,71 +104,13 @@ def seconds_label(seconds: float) -> str:
     return f"{seconds:.1f}".rstrip("0").rstrip(".")
 
 
-class ShapeRegistry:
-    """The shape a run uses for every clip (`default`, which `select`
-    returns)."""
-
-    def __init__(self, default: ClipShape) -> None:
-        self.default = default
-        self._shapes = {default.render_frames: default}
-
-    @classmethod
-    def from_config(cls, config, *, fps: float = DEFAULT_FPS) -> "ShapeRegistry":
-        """The config's `clip_seconds` as the run's shape at the server's
-        `fps`, with the continuity window as the overlap: delivered whole with
-        `seam: "fade"`, rendered on top of the delivered frames with
-        `seam: "overlap"`."""
-        overlap = int(getattr(config, "ltxv_continuity_frames", 0) or 0)
-        if getattr(config, "seam", "fade") == "overlap":
-            make = lambda s: ClipShape.overlapped(s, fps=fps, overlap_frames=overlap)  # noqa: E731
-        else:
-            make = lambda s: ClipShape.from_seconds(s, fps=fps, overlap_frames=overlap)  # noqa: E731
-        return cls(make(config.clip_seconds))
-
-    @property
-    def shapes(self) -> list[ClipShape]:
-        return [self._shapes[f] for f in sorted(self._shapes)]
-
-    @property
-    def frames(self) -> list[int]:
-        return sorted(self._shapes)
-
-    def get(self, render_frames: int) -> ClipShape:
-        try:
-            return self._shapes[render_frames]
-        except KeyError:
-            raise UnregisteredShape(
-                f"no registered clip shape of {render_frames} frames (registered: {self.frames})") from None
-
-    def select(self) -> ClipShape:
-        """The shape of the next clip: always the run's one shape."""
-        return self.default
-
-    def check_warm(self, warm_frames) -> None:
-        """Refuse a run whose server has not warmed every registered shape:
-        an unwarmed shape compiles mid-film and holds the picture for
-        minutes."""
-        if warm_frames is None:
-            raise UnregisteredShape("the server does not report `warm_frames`; it cannot promise a warm shape")
-        warm = {int(f) for f in warm_frames}
-        missing = [f for f in self.frames if f not in warm]
-        if missing:
-            raise UnregisteredShape(
-                f"the server has not warmed {missing} frames (warm: {sorted(warm)}); start it with "
-                f"LTX2_WARMUP_FRAMES={','.join(str(f) for f in self.warmup_frames())}")
-
-    def warmup_frames(self, repeats: int = WARMUP_REPEATS) -> list[int]:
-        """The frame counts the server should warm, each shape `repeats` times."""
-        return [f for f in self.frames for _ in range(repeats)]
-
-
 def main(argv: list[str]) -> int:
     from src.models.config import Config
     if len(argv) != 1:
         print("usage: python -m src.i2v.shape <config.yaml>", file=sys.stderr)
         return 2
-    registry = ShapeRegistry.from_config(Config.from_yaml(Path(argv[0])))
-    print(",".join(str(f) for f in registry.warmup_frames()))
+    shape = ClipShape.from_config(Config.from_yaml(Path(argv[0])))
+    print(",".join(str(f) for f in shape.warmup_frames()))
     return 0
 
 

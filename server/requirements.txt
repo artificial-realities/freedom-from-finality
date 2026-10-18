@@ -1,28 +1,16 @@
-# Dependencies for the resident LTX-2.5 inference server
-# (server/ltx2_server.py). Install on the GPU box, not locally; the server
-# also needs ffmpeg on the PATH. remote_setup.sh installs this file.
-#
-# torch comes with the image (pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel);
-# on another machine install torch 2.9.1 first. torchao tracks torch closely:
-# 0.17+ needs torch 2.10 (it imports torch.nn.functional.ScalingType and takes
-# diffusers down with it on import), so bump both together.
-#
-# The LTX-2.5 weights are gated: accept the licence at
+# The LTX-2.5 inference server (server/ltx2_server.py), for the GPU box.
+# It also needs ffmpeg on the PATH, and torch 2.9.1 with CUDA 12.8, which
+# comes with the pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel image.
+# torchao 0.17+ needs torch 2.10, so bump the two together.
+# The weights are gated: accept the licence at
 # https://huggingface.co/Lightricks/LTX-2.5-Diffusers and export HF_TOKEN.
-#
-# The earlier live runs used diffusers 0.41.0.dev0 from main with
-# transformers 5.17-5.19 and torchao 0.16.0. 0.41.0 is the release cut from
-# that line, and a live film has played on it (with transformers 5.20); main
-# moves on without notice, so the server is pinned to the release.
 
 diffusers==0.41.0       # LTX2ConditionPipeline
 transformers>=5.17,<6
 accelerate>=1.0,<2
-peft>=0.12,<1           # required for distilled LoRA loading
-sentencepiece>=0.2,<1   # Gemma text-encoder tokenizer
-av>=12.0,<20            # encode_video muxes video+audio via PyAV
+sentencepiece>=0.2,<1   # the Gemma text encoder's tokenizer
+av>=12.0,<20            # diffusers re-compresses the conditioning frames at the model's training CRF with PyAV
+torchao>=0.16,<0.17     # fp8 matmuls
+hf_transfer>=0.1,<1     # fast weight download
 fastapi>=0.110,<1
 uvicorn>=0.29,<1
-hf_transfer>=0.1,<1     # fast weight download (server_defaults.sh turns it on)
-torchao>=0.16,<0.17     # fp8 / mxfp8 / nvfp4 matmuls (LTX2_QUANT)
-kernels>=0.12.3,<1      # FlashAttention-3/4 and SageAttention from the Hub (LTX2_ATTN)

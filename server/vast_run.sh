@@ -1,24 +1,18 @@
 #!/usr/bin/env bash
 # Rent a GPU on Vast.ai, stand up the LTX-2.5 server on it, tunnel it to
-# localhost:8000, run the client, and tear everything down.
+# localhost:8000, run the film on the box, and tear everything down.
 #
-#   server/vast_run.sh up [OFFER_ID]                     rent (cheapest matching H100 SXM/NVL unless given),
-#                                                        install, start the server, open the tunnel,
-#                                                        wait for /health to say ready
-#   server/vast_run.sh run [config] [log_dir] [args...]   run the film ON the box (web player on localhost:8765)
-#   server/vast_run.sh pull [remote_dir] [local_dir]      fetch a run's logs and clips from the box
-#   server/vast_run.sh restart                           restart the server on the same box (e.g. with
-#                                                        LTX2_VARIANT=full) and wait for /health
-#   server/vast_run.sh status                            instance state + server health
-#   server/vast_run.sh down                              close the tunnel and destroy the instance
+#   server/vast_run.sh up [OFFER_ID]               rent (the cheapest matching H100 unless given), install,
+#                                                  start the server, open the tunnel, wait until it is ready
+#   server/vast_run.sh run [config] [args...]      the film ON the box; the player comes back on localhost:8765
+#   server/vast_run.sh pull [local_dir]            fetch the run's logs and clips from the box
+#   server/vast_run.sh restart                     restart the server on the same box and wait until it is ready
+#   server/vast_run.sh status                      instance state and server health
+#   server/vast_run.sh down                        close the tunnel and destroy the instance
 #
-# Needs VAST_API_KEY and HF_TOKEN in .env, the `vastai` CLI, and your ssh
-# public key registered on Vast (`vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"`).
-# Every LTX2_* variable in the environment reaches the server (LTX2_OFFLOAD, LTX2_VARIANT, LTX2_WIDTH/HEIGHT,
-# LTX2_ATTN, LTX2_QUANT, LTX2_COMPILE, LTX2_ENCODER, ...; see server/ltx2_server.py). VAST_IMAGE and VAST_QUERY
-# pick the image and the offer: a B200 needs the CUDA 12.8 image (the default) and
-#   VAST_QUERY='gpu_name=B200 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true'
-# VAST_ENV passes container options (see `up`).
+# Needs VAST_API_KEY, HF_TOKEN and OPENAI_API_KEY in .env, the `vastai` CLI,
+# and your ssh public key registered on Vast (`vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"`).
+# VAST_QUERY picks other offers. Renting bills by the hour until `down`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f .env ] || { echo "no .env here: cp .env.example .env and fill in VAST_API_KEY, HF_TOKEN and OPENAI_API_KEY" >&2; exit 1; }
@@ -30,7 +24,8 @@ need() {
   local v; for v in "$@"; do [ -n "${!v:-}" ] || { echo "$v is not set in .env (see .env.example)" >&2; exit 1; }; done
 }
 STATE=logs/vast; mkdir -p "$STATE"
-IMAGE=${VAST_IMAGE:-pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel}
+CONFIG=configs/video.yaml
+IMAGE=pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel
 # H100 SXM and NVL: cheaper than the PCIe on Vast and ~1.3x faster on this compute-bound model.
 QUERY=${VAST_QUERY:-'gpu_name in [H100_SXM,H100_NVL] gpu_ram>=80 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true reliability>0.98'}
 
@@ -41,24 +36,14 @@ pick_offer() {
 instance_json() { vastai show instance "$(cat "$STATE/id")" --raw; }
 field() { instance_json | python3 -c "import json,sys; print(json.load(sys.stdin).get('$1') or '')"; }
 ssh_cmd() { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" "$@"; }
-# The server's environment: the token plus every LTX2_* variable set here.
-# expandable_segments: without it the allocator fragments around the VAE decode (12 GB reserved but unusable, OOM on a 94 GB card).
-# The frame counts the server warms come from the client's shape registry for the config the film will run:
-# the client refuses to start without them, so they are never typed twice. LTX2_WARMUP_FRAMES in the
-# environment wins; AR_CONFIG picks the config (default the live one).
-warm_frames() { python3 -W ignore::RuntimeWarning -m src.i2v.shape "${AR_CONFIG:-configs/director.live.yaml}"; }
-# The loudness ceiling comes from the same config (`audio_ceiling_lufs`) unless set here.
-config_ceiling() { python3 -W ignore -c "import sys; from src.models.config import Config; v = Config.from_yaml(sys.argv[1]).audio_ceiling_lufs; print('' if v is None else v)" "${AR_CONFIG:-configs/director.live.yaml}"; }
-ceiling_env() { local v=${LTX2_AUDIO_CEILING_LUFS:-$(config_ceiling)}; [ -n "$v" ] && echo "LTX2_AUDIO_CEILING_LUFS=$v"; true; }
-server_env() { echo "HF_TOKEN=$HF_TOKEN HF_HUB_ENABLE_HF_TRANSFER=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True LTX2_WARMUP_FRAMES=${LTX2_WARMUP_FRAMES:-$(warm_frames)} $(ceiling_env) $(env | grep '^LTX2_' | grep -v -e '^LTX2_WARMUP_FRAMES=' -e '^LTX2_AUDIO_CEILING_LUFS=' | tr '\n' ' ')"; }
+# The frame counts the server warms come from the client's clip shape, so they are never typed twice.
+server_env() { echo "HF_TOKEN=$HF_TOKEN LTX2_WARMUP_FRAMES=$(python3 -W ignore::RuntimeWarning -m src.i2v.shape "$CONFIG")"; }
 
 up() {
   need VAST_API_KEY HF_TOKEN
   local offer=${1:-$(pick_offer)}
   echo "renting offer $offer"
-  # VAST_ENV reaches the container, e.g. VAST_ENV='-e NVIDIA_DRIVER_CAPABILITIES=compute,utility,video' to ask
-  # for the video engine (h264_nvenc), which Vast containers lack by default.
-  vastai create instance "$offer" --image "$IMAGE" --disk 200 --ssh --direct --label ar-ltx25 --raw ${VAST_ENV:+--env "$VAST_ENV"} \
+  vastai create instance "$offer" --image "$IMAGE" --disk 200 --ssh --direct --label ltx25 --raw \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"), d; print(d["new_contract"])' > "$STATE/id"
   echo "instance $(cat "$STATE/id"): waiting for boot"
   for _ in $(seq 1 60); do [ "$(field actual_status)" = running ] && break; sleep 10; done
@@ -75,7 +60,7 @@ else:
 ' | { read -r h; read -r p; echo "$h" > "$STATE/host"; echo "$p" > "$STATE/port"; }
   echo "ssh target $(cat "$STATE/host"):$(cat "$STATE/port")"
   for _ in $(seq 1 30); do ssh_cmd true 2>/dev/null && break; sleep 10; done
-  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/server_defaults.sh server/remote_setup.sh server/requirements.txt "root@$(cat "$STATE/host"):/root/"
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/remote_setup.sh server/requirements.txt "root@$(cat "$STATE/host"):/root/"
   ssh_cmd "chmod +x /root/remote_setup.sh; nohup env $(server_env) /root/remote_setup.sh > /root/setup.log 2>&1 &"
   ssh -f -N -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o ExitOnForwardFailure=yes \
       -L 8000:localhost:8000 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")"
@@ -94,41 +79,37 @@ wait_ready() {
 }
 restart() {
   need VAST_API_KEY HF_TOKEN
-  # Same box, new server process: switch any LTX2_* setting (variant, size, attention, quant, compile) without re-renting.
-  # The weights are cached on the box, so this is load time only (a few minutes).
-  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py server/server_defaults.sh "root@$(cat "$STATE/host"):/root/"
+  # Same box, new server process; the weights are cached there, so this is load time only (a few minutes).
+  scp -o StrictHostKeyChecking=no -P "$(cat "$STATE/port")" server/ltx2_server.py server/encode.py server/audio_ceiling.py "root@$(cat "$STATE/host"):/root/"
   # Kill and start in separate ssh calls: with both in one command line the
   # kill pattern matches the shell running it (its argv holds the start command).
   ssh_cmd "pkill -f '[l]tx2_server.py' || true; sleep 2"
-  # The first start's defaults (server_defaults.sh: fp8, compile, 512x288, ...) apply here too; without them a
-  # restart loaded bf16 at 960x544 uncompiled and ran out of memory on the warm-up (2026-09-23).
-  ssh_cmd "cd /root && setsid -f env $(server_env) bash -c '. ./server_defaults.sh && exec python ltx2_server.py' > server.log 2>&1 < /dev/null"
-  echo "server restarting ($(env | grep '^LTX2_' | tr '\n' ' ')); waiting for /health (load + warm-up)"
+  ssh_cmd "cd /root && setsid -f env $(server_env) python ltx2_server.py > server.log 2>&1 < /dev/null"
+  echo "server restarting; waiting until it is ready (load + warm-up)"
   wait_ready 80 || exit 1
 }
 run() {
   need OPENAI_API_KEY
   # The film runs on the GPU box next to the server, so no clip crosses the
-  # internet (the MP4 through the tunnel cost 1.5-4.6 s per clip). The
-  # committed tree goes over with git archive, the client's keys from .env,
-  # and the web player comes back through the ssh session on localhost:8765.
+  # internet (an MP4 through the tunnel cost 1.5-4.6 s per clip). The working
+  # tree goes over with git archive (tracked files, committed or not), the
+  # OpenAI key from .env, and the player comes back through ssh on localhost:8765.
   # Extra arguments reach main.py (e.g. --segments 8). Ctrl+C stops the film.
-  local config=${1:-configs/director.live.yaml} log_dir=${2:-logs/live}; shift $(( $# > 2 ? 2 : $# ))
-  # The working tree as it is (tracked files, committed or not), so what you have is what runs.
-  local tree; tree=$(git stash create); git archive --format=tar "${tree:-HEAD}" | ssh_cmd "mkdir -p /root/ar && tar -x -C /root/ar"
-  # The client's keys only (the box is someone else's machine: see docs/self-hosting.md).
-  grep -E '^(OPENAI|LANGFUSE)_|^LTX2_API_KEY=' .env | ssh_cmd "cat > /root/ar/.env && chmod 600 /root/ar/.env"
-  ssh_cmd "cd /root/ar && pip install -q -r requirements.txt 2>&1 | grep -v 'WARNING: Running pip' | tail -1"
-  echo "the film runs on the box: open http://127.0.0.1:8765/  (Ctrl+C stops it; logs stay in /root/ar/$log_dir, fetch them with: $0 pull)"
+  local config=${1:-$CONFIG}; shift $(( $# > 0 ? 1 : 0 ))
+  local tree; tree=$(git stash create); git archive --format=tar "${tree:-HEAD}" | ssh_cmd "mkdir -p /root/film && tar -x -C /root/film"
+  # Only the client's key goes over (the box is someone else's machine).
+  grep -E '^OPENAI_API_KEY=' .env | ssh_cmd "cat > /root/film/.env && chmod 600 /root/film/.env"
+  ssh_cmd "cd /root/film && pip install -q -r requirements.txt 2>&1 | grep -v 'WARNING: Running pip' | tail -1"
+  echo "the film runs on the box: open http://127.0.0.1:8765/  (Ctrl+C stops it; fetch its logs with: $0 pull)"
   ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -L 8765:localhost:8765 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" \
-    "cd /root/ar && python main.py play --config $config --player web --log-dir $log_dir $*"
+    "cd /root/film && python main.py play --config $config $*"
 }
 pull() {
-  # Fetch a run's logs (transcript, world model, clips) from the box.
-  local remote=${1:-logs/live} local_dir=${2:-logs/live-box}
+  # Fetch the box's logs (transcripts, world models, timing logs, clips).
+  local local_dir=${1:-logs/box}
   mkdir -p "$local_dir"
-  rsync -az -e "ssh -p $(cat "$STATE/port") -o StrictHostKeyChecking=no" "root@$(cat "$STATE/host"):/root/ar/$remote/" "$local_dir/"
-  echo "pulled /root/ar/$remote → $local_dir"
+  rsync -az -e "ssh -p $(cat "$STATE/port") -o StrictHostKeyChecking=no" "root@$(cat "$STATE/host"):/root/film/logs/" "$local_dir/"
+  echo "pulled /root/film/logs → $local_dir"
 }
 status() {
   [ -f "$STATE/id" ] && instance_json | python3 -c "import json,sys; d=json.load(sys.stdin); print({k:d.get(k) for k in ['id','actual_status','gpu_name','dph_total','ssh_host','ssh_port']})" || echo "no instance recorded"

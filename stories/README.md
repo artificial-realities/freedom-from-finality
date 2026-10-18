@@ -91,4 +91,4 @@ A story may leave out `reference` entirely. It runs headless, but a video run re
 
 ## Checking a story
 
-`Story.from_json` loads and checks the blueprint: a protagonist that is one of the characters, a reference image that exists and decodes. A headless run (`python main.py play --config configs/director.yaml`) shows what the writers make of it: the transcript under `logs/` has every clip, its lines, its compiled video prompt and the world's state (the writers' own prompts are in Langfuse when tracing is on). `stories/lego-void/story.json` uses every field.
+`Story.from_json` loads and checks the blueprint: a protagonist that is one of the characters, a reference image that exists and decodes. A text run (`python main.py play --story stories/<folder>`) shows what the writers make of it: the transcript under `logs/` has every clip, its lines, its compiled video prompt and the world's state, and the session directory has the writers' raw outputs. `stories/lego-void/story.json` uses every field.

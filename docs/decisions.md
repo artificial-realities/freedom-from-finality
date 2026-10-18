@@ -38,6 +38,8 @@ Why the prototype is built the way it is: each entry is a decision, what it was 
 
 **The video model renders all the sound.** LTX-2.5 renders ambient sound and the characters' lines from the prompt; an external narrator and TTS were removed, so every spoken word is a character's. Each clip renders 9 extra frames that repeat the previous clip's tail; the page cuts on them and crossfades the sound, with every clip held under -18 LUFS (no duplicate frames, no luminance dip). The model's own silences between clips still make audible steps; accepted. Two speakers in one clip are not yet verified.
 
+**The saved film is joined the way the page plays it.** Concatenating the clip files kept every clip's 9-frame head, which repeats the clip before: a 20-clip film came out as 3,060 frames, 171 more than the viewer saw, with a stutter at every seam. The film is now joined with each head shown once and the sound crossfaded over it; a 24-clip live film saved exactly the 3,465 frames that played.
+
 ## Real time
 
 The transformer's forward passes are compute-bound, so the levers were the GPU, low-precision matmuls, compilation and fewer tokens:

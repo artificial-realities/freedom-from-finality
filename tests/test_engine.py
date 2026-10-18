@@ -45,8 +45,6 @@ class Clips(I2VBackend):
     """Renders by copying one prepared clip: the live loop with real video
     files and no server."""
 
-    manages_continuity = True
-
     def __init__(self, clip: Path, output_dir: Path) -> None:
         self.clip, self.output_dir = Path(clip), Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -60,11 +58,18 @@ class Clips(I2VBackend):
 
 def rendering(clip: Path):
     """Video runs inside this block render with `Clips`."""
-    return mock.patch("src.runner.build_i2v_backend", lambda name, *, output_dir, **_: Clips(clip, output_dir))
+    return mock.patch("src.runner.LtxvI2V", lambda *, output_dir, **_: Clips(clip, output_dir))
+
+
+def tiny_clip(path: Path, frames: int = 33) -> Path:
+    """A silent white clip of `frames` frames: a 1-second shape's render."""
+    subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=64x32:r=24",
+                    "-frames:v", str(frames), "-pix_fmt", "yuv420p", str(path)], check=True)
+    return path
 
 
 def _config(**over) -> Config:
-    base = dict(name="mocktest", graph="director", llm_backend="mock", model="mock",
+    base = dict(name="mocktest", llm_backend="mock",
                 compaction_interval=4, showrunner_min_gap=1, buffer_seconds=0.0)
     base.update(over)
     return Config(**base)
@@ -75,19 +80,18 @@ def _records(session: Path) -> list[dict]:
 
 
 async def test_director_engine_end_to_end():
-    """On the schedule that plans each beat just before its fire (plan_early
-    off), so the timeline below is fixed; early planning has its own test."""
     story = Story.from_json("stories/lego-void")
     player = Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."})
     with tempfile.TemporaryDirectory() as d:
-        state = await run_live(config=_config(plan_early=False), story=story, log_dir=d, player=player, max_segments=7)
+        state = await run_live(config=_config(), story=story, log_dir=d, player=player, max_segments=7)
 
         assert player.turns == [1, 2, 3, 4, 5, 6, 7]
         assert len(state.history) == 7, "every clip produced beat + shot"
         inputs = [h.user_input for h in state.history]
-        # A line spoken while clip k plays reaches the plan for k+2: clip k+1
-        # was already emitted (and, with video, rendering) when it arrived.
-        assert inputs == ["", "", "A soccer ball appears at your feet.", "", "", "Do a trick with it.", ""], inputs
+        # A line reaches the earliest clip not yet emitted: during the lead
+        # (clip 1 on air, clip 2 already queued) that is clip 3; once the
+        # queue holds one clip, the next.
+        assert inputs == ["", "", "A soccer ball appears at your feet.", "", "Do a trick with it.", "", ""], inputs
         assert ('Lego Man says in a quiet, earnest, slightly formal, a little breathless voice, in English, "Hello? Anyone?"'
                 in state.history[0].shot.i2v_prompt), "the line is compiled into its clip, in the character's voice"
         assert "says" not in state.history[1].shot.i2v_prompt, "clip 2 of the beat is silent"
@@ -105,10 +109,10 @@ async def test_director_engine_end_to_end():
         assert ball.state == "rolled out of frame" and not ball.present
         assert world.threads[0].status == "paid_off"
         disp = [(i.text[:12], i.disposition, i.resolved_at) for i in world.interventions]
-        assert disp == [("A soccer bal", "absorbed", 3), ("Do a trick w", "absorbed", 7)], disp
+        assert disp == [("A soccer bal", "absorbed", 3), ("Do a trick w", "absorbed", 6)], disp
         hero = world.entities["lego_man"]
-        assert hero.state == "state 5", "character state persists until an op changes it"
-        assert "cut short after clip 1 of 2 (the viewer spoke)" in transcript, "the trick line cut the running beat short"
+        assert hero.state == "state 7", "the state the last op wrote"
+        assert "cut short after clip 0 of 2 (the viewer spoke)" in transcript, "the trick line cut the beat planned early"
         assert world.showrunner_runs >= 3, "bootstrap + compaction at 4 + scene_done at 7"
         assert world.plan.scene.id >= 2 and world.plan.arc, "the Showrunner replanned after scene_done"
         assert world.summaries and world.act_summary, "compaction landed"
@@ -188,9 +192,7 @@ async def test_a_failed_render_rolls_the_world_back_and_the_film_goes_on():
         return await generate(backend, messages, schema, *a, **kw)
 
     with tempfile.TemporaryDirectory() as d:
-        clip = Path(d) / "a.mp4"
-        subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi", "-i", "color=c=white:s=64x32:r=24",
-                        "-frames:v", "25", "-pix_fmt", "yuv420p", str(clip)], check=True)
+        clip = tiny_clip(Path(d) / "a.mp4")
         config = _config(video_enabled=True, clip_seconds=1, compaction_interval=100)
         player = Scripted()
         with rendering(clip), mock.patch.object(Clips, "synthesize", flaky), \

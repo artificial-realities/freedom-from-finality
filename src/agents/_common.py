@@ -1,14 +1,14 @@
-"""Shared LLM call helper: native structured outputs + parse fallback."""
+"""Shared LLM call helper: one strict structured-output call, parsed."""
 
 from __future__ import annotations
 
+import json
 import logging
 
 from pydantic import BaseModel
 
 from src.llm.base import LLMBackend
 from src.models.config import Config
-from src.util.json_sanitizer import parse_structured_response
 
 logger = logging.getLogger(__name__)
 
@@ -22,36 +22,23 @@ async def call_llm_structured(
     config: Config,
     turn: int,
     schema: type[BaseModel],
-    strict: bool = True,
-    max_tokens: int | None = None,
+    max_tokens: int,
 ) -> dict | None:
-    """Call the LLM with native structured outputs and return a parsed dict.
-
-    `schema` constrains the response at the API level (`strict=True`
-    enforces it; `strict=False` guarantees valid JSON with the schema as
-    guidance). Prompts, completions, tokens and latency are captured by
-    the `langfuse.openai` wrapper inside the backend. Parse failures
-    return None; callers decide whether to skip the update.
-    """
+    """Call the LLM constrained to `schema` and return the parsed dict, or
+    None when the call failed or its text is not a JSON object (a truncated
+    reply, a refusal); callers decide what to do without it."""
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-
     raw, _usage = await llm.generate_structured(
-        messages=messages,
-        schema=schema,
-        strict=strict,
-        temperature=config.temperature,
-        max_tokens=max_tokens or config.max_tokens_per_agent,
-        trace_name=agent,
-        trace_metadata={"turn": turn, "config": config.name, "agent": agent},
+        messages=messages, schema=schema, temperature=config.temperature, max_tokens=max_tokens,
     )
-
-    parsed = parse_structured_response(raw)
-    if parsed is None:
-        logger.warning(
-            "agent=%s turn=%s: structured parse failed — skipping update",
-            agent, turn,
-        )
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        logger.warning("agent=%s turn=%s: no structured reply, skipping update", agent, turn)
+        return None
     return parsed

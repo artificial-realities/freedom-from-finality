@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**Read [AGENTS.md](AGENTS.md) first.** It is the source of truth for this project: what it is, the repository map, setup and test commands, secrets handling, the rules on paid OpenAI calls and rented GPUs, the conventions and how the film behaves. This file only adds Claude Code workflow preferences on top of it.
+**Read [AGENTS.md](AGENTS.md) first.** It is the source of truth for this project: what it is, the repository map, setup and test commands, secrets handling, the rules on paid OpenAI calls and rented GPUs, and the conventions; how the film behaves is in docs/ARCHITECTURE.md. This file only adds Claude Code workflow preferences on top of it.
 
 ## Workflow
 

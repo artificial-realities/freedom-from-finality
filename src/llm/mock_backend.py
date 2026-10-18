@@ -74,14 +74,8 @@ class MockBackend(LLMBackend):
 
     def __init__(self, model: str = "mock") -> None:
         self.model = model
-        self.calls: list[dict] = []
 
-    async def generate(self, messages, temperature=0.7, max_tokens=1024, *, trace_name=None, trace_metadata=None):
-        self.calls.append({"name": trace_name, "schema": None})
-        return "{}", {}
-
-    async def generate_structured(self, messages, schema: type[BaseModel], temperature=0.7, max_tokens=1024, *, strict=True, trace_name=None, trace_metadata=None):
-        self.calls.append({"name": trace_name, "schema": schema.__name__})
+    async def generate_structured(self, messages, schema: type[BaseModel], temperature=0.7, max_tokens=1024):
         name = schema.__name__
         if name == "BeatPlan":
             payload = self._beat(messages)

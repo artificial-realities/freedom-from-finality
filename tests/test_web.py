@@ -1,5 +1,6 @@
 """The live loop through the web player: the film streams over HTTP, input
-posted mid-stream reaches the Director, and clips are served to the page.
+posted mid-stream reaches the Director, clips are served to the page, and
+the played clips are saved as one film joined the way the page joins them.
 Runs on the mock LLM; video comes from a prepared clip file."""
 
 from __future__ import annotations
@@ -17,21 +18,13 @@ from src.models.config import Config
 from src.models.story import Story
 from src.playback.player import Playable, Player
 from src.web import WebPlayer
-from tests.test_engine import rendering
+from tests.test_engine import rendering, tiny_clip
 
 
 def _config(**over) -> Config:
-    base = dict(name="webtest", graph="director", llm_backend="mock", model="mock",
-                )
+    base = dict(name="webtest", llm_backend="mock")
     base.update(over)
     return Config(**base)
-
-
-def _tiny_clip(path: Path, seconds: float = 1.0) -> Path:
-    subprocess.run(["ffmpeg", "-v", "quiet", "-y", "-f", "lavfi",
-                    "-i", f"color=c=white:s=128x80:d={seconds}:r=24",
-                    "-pix_fmt", "yuv420p", str(path)], check=True)
-    return path
 
 
 async def _wait_up(player: WebPlayer) -> None:
@@ -73,11 +66,8 @@ async def test_web_player_text_mode_streams_and_takes_input():
         ))
         await _wait_up(player)
         async with aiohttp.ClientSession() as http:
-            async with http.get(player.url + "state") as r:
-                snap = await r.json()
-            assert snap["title"] == story.title
             async with http.get(player.url) as r:
-                assert r.status == 200 and "Steer the story" in await r.text()
+                assert r.status == 200 and "Suggest something" in await r.text()
             async with http.post(player.url + "input", json={"text": line}) as r:
                 assert r.status == 200 and (await r.json())["ok"]
             async with http.post(player.url + "input", json={"text": "   "}) as r:
@@ -86,19 +76,16 @@ async def test_web_player_text_mode_streams_and_takes_input():
         state = await run
 
         hello = events[0]
-        assert hello[0] == "hello" and hello[1]["history"], "a late joiner gets the history"
-        assert any(i["text"] == line for i in hello[1]["inputs"])
+        assert hello[0] == "hello" and hello[1]["title"] == story.title and hello[1]["now"], \
+            "a late joiner is told what is on air"
         playing = [e for n, e in events if n == "playing"]
         assert len(state.history) == 5 and playing, "segments played after the client connected"
         assert all(e["url"] is None and e["narration"] for e in playing), "text-only film: no clips"
         assert all(e["started_at"] > 0 and e["duration"] >= 3 for e in playing)
-        landed = [e for e in playing if e["user_input"] == line]
-        assert landed and landed[0]["intervention"] in ("absorbed", "deferred", "declined"), \
-            "the posted line reached the Director and came back with a disposition"
-        assert any(n == "status" for n, _ in events), "producer status lines are broadcast"
+        assert all("path" not in e for e in playing), "the page never sees a local path"
         assert events[-1][0] == "ended" and events[-1][1]["segments"] == 5
         transcript = next(Path(d).glob("*.md")).read_text()
-        assert line in transcript
+        assert f'— "{line}"' in transcript, "the posted line reached the Director"
 
         async with aiohttp.ClientSession() as http:
             try:
@@ -111,7 +98,7 @@ async def test_web_player_text_mode_streams_and_takes_input():
 async def test_web_player_serves_rendered_clips():
     story = Story.from_json("stories/lego-void")
     with tempfile.TemporaryDirectory() as d, rendering(Path(d) / "a.mp4"):
-        _tiny_clip(Path(d) / "a.mp4")
+        tiny_clip(Path(d) / "a.mp4")
         config = _config(video_enabled=True, clip_seconds=1)
         player = WebPlayer(port=0, time_scale=50)
         run = asyncio.create_task(run_live(
@@ -142,8 +129,13 @@ async def test_web_player_serves_rendered_clips():
         assert fetched == [e["turn"] for e in playing]
         state = await run
         assert len(state.history) == 3
-        assert all(e["duration"] == 25 / 24 for e in playing), "held for the shape's delivered frames"
-        assert (Path(d) / "video" / "full_session.mp4").exists(), "the session was concatenated"
+        assert all(e["duration"] == 1.0 for e in playing), "held for the shape's delivered frames"
+        assert all(e["overlap_seconds"] == 9 / 24 for e in playing)
+        film = next((Path(d) / "video").glob("webtest_*.mp4"))
+        frames = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v",
+                                 "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(film)],
+                                capture_output=True, text=True, check=True).stdout.strip()
+        assert frames == str(33 + 24 + 24), "each head that repeats the clip before is shown once"
 
 
 async def test_player_input_joins_lines_and_pipelined_items_keep_views():
@@ -167,7 +159,7 @@ async def test_player_input_joins_lines_and_pipelined_items_keep_views():
         state = await run_live(config=_config(), story=story, log_dir=d, player=p, max_segments=3)
     assert [i.turn for i in p.items] == [1, 2, 3]
     assert p.items[0].dialogue == ["Lego Man: Hello? Anyone?"] and p.items[1].dialogue == []
-    assert p.items[1].scene.startswith("scene "), "each item carries the scene it played in"
+    assert p.items[0].speech and not p.items[1].speech, "a clip with lines brings its sound in at once"
     assert len(state.history) == 3
 
 
@@ -190,6 +182,6 @@ async def test_input_takes_json_lines_only_and_caps_their_length():
                 assert r.status == 400
             async with http.post(player.url + "input", json={"text": "a dog appears"}) as r:
                 assert r.status == 200
-        assert [i["text"] for i in player.inputs] == ["a dog appears"]
+        assert await player.next_input() == "a dog appears"
     finally:
         await player.stop()

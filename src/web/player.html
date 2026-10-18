@@ -5,298 +5,136 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Untitled Project</title>
 <style>
-  :root {
-    --bg: #0a0a0c; --panel: #111115; --line: #1f1f26; --text: #e9e7e1; --muted: #8b8a94;
-    --accent: #d9b46b; --ok: #7fb58a; --warn: #d9a35a; --bad: #c96b6b; --you: #8fb7e6;
-    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
-    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
-  body { display: grid; grid-template-rows: 48px 1fr; grid-template-columns: minmax(0, 1fr) 380px; height: 100vh; }
-  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid var(--line); }
-  header h1 { font: 500 15px/1 var(--sans); letter-spacing: .04em; margin: 0; text-transform: uppercase; color: var(--text); }
-  header .status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; margin-left: auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
-  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(127,181,138,.18); }
-  .dot.busy { background: var(--warn); animation: pulse 1.6s ease-in-out infinite; }
-  .dot.ended { background: var(--bad); }
-  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-  header .count { color: var(--muted); font-variant-numeric: tabular-nums; }
-
-  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 20px; gap: 12px; }
-  .stage { position: relative; flex: 1; min-height: 0; background: #000; border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-  .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .25s ease; background: #000; }
-  .stage video.active { opacity: 1; }
-  /* The overlap seam: the picture cuts, no opacity fade. */
-  .stage.cut video { transition: none; }
-  .textstage { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 8% 12%; text-align: center; background: radial-gradient(ellipse at center, #17171c 0%, #0a0a0c 75%); }
-  .textstage.active { display: flex; }
-  .textstage .narration { font: 400 clamp(18px, 2.2vw, 28px)/1.4 var(--serif); color: var(--text); max-width: 34em; }
-  .textstage .meta { margin-top: 22px; color: var(--muted); font-size: 13px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-  .pill { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; color: var(--muted); }
-  .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,10,12,.72); backdrop-filter: blur(2px); z-index: 5; }
-  .overlay[hidden] { display: none; }
-  .overlay button { font: 500 16px var(--sans); letter-spacing: .06em; color: var(--bg); background: var(--text); border: 0; border-radius: 999px; padding: 14px 28px; cursor: pointer; }
-  .overlay button:hover { background: #fff; }
-  .buffering { position: absolute; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 999px; background: rgba(10,10,12,.7); color: #fff; font: 500 12px var(--sans); letter-spacing: .06em; text-transform: uppercase; z-index: 4; pointer-events: none; }
-  .buffering[hidden] { display: none; }
-  .buffering .ring { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .9s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg) } }
-  .caption { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 24px 16px; text-align: center; font: italic 400 clamp(14px, 1.4vw, 18px)/1.4 var(--serif); color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.9); background: linear-gradient(to top, rgba(0,0,0,.55), transparent); pointer-events: none; opacity: 0; transition: opacity .3s; white-space: pre-line; }
-  .caption.show { opacity: 1; }
-  .progress { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
-  .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
-  .progress.held > div { background: var(--muted); }
-  .under { display: flex; align-items: baseline; gap: 14px; color: var(--muted); font-size: 13px; min-height: 18px; }
-  .under .scene { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .under .right { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .under .mute { color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 4px; padding: 1px 8px; cursor: pointer; font: 12px var(--sans); }
-
-  aside { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
-  aside h2 { font: 500 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; padding: 16px 20px 12px; }
-  .script { flex: 1; overflow-y: auto; padding: 0 20px 12px; scroll-behavior: smooth; }
-  .entry { padding: 12px 0; border-top: 1px solid var(--line); }
-  .entry .head { display: flex; gap: 8px; align-items: baseline; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .entry .head .n { color: var(--text); font-weight: 500; }
-  .entry .head .sc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .entry .head .beat { margin-left: auto; color: var(--muted); flex: none; font-style: italic; }
-  .entry.now .head .n { color: var(--accent); }
-  .entry p { margin: 6px 0 0; font: 400 14px/1.5 var(--serif); color: var(--text); }
-  .entry .said { margin-top: 6px; color: var(--muted); font: italic 13px/1.45 var(--serif); }
-  .you { margin-top: 8px; padding: 8px 10px; border-radius: 4px; background: rgba(143,183,230,.08); border-left: 2px solid var(--you); font-size: 13px; }
-  .you .line { color: var(--you); }
-  .you .line::before { content: "you  "; font: 500 10px var(--sans); letter-spacing: .08em; color: var(--muted); }
-  .you .disp { margin-top: 4px; color: var(--muted); }
-  .you .disp b { font-weight: 500; }
-  .you.pending .disp { color: var(--muted); font-style: italic; }
-  .you .disp.absorbed b { color: var(--ok); }
-  .you .disp.deferred b { color: var(--warn); }
-  .you .disp.declined b { color: var(--bad); }
-  form { display: flex; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--line); }
-  form input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font: 14px var(--sans); outline: none; }
-  form input:focus { border-color: #3a3a46; }
-  form input::placeholder { color: #5d5c66; }
-  form button { background: var(--text); color: var(--bg); border: 0; border-radius: 6px; padding: 0 14px; font: 500 13px var(--sans); cursor: pointer; }
-  form button:disabled, form input:disabled { opacity: .4; cursor: default; }
-  .hint { padding: 0 20px 14px; color: #5d5c66; font-size: 12px; }
-
-  @media (max-width: 900px) {
-    body { grid-template-columns: 1fr; grid-template-rows: 48px minmax(0, 1fr) 42vh; }
-    aside { border-left: 0; border-top: 1px solid var(--line); }
-    main { padding: 12px; }
-  }
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: #000; color: #eee; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; }
+  main { width: min(100vw - 32px, (100vh - 112px) * 16 / 9); display: flex; flex-direction: column; gap: 12px; }
+  .screen { position: relative; aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
+  .screen video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; }
+  .screen video.on { opacity: 1; }
+  .text { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: center; padding: 6% 10%; text-align: center; }
+  .text.on { display: flex; }
+  .text p { margin: 0 0 .7em; font-size: clamp(16px, 2vw, 24px); }
+  .text .said { color: #aaa; font-style: italic; font-size: clamp(14px, 1.6vw, 20px); }
+  .start { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .5); }
+  .start[hidden] { display: none; }
+  .start button { width: 72px; height: 72px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .9); color: #000; font-size: 26px; padding-left: 6px; cursor: pointer; }
+  .spinner { position: absolute; right: 14px; bottom: 14px; width: 18px; height: 18px; border: 2px solid rgba(255, 255, 255, .25); border-top-color: #fff; border-radius: 50%; animation: spin .9s linear infinite; }
+  .spinner[hidden] { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  input { box-sizing: border-box; width: 100%; padding: 10px 12px; font: inherit; color: #eee; background: #111; border: 1px solid #333; border-radius: 6px; outline: none; }
+  input:focus { border-color: #666; }
+  input:disabled { opacity: .5; }
 </style>
 </head>
 <body>
-<header>
-  <h1 id="title">Untitled Project</h1>
-  <span class="count" id="count"></span>
-  <div class="status"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
-</header>
-
 <main>
-  <div class="stage" id="stage">
+  <div class="screen">
     <video id="vA" playsinline preload="auto"></video>
     <video id="vB" playsinline preload="auto"></video>
     <video id="vC" playsinline preload="auto"></video>
-    <div class="textstage" id="textstage">
-      <div class="narration" id="tsNarration">The film has not started yet.</div>
-      <div class="meta" id="tsMeta"></div>
-    </div>
-    <div class="caption" id="caption"></div>
-    <div class="buffering" id="buffering" hidden><div class="ring"></div><span>buffering</span></div>
-    <div class="overlay" id="overlay"><button id="watch">▶&nbsp; Watch</button></div>
+    <div class="text" id="text"></div>
+    <div class="spinner" id="spinner" hidden></div>
+    <div class="start" id="start"><button type="button" aria-label="Play">▶</button></div>
   </div>
-  <div class="progress" id="progress"><div></div></div>
-  <div class="under">
-    <span class="scene" id="scene"></span>
-    <span class="right" id="clock"></span>
-    <button class="mute" id="mute" type="button">sound on</button>
-  </div>
+  <form id="form"><input id="input" type="text" autocomplete="off" maxlength="400" placeholder="Suggest something…" aria-label="Suggest something"></form>
 </main>
-
-<aside>
-  <h2>Script</h2>
-  <div class="script" id="script"></div>
-  <form id="form">
-    <input id="input" type="text" autocomplete="off" placeholder="Steer the story… (Enter to send)" maxlength="400">
-    <button type="submit" id="send">Send</button>
-  </form>
-  <div class="hint">Your line reaches the Director when it writes the next segment. It will absorb it, defer it, or decline it and say why.</div>
-</aside>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  // "fade" (production) plays on two elements with a 250 ms crossfade;
-  // "overlap" uses a pool of three and cuts at the
-  // overlap. The server says which in `hello`.
-  let seam = 'fade';
-  let videos = [$('vA'), $('vB')];
+  // Clip N+1's first `overlap_seconds` repeat clip N's tail. The picture
+  // cuts from N to N+1 when N's media time reaches that point (N+1 starts
+  // at its own head, the same picture); the sound crossfades with equal
+  // power over the overlap, except that a clip with speech comes in at
+  // once. Three elements, so a queued clip never evicts the one being
+  // prefetched or the one still sounding.
   const pool = [$('vA'), $('vB'), $('vC')];
-  let outgoing = null;            // overlap mode: the element whose sound is fading out
-  let incoming = null;            // overlap mode: the element waiting to be cut to
-  const waitingPrefetch = [];     // overlap mode: queued items with no free element yet
-  let active = 0;                 // index of the visible video
-  let armed = false;              // user gesture happened: we may play with sound
-  let muted = false;
-  let skew = 0;                   // Date.now()/1000 - server_time
-  let now = null;                 // the item on air
+  let active = null;      // the element on screen
+  let outgoing = null;    // the element whose sound is fading out
+  let incoming = null;    // the element waiting to be cut to
+  let cuts = 0;           // the latest cut: an older one still waiting is dropped
+  const waiting = [];     // queued clips with no free element yet
+  let armed = false;      // the viewer clicked: the page may play sound
+  let skew = 0;           // Date.now()/1000 - server time
+  let now = null;         // the item on air
   let ended = false;
-  const entries = new Map();      // turn -> .entry element
-  const pendingInputs = [];       // {text, el} not yet landed
+  let stalled = false;    // the active video is waiting for data mid-clip
   const serverNow = () => Date.now() / 1000 - skew;
-  let stalled = false;            // the active video is waiting for data mid-clip
   pool.forEach(v => {
-    v.addEventListener('waiting', () => {
-      if (!v.classList.contains('active')) return;
-      stalled = true;
-      beacon('waiting', { turn: +v.dataset.turn, media_time: round1(v.currentTime) });
-    });
+    v.addEventListener('waiting', () => { if (v === active) stalled = true; });
     ['playing', 'pause', 'ended'].forEach(ev => v.addEventListener(ev, () => { stalled = false; }));
   });
 
-  // ── Timing beacons ───────────────────────────────────────────────
-  // The page's own timing, for the run's timing log. Fire and forget:
-  // nothing on screen depends on them.
-  function beacon(kind, data) {
-    const body = JSON.stringify(Object.assign({ kind }, data));
-    try {
-      if (navigator.sendBeacon && navigator.sendBeacon('/beacon', body)) return;
-      fetch('/beacon', { method: 'POST', body, keepalive: true }).catch(() => {});
-    } catch (e) {}
-  }
-  const round1 = x => Math.round(x * 10) / 10;
+  // ── Video ──────────────────────────────────────────────────────
+  const inUse = v => v === active || v === outgoing || v === incoming;
+  const idle = v => !inUse(v) && v.dataset.queued !== '1';
 
-  // The swap as the page sees it: from the `playing` event to the element
-  // actually playing. Sent once per clip.
-  function watchSwap(v, turn, t0, prefetched, offset) {
-    const wasArmed = armed;
-    v.addEventListener('playing', () => {
-      if (v.dataset.turn == turn) beacon('swap', { turn, ms: round1(performance.now() - t0), prefetched, offset: round1(offset), armed: wasArmed });
-    }, { once: true });
+  function load(v, item, queued) {
+    v.src = item.url; v.dataset.url = item.url; v.dataset.turn = item.turn; v.dataset.queued = queued ? '1' : '';
+    v.load();
   }
 
-  // ── Status ───────────────────────────────────────────────────────
-  function setStatus(text, kind) {
-    $('status').textContent = text;
-    $('dot').className = 'dot ' + (kind || '');
-  }
-
-  // ── Playback ─────────────────────────────────────────────────────
-  function showItem(item) {
-    now = item;
-    $('count').textContent = 'segment ' + item.turn;
-    $('scene').textContent = item.scene || '';
-    const cap = $('caption');
-    const said = item.dialogue || [];
-    cap.textContent = said.join('\n');
-    cap.classList.toggle('show', said.length > 0);
-    if (item.url) (seam === 'overlap' ? cutTo(item) : playVideo(item)); else playText(item);
-    markNow(item.turn);
-    setStatus(item.url ? 'playing' : 'playing (text)', 'live');
-  }
-
-  function playVideo(item) {
-    $('textstage').classList.remove('active');
-    const offset = Math.max(0, serverNow() - item.started_at);
-    const standby = videos[1 - active];
-    const cur = videos[active];
-    const v = (cur.dataset.url === item.url && cur.dataset.turn == item.turn) ? cur : standby;
-    const t0 = performance.now();
-    const prefetched = v.dataset.url === item.url;
-    if (!prefetched) beacon('loadstart_on_playing', { turn: item.turn });
-    if (v.dataset.url !== item.url) { v.src = item.url; v.dataset.url = item.url; v.load(); }
-    v.dataset.turn = item.turn;
-    if (v !== cur) watchSwap(v, item.turn, t0, prefetched, offset);
-    v.muted = muted;
-    const seekAndPlay = () => {
-      const dur = isFinite(v.duration) ? v.duration : item.duration;
-      if (offset >= dur - 0.15) {        // joined after it finished: hold the last frame
-        try { v.currentTime = Math.max(0, dur - 0.05); } catch (e) {}
-        v.pause();
-      } else {
-        try { if (offset > 0.3) v.currentTime = offset; } catch (e) {}
-        v.play().catch(() => { if (!armed) $('overlay').hidden = false; });
-      }
-    };
-    if (v.readyState >= 1) seekAndPlay(); else v.addEventListener('loadedmetadata', seekAndPlay, { once: true });
-    if (v !== cur) {
-      v.classList.add('active');
-      cur.classList.remove('active');
-      // The picture crossfades for 250 ms (CSS); the sound does the same, so
-      // the ambient track of one clip does not cut into the next.
-      fadeAudio(v, 0, 1, 250);
-      fadeAudio(cur, cur.volume, 0, 250, () => { if (!cur.classList.contains('active')) cur.pause(); });
-      active = 1 - active;
-    }
-  }
-
-  // ── The overlap seam ────────────────────────
-  // Clip N+1's first `overlap_seconds` repeat clip N's tail. The picture
-  // cuts from N to N+1 when N's media time reaches that point (N+1 starts
-  // at its own head, the same picture), with no opacity fade; the sound
-  // crossfades with equal power over the overlap (speech-safe: a clip that
-  // opens on speech comes in at once and only the outgoing sound fades).
-  // Three elements, so a queued clip never evicts the one being prefetched
-  // or the one still sounding.
-  const inUse = v => v === videos[active] || v === outgoing || v === incoming;
-  function freeElement(url) {
-    return pool.find(v => v.dataset.url === url && !inUse(v))      // prefetched
-        || pool.find(v => !inUse(v) && v.dataset.queued !== '1')   // idle
-        || pool.find(v => !inUse(v));                              // (never with three: evicts a queued clip)
-  }
-  function prefetchOverlap(item) {
+  function prefetch(item) {
     if (!item.url || pool.some(v => v.dataset.url === item.url)) return;
-    const v = pool.find(v => !inUse(v) && v.dataset.queued !== '1');
-    if (!v) { waitingPrefetch.push(item); return; }
-    v.src = item.url; v.dataset.url = item.url; v.dataset.turn = item.turn; v.dataset.queued = '1'; v.load();
+    const v = pool.find(idle);
+    if (v) load(v, item, true); else waiting.push(item);
   }
+
   function releaseOutgoing() {
     if (outgoing) { outgoing.pause(); outgoing.dataset.queued = ''; outgoing = null; }
-    while (waitingPrefetch.length && pool.some(v => !inUse(v) && v.dataset.queued !== '1')) prefetchOverlap(waitingPrefetch.shift());
+    while (waiting.length && pool.some(idle)) prefetch(waiting.shift());
   }
+
   function cutTo(item) {
-    $('textstage').classList.remove('active');
-    const cur = videos[active];
-    const sameEl = cur.dataset.url === item.url && cur.dataset.turn == item.turn;
-    const v = sameEl ? cur : freeElement(item.url);
-    const prefetched = v.dataset.url === item.url;
+    $('text').classList.remove('on');
+    const cut = ++cuts;
+    // The page fell a clip behind (a cut still waits for its moment): drop
+    // that cut and come in on this clip from the server's clock.
+    const behind = incoming !== null;
+    if (behind) { incoming.pause(); incoming.dataset.queued = ''; incoming = null; }
+    const cur = active;
+    const same = cur && cur.dataset.url === item.url && cur.dataset.turn == item.turn;
+    const v = same ? cur
+      : pool.find(e => e.dataset.url === item.url && !inUse(e)) || pool.find(idle) || pool.find(e => !inUse(e));
     if (v !== cur) incoming = v;
-    if (!prefetched) { beacon('loadstart_on_playing', { turn: item.turn }); v.src = item.url; v.dataset.url = item.url; v.load(); }
+    if (v.dataset.url !== item.url) load(v, item, false);
     v.dataset.turn = item.turn; v.dataset.queued = '';
-    v.muted = muted;
     const overlap = item.overlap_seconds || 0;
-    const first = !cur.dataset.turn || cur === v || cur.paused || !isFinite(cur.duration);
-    const start = () => {
-      if (first) {                         // the film's first clip, or after a hold: in from the server's clock
-        const offset = Math.max(0, serverNow() - item.started_at);
-        try { if (offset > 0.3 && offset < (v.duration || item.duration) - 0.15) v.currentTime = offset; } catch (e) {}
-      } else {
-        // In step with the outgoing clip: its time past the cut point.
-        const past = Math.max(0, cur.currentTime - Math.max(0, cur.duration - overlap));
-        try { if (past > 0.02) v.currentTime = past; } catch (e) {}
-      }
-      if (v !== cur) watchSwap(v, item.turn, performance.now(), prefetched, 0);
-      v.play().then(() => show()).catch(() => { if (!armed) $('overlay').hidden = false; show(); });
-    };
+    // The film's first clip, or one after a hold: in from the server's clock.
+    const first = behind || !cur || cur === v || cur.paused || !isFinite(cur.duration);
     let shown = false;
     const show = () => {
-      if (shown || v === cur) return;
+      if (shown || v === cur || cut !== cuts) return;
       shown = true;
       const onFrame = () => {
+        if (cut !== cuts) return;
         if (incoming === v) incoming = null;
-        v.classList.add('active');
-        cur.classList.remove('active');
+        v.classList.add('on');
+        if (cur) cur.classList.remove('on');
         if (outgoing && outgoing !== cur) releaseOutgoing();
         outgoing = first ? null : cur;
-        const idx = videos.indexOf(v);
-        if (idx >= 0) active = idx; else { videos = pool; active = pool.indexOf(v); }
-        if (first) { fadeAudio(v, 0, 1, 150); if (cur !== v) cur.pause(); }
+        active = v;
+        if (first) { fade(v, 0, 1, 150); if (cur) cur.pause(); }
         else crossfade(cur, v, Math.max(0.05, overlap), !!item.speech);
       };
-      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(onFrame); else onFrame();
+      // A paused element (the browser refused to play before the viewer's
+      // click) presents no new frame: show it now, and the click plays it.
+      if (v.requestVideoFrameCallback && !v.paused) v.requestVideoFrameCallback(onFrame); else onFrame();
+    };
+    const start = () => {
+      if (cut !== cuts) return;
+      try {
+        if (first) {
+          const offset = Math.max(0, serverNow() - item.started_at);
+          if (offset > 0.3 && offset < (v.duration || item.duration) - 0.15) v.currentTime = offset;
+        } else {
+          // In step with the outgoing clip: its time past the cut point.
+          const past = Math.max(0, cur.currentTime - Math.max(0, cur.duration - overlap));
+          if (past > 0.02) v.currentTime = past;
+        }
+      } catch (e) {}
+      v.play().then(show).catch(() => { if (!armed) $('start').hidden = false; show(); });
     };
     // Cut when the outgoing clip reaches the overlap (by its media time), or now.
     const at = first ? 0 : Math.max(0, cur.duration - overlap);
@@ -307,11 +145,12 @@
     };
     if (v.readyState >= 1) ready(); else v.addEventListener('loadedmetadata', ready, { once: true });
   }
+
   function crossfade(out, inc, seconds, speech) {
     const t0 = performance.now(), ms = seconds * 1000;
     try { inc.volume = speech ? 1 : 0; } catch (e) {}
-    const step = now => {
-      const f = Math.min(1, (now - t0) / ms);
+    const step = t => {
+      const f = Math.min(1, (t - t0) / ms);
       try { out.volume = Math.cos(f * Math.PI / 2); } catch (e) {}
       if (!speech) try { inc.volume = Math.sin(f * Math.PI / 2); } catch (e) {}
       if (f < 1) requestAnimationFrame(step); else releaseOutgoing();
@@ -319,175 +158,70 @@
     requestAnimationFrame(step);
   }
 
-  function fadeAudio(el, from, to, ms, done) {
+  function fade(el, from, to, ms) {
     const t0 = performance.now();
-    try { el.volume = from; } catch (e) { if (done) done(); return; }
-    const step = now => {
-      const f = Math.min(1, (now - t0) / ms);
+    const step = t => {
+      const f = Math.min(1, (t - t0) / ms);
       try { el.volume = from + (to - from) * f; } catch (e) {}
-      if (f < 1) requestAnimationFrame(step); else if (done) done();
+      if (f < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
   }
 
-  function playText(item) {
-    pool.forEach(v => { v.classList.remove('active'); v.pause(); });
-    $('tsNarration').textContent = item.narration || '';
-    const meta = $('tsMeta');
-    meta.innerHTML = '';
-    (item.on_screen || []).forEach(n => meta.appendChild(pill(n)));
-    if (item.camera) meta.appendChild(pill(item.camera));
-    $('textstage').classList.add('active');
-  }
-
-  function pill(text, cls) {
-    const s = document.createElement('span');
-    s.className = 'pill' + (cls ? ' ' + cls : '');
-    s.textContent = text;
-    return s;
-  }
-
-  function prefetch(item) {
-    if (!item.url) return;
-    if (seam === 'overlap') return prefetchOverlap(item);
-    const standby = videos[1 - active];
-    if (standby.dataset.url !== item.url && !standby.classList.contains('active')) {
-      standby.src = item.url; standby.dataset.url = item.url; standby.dataset.turn = item.turn; standby.load();
-    }
-  }
-
-  // Progress bar + clock follow the server's clock.
-  function tick() {
-    const bar = $('progress');
-    if (now) {
-      const t = serverNow() - now.started_at;
-      const f = Math.min(1, Math.max(0, t / now.duration));
-      bar.firstElementChild.style.width = (f * 100).toFixed(1) + '%';
-      bar.classList.toggle('held', f >= 1);
-      // The next clip is late (the clock ran past this one) or the video stalled:
-      // the last frame stays up with a buffering mark, like any player.
-      $('buffering').hidden = !((f >= 1 && !ended) || stalled);
-      $('clock').textContent = fmt(Math.min(t, now.duration)) + ' / ' + fmt(now.duration) + (f >= 1 && !ended ? '  ·  holding' : '');
-    }
-    requestAnimationFrame(tick);
-  }
-  const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-
-  // ── Script column ────────────────────────────────────────────────
-  function entryFor(item) {
-    let el = entries.get(item.turn);
-    if (el) return el;
-    el = document.createElement('div');
-    el.className = 'entry';
-    el.dataset.turn = item.turn;
-    const head = document.createElement('div');
-    head.className = 'head';
-    head.innerHTML = `<span class="n">#${item.turn}</span><span class="sc"></span><span class="beat"></span>`;
-    head.querySelector('.sc').textContent = item.scene || '';
-    head.querySelector('.beat').textContent = item.beat ? `${item.beat} · ${item.clip || ''}` : '';
-    el.appendChild(head);
-    if (item.user_input) {
-      const you = document.createElement('div');
-      you.className = 'you';
-      you.innerHTML = `<div class="line"></div><div class="disp"></div>`;
-      you.querySelector('.line').textContent = item.user_input;
-      setDisposition(you, item.intervention, item.intervention_reason);
-      el.appendChild(you);
-    }
+  // ── Text (no video backend) ────────────────────────────────────
+  function showText(item) {
+    pool.forEach(v => { v.classList.remove('on'); v.pause(); });
+    active = null;
+    const box = $('text');
+    box.replaceChildren();
     const p = document.createElement('p');
     p.textContent = item.narration || '';
-    el.appendChild(p);
+    box.appendChild(p);
     (item.dialogue || []).forEach(line => {
-      const said = document.createElement('div');
+      const said = document.createElement('p');
       said.className = 'said';
       said.textContent = line;
-      el.appendChild(said);
+      box.appendChild(said);
     });
-    // Insert in turn order (a reconnect can deliver history out of step).
-    const list = $('script');
-    const after = [...list.querySelectorAll('.entry')].find(e => +e.dataset.turn > item.turn);
-    list.insertBefore(el, after || null);
-    entries.set(item.turn, el);
-    return el;
+    box.classList.add('on');
   }
 
-  function setDisposition(you, disp, reason) {
-    const d = you.querySelector('.disp');
-    you.classList.remove('pending');
-    d.className = 'disp ' + disp;
-    if (disp === 'none' || !disp) { d.textContent = 'recorded; not acted on yet'; return; }
-    d.innerHTML = `<b>${disp}</b>` + (reason ? ' — ' : '');
-    if (reason) d.appendChild(document.createTextNode(reason));
+  function show(item) {
+    now = item;
+    if (item.url) cutTo(item); else showText(item);
   }
 
-  function markNow(turn) {
-    entries.forEach((el, t) => el.classList.toggle('now', t === turn));
-    const el = entries.get(turn);
-    if (el) el.scrollIntoView({ block: 'nearest' });
+  // The spinner shows while the picture waits: before the first clip,
+  // while the next clip is late (the clock ran past this one) or when the
+  // video stalls.
+  function tick() {
+    const late = now && serverNow() - now.started_at >= now.duration;
+    $('spinner').hidden = ended || !armed || !(late || stalled || !now);
+    requestAnimationFrame(tick);
   }
 
-  // A line the viewer just sent, shown before the segment that carries it exists.
-  function addPendingInput(rec) {
-    if (pendingInputs.some(p => p.received_at === rec.received_at)) return;
-    const you = document.createElement('div');
-    you.className = 'you pending';
-    you.innerHTML = `<div class="line"></div><div class="disp">waiting for the next segment…</div>`;
-    you.querySelector('.line').textContent = rec.text;
-    const wrap = document.createElement('div');
-    wrap.className = 'entry';
-    wrap.dataset.turn = 1e9;
-    wrap.appendChild(you);
-    $('script').appendChild(wrap);
-    wrap.scrollIntoView({ block: 'nearest' });
-    pendingInputs.push({ ...rec, el: wrap });
-  }
-
-  // Once a segment with user_input plays, the pending cards it absorbed go away.
-  function landInputs(item) {
-    if (!item.user_input) return;
-    for (let i = pendingInputs.length - 1; i >= 0; i--) {
-      if (item.user_input.includes(pendingInputs[i].text)) {
-        pendingInputs[i].el.remove();
-        pendingInputs.splice(i, 1);
-      }
-    }
-  }
-
-  // ── Events ───────────────────────────────────────────────────────
-  function connect() {
-    const es = new EventSource('/events');
-    es.addEventListener('hello', e => {
-      const s = JSON.parse(e.data);
-      skew = Date.now() / 1000 - s.server_time;
-      if (s.seam === 'overlap' && seam !== 'overlap') {
-        seam = 'overlap'; videos = pool; $('stage').classList.add('cut');
-      }
-      if (s.title) { $('title').textContent = s.title; document.title = s.title + ' — Untitled Project'; }
-      ended = s.ended;
-      s.history.forEach(entryFor);
-      s.inputs.filter(r => r.after_turn >= (s.history.length ? s.history[s.history.length - 1].turn : 0)).forEach(addPendingInput);
-      s.queued.forEach(prefetch);
-      if (s.now) { showItem(s.now); landInputs(s.now); }
-      else if (!ended) setStatus(s.status || 'waiting for the first segment…', 'busy');
-      if (ended) finish(s.history.length);
-      else if (s.status && !s.now) setStatus(s.status, 'busy');
-    });
-    es.addEventListener('queued', e => prefetch(JSON.parse(e.data)));
-    es.addEventListener('playing', e => { const item = JSON.parse(e.data); entryFor(item); landInputs(item); showItem(item); });
-    es.addEventListener('input', e => addPendingInput(JSON.parse(e.data)));
-    es.addEventListener('status', e => { const s = JSON.parse(e.data); if (!now || serverNow() - now.started_at >= now.duration) setStatus(s.text, 'busy'); });
-    es.addEventListener('ended', e => { finish(JSON.parse(e.data).segments); es.close(); });
-    es.onerror = () => { if (!ended) setStatus('reconnecting…', ''); };
-  }
-
-  function finish(n) {
+  function finish() {
     ended = true;
-    setStatus('the film has ended after ' + n + ' segments', 'ended');
-    $('input').disabled = true; $('send').disabled = true;
-    $('overlay').hidden = true;
+    const input = $('input');
+    input.disabled = true; input.value = ''; input.placeholder = 'The film has ended.';
+    $('start').hidden = true;
   }
 
-  // ── Input ────────────────────────────────────────────────────────
+  // ── Events ─────────────────────────────────────────────────────
+  const es = new EventSource('/events');
+  es.addEventListener('hello', e => {
+    const s = JSON.parse(e.data);
+    skew = Date.now() / 1000 - s.server_time;
+    if (s.title) document.title = s.title;
+    s.queued.forEach(prefetch);
+    if (s.now) show(s.now);
+    if (s.ended) finish();
+  });
+  es.addEventListener('queued', e => prefetch(JSON.parse(e.data)));
+  es.addEventListener('playing', e => show(JSON.parse(e.data)));
+  es.addEventListener('ended', () => { finish(); es.close(); });
+
+  // ── Input ──────────────────────────────────────────────────────
   $('form').addEventListener('submit', async ev => {
     ev.preventDefault();
     const input = $('input');
@@ -495,27 +229,26 @@
     if (!text) return;
     input.value = '';
     try {
-      const id = crypto.randomUUID();
-      const r = await fetch('/input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, id }) });
-      if (!r.ok) { const err = await r.json().catch(() => ({})); setStatus(err.error || 'input rejected', 'ended'); }
-    } catch (e) { setStatus('could not reach the server', 'ended'); }
-    input.focus();
+      const r = await fetch('/input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    } catch (e) {
+      console.warn('input not sent:', e);
+      if (!input.value) input.value = text;   // give the line back to try again
+    }
   });
 
-  $('watch').addEventListener('click', () => {
+  $('start').addEventListener('click', () => {
     armed = true;
-    $('overlay').hidden = true;
-    const v = videos[active];
-    if (now && now.url && v.classList.contains('active')) v.play().catch(() => {});
+    $('start').hidden = true;
+    if (active && active.paused && now && now.url) {
+      // In where the film is now, by the server's clock.
+      const offset = serverNow() - now.started_at;
+      try { if (offset > 0.3 && offset < active.duration - 0.15) active.currentTime = offset; } catch (e) {}
+      active.play().catch(() => {});
+    }
     $('input').focus();
   });
-  $('mute').addEventListener('click', () => {
-    muted = !muted;
-    pool.forEach(v => v.muted = muted);
-    $('mute').textContent = muted ? 'sound off' : 'sound on';
-  });
 
-  connect();
   requestAnimationFrame(tick);
 })();
 </script>

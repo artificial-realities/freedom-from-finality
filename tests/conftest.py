@@ -16,14 +16,11 @@ import socket
 import dotenv
 import pytest
 
-# Before any project module is imported: main.py loads .env at import, and
-# a developer's real keys must never enter the test process.
+# Before any project module is imported: a developer's real keys in .env
+# must never enter the test process.
 dotenv.load_dotenv = lambda *args, **kwargs: False
 
-ENV_VARS = (
-    "OPENAI_API_KEY", "OPENAI_BASE_URL", "LTXV_SERVER_URL", "LTX2_API_KEY",
-    "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST",
-)
+ENV_VARS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "LTXV_SERVER_URL")
 for _var in ENV_VARS:
     os.environ.pop(_var, None)
 

@@ -1,25 +1,20 @@
 """The CPU side of a clip on the LTX-2.5 server: the pipeline's frames to
 uint8, and the MP4.
 
-Without these, 1.4 s of a 4.9 s render was spent outside the model: the
-float-to-uint8 conversion of the pipeline's output on the CPU (after the
-measured generate time), ffmpeg's RGB-to-YUV conversion and the x264
-encode. Each step here is chosen by a server setting (`LTX2_GPU_FRAMES`,
-`LTX2_PIPE_FORMAT`, `LTX2_X264_THREADS`; `server_defaults.sh` turns all
-three on).
+Done naively, 1.4 s of a 4.9 s render was spent outside the model: the
+float-to-uint8 conversion of the pipeline's output on the CPU, ffmpeg's
+RGB-to-YUV conversion and the x264 encode.
 
 - `frames_to_uint8` takes the pipeline's output as it comes: a torch
-  tensor on the GPU (`output_type="pt"`) is converted there, with the
-  same float32 arithmetic as the numpy path, so the bytes are identical;
-  a numpy array (`output_type="np"`) takes the old path.
+  tensor on the GPU is converted there, with the same float32 arithmetic
+  as the numpy path, so the bytes are identical.
 - `yuv420p_planes` converts uint8 RGB to planar YUV 4:2:0 (BT.601,
   limited range, the matrix and range ffmpeg's default RGB-to-yuv420p
   conversion uses; chroma is the mean of each 2x2 block), on the GPU for
-  a tensor. Piping it halves the bytes and removes ffmpeg's conversion;
-  the numpy path is for tests (it costs seconds per clip on a CPU).
-- `encode_mp4` pipes either into ffmpeg (libx264 on the CPU, or
-  h264_nvenc), with the audio from a WAV and, with a loudness ceiling
-  set, the padding and gain of `audio_ceiling.py`.
+  a tensor. Piping it halves the bytes and removes ffmpeg's conversion.
+- `encode_mp4` pipes the frames into ffmpeg's libx264, with the audio from
+  a WAV padded to the video and held under a loudness ceiling
+  (`audio_ceiling.py`).
 
 Imported by `ltx2_server.py`; numpy only at import, torch only when a
 tensor is passed, so the tests run without torch.
@@ -103,17 +98,16 @@ def yuv420p_planes(frames_u8) -> bytes:
 
 
 def encode_mp4(frames_u8: np.ndarray, fps: int, audio, sample_rate: int, path: str, *,
-               codec: str = "x264", yuv: bytes | None = None, threads: int = 0,
-               preset: str | None = None) -> dict:
-    """Raw frames piped into ffmpeg (h264_nvenc on the GPU, or libx264),
-    the audio waveform [channels, samples] muxed from a temporary WAV.
+               yuv: bytes | None = None, threads: int = 0, ceiling_lufs: float | None = None) -> dict:
+    """Raw frames piped into ffmpeg's libx264, the audio waveform
+    [channels, samples] muxed from a temporary WAV.
 
     `yuv`: the frames already as planar YUV 4:2:0 (`yuv420p_planes`),
     piped instead of RGB so ffmpeg does no conversion. `threads`: x264's
-    thread count (0 = ffmpeg's choice). With LTX2_AUDIO_CEILING_LUFS set,
-    the audio is padded to the video and given one static,
-    never-boosting gain to the ceiling and under -1 dBTP; the measurements
-    come back for the response headers (LUFS, TP, Gain-dB)."""
+    thread count (0 = ffmpeg's choice). With `ceiling_lufs`, the audio is
+    padded to the video and given one static, never-boosting gain to the
+    ceiling and under -1 dBTP; the measurements come back for the
+    response headers (LUFS, TP, Gain-dB)."""
     n, h, w, _ = frames_u8.shape
     wav = None
     pix = "yuv420p" if yuv is not None else "rgb24"
@@ -130,20 +124,15 @@ def encode_mp4(frames_u8: np.ndarray, fps: int, audio, sample_rate: int, path: s
             f.writeframes(pcm.tobytes())
         cmd += ["-i", wav]
     meta: dict = {}
-    ceiling = os.getenv("LTX2_AUDIO_CEILING_LUFS", "").strip()
-    if audio is not None and ceiling:
+    if audio is not None and ceiling_lufs is not None:
         import audio_ceiling
         lufs, peak = audio_ceiling.measure(wav)
-        gain = audio_ceiling.gain_db(lufs, peak, float(ceiling))
+        gain = audio_ceiling.gain_db(lufs, peak, ceiling_lufs)
         cmd += ["-af", audio_ceiling.audio_filter(gain, n / fps)]
         meta = {"LUFS": f"{lufs:.2f}" if lufs is not None else "nan",
                 "TP": f"{peak:.2f}" if peak is not None else "nan", "Gain-dB": f"{gain:.2f}"}
-    if codec == "nvenc":
-        cmd += ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll", "-rc", "vbr", "-cq", "23",
-                "-pix_fmt", "yuv420p"]
-    else:
-        cmd += ["-c:v", "libx264", "-preset", preset or os.getenv("LTX2_X264_PRESET", "ultrafast"),
-                "-tune", "zerolatency", "-crf", "20", "-pix_fmt", "yuv420p", "-threads", str(int(threads))]
+    cmd += ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", "20",
+            "-pix_fmt", "yuv420p", "-threads", str(int(threads))]
     if audio is not None:
         cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
     cmd += ["-movflags", "+faststart", path]

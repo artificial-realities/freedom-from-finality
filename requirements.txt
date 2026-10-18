@@ -1,13 +1,10 @@
-# The client: the engine, the LLM roles and the web player. The suite passes
-# at both ends of every range (the lowest versions allowed and the newest
-# releases), and each range stops before the next major version. The GPU
-# server has its own list (server/requirements.txt); the tests and the linter
-# are in requirements-dev.txt.
-openai>=1.58,<4  # 1.58: reasoning_effort (and httpx 0.28); the strict structured-outputs transform
-langfuse>=3.1,<6  # the OpenAI wrapper (3.0.0 fails every call); tracing only runs with LANGFUSE_* keys
+# The client: the engine, the two LLM roles and the web player. The GPU
+# server has its own list (server/requirements.txt); the tests and the
+# linter are in requirements-dev.txt.
+openai>=1.58,<4  # 1.58: reasoning_effort and the strict structured-outputs transform
 pydantic>=2.0.0,<3
 pyyaml>=6.0,<7
 python-dotenv>=1.0.0,<2
 requests>=2.31.0,<3
-aiohttp>=3.9,<4  # the web player (src/web)
-pillow>=10.0,<13  # letterboxing the seed image to the render frame
+aiohttp>=3.9,<4
+pillow>=10.0,<13

@@ -1,7 +1,3 @@
-from src.playback.player import Playable, Player, TerminalPlayer
+from src.playback.player import Playable, Player
 
-__all__ = [
-    "Playable",
-    "Player",
-    "TerminalPlayer",
-]
+__all__ = ["Playable", "Player"]
