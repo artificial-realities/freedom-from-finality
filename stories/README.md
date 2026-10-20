@@ -44,7 +44,12 @@ What makes the film the author's when the viewer steers. Both writers read all f
 
 ## Where it happens: `locations`
 
-A list of places, each with a **`name`** and a **`description`**. Both writers see the list. The film starts in the first one. The Director moves characters and props between them by id (the name in lower case with underscores: "The White Void" → `the_white_void`). No story with two locations has run yet; the location resolver has a known gap (see `docs/ARCHITECTURE.md`).
+A list of places. Both writers see the list. The film starts in the first one and follows the protagonist: the scene is wherever it is. The Director moves it by id (the name in lower case with underscores: "The White Void" → `the_white_void`), showing the journey or, where the story allows `cuts`, cutting there. Whatever is in the picture when it arrives comes along; everything else stays behind and is listed where it was left. `stories/lego-quest` is the story with several places.
+
+- **`name`** *(required)*. How every prompt names the place.
+- **`description`** *(required)*. What the place is in the story, for the writers: "The cold, narrow road over the mountains, with a rope bridge over a deep gorge."
+- **`look`**. The place verbatim for the video model, like a character's: on the film's first clip and on the clip the picture arrives there. Without it the video prompt never names the place and the `style` carries it, as in the white void, which has one place and needs none.
+- **`look_short`**. The look on every other clip there, so the place holds. Empty: the name only.
 
 ## Who is in it: `cast`
 
@@ -69,12 +74,13 @@ A list of places, each with a **`name`** and a **`description`**. Both writers s
 - **`look_short`**. The look on every other clip the character is in. Keep the words that hold identity: in GPU tests, shorter looks drifted within twelve clips; "bare yellow head" and "plain red torso" are what keep hair pieces and printed shirts away. Empty: the name only.
 - **`state`**. The starting state in a few words: the body, the place in the frame and what the character is doing ("standing upright centre frame, arms at his sides"). For the protagonist it is where the first clip starts. The world model then tracks it clip by clip, as prose the Director rewrites whole when it changes. (Older blueprints split it into `posture`, `activity` and `position`; they are still read and joined.)
 - **`appears`**, **`appears_when`**. For supporting characters: whether they `must`, `should` or `may` (the default) enter, and the narrative condition for it ("the first time one of Lego Man's bits fails badly"). Only the protagonist is in the film at the start. The Showrunner decides when an entrance serves the story (it puts it on a new scene card) and the Director stages it. Ignored for the protagonist.
+- **`location`**. Where a supporting character is when the film starts, by a location's `name` ("The Dragon's Tower"), so the writers know where to find it. Empty: nowhere in particular; it enters wherever the protagonist is. Ignored for the protagonist, who starts in the first location.
 
 ## How it looks: `picture`
 
 **`style`**. The full visual style. It opens the prompt of the film's first clip and is the Director's "Visual world". Describe light, background, colour and motion; the video model paints what is written.
 
-**`anchor`**. One sentence of look and framing that opens every later clip's prompt, so the style holds over long films without the full text (empty: the style's first sentence).
+**`anchor`**. One sentence of look and framing that opens every later clip's prompt, so the style holds over long films without the full text (empty: the style's first sentence). In a story with several places, keep it to the style: each place's `look_short` follows it.
 
 **`reference`**. The image the film's first clip is rendered from, and what it shows:
 - `image`: the file, inside the story folder. The live config takes only an image at the render aspect to the pixel (16:9) and refuses anything else at startup.

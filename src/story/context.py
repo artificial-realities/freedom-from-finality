@@ -120,8 +120,9 @@ def format_cut_rule(world: WorldModel) -> str:
             "in `cut_to` as size, angle and subject (\"close-up of the key in her hand\"), never the current framing "
             "again. The clip cuts at its start: its `action`, `end_state` and `camera_motion` belong to the new shot, "
             "which holds for the rest of the beat and after it. At most one cut per clip, never on the film's first "
-            "clip. A cut changes only the view: everyone and everything keeps its place, posture and holdings, and "
-            "the new shot continues the same moment." + guide)
+            "clip. Within a location a cut changes only the view: everyone and everything keeps its place, posture "
+            "and holdings, and the new shot continues the same moment. A cut to another location jumps to a later "
+            "moment there: in that clip, give the protagonist the new `location`." + guide)
 
 
 def format_locations(world: WorldModel) -> str:
@@ -204,33 +205,38 @@ def format_world_now(world: WorldModel) -> str:
                     line += (f" · introduced at segment {ent.first_seen}"
                              + (f" · who: {ent.description}" if ent.description else "")
                              + (f" · voice: {ent.voice.description}" if ent.voice and ent.voice.description else ""))
-                if ent.location:
-                    line += f" · at {ent.location}"
                 out.append(line)
                 if ent.notes:
                     out.append("  notes: " + " | ".join(ent.notes[-MAX_NOTES:]))
                 continue
             now = f" · now: {_clip(ent.state, STATE_CHARS)}" if ent.state else ""
-            where = f" · at {ent.location}" if ent.location and ent.kind != "location" else ""
             # No `looks:` here: the renderer's description is the compiler's
             # business (it reads `look` from the model); the Director writes
             # what happens, not what things look like.
-            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{now}{where}")
+            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{now}")
         if rest:
             out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))
     else:
         out.append("Present in the scene: (nothing but the location)")
+    # Everyone in the scene is here; what is elsewhere says where.
+    def elsewhere(e) -> str:
+        return f"at `{e.location}`" if e.location and (here is None or e.location != here.id) else ""
+
     # Characters not in the scene still have a state worth knowing.
     away = [e for e in world.by_kind("character") if not e.present and not e.gone]
     if away:
-        out.append("Characters not in the scene: " + "; ".join(
-            f"`{e.id}`" + (" (not yet in the film)" if not e.first_seen and not e.last_seen and e.appears
-                           else f" ({e.state})" if e.state else "") for e in away))
+        def about(e) -> str:
+            bits = ["not yet in the film" if not e.first_seen and not e.last_seen and e.appears else e.state,
+                    elsewhere(e)]
+            said = ", ".join(b for b in bits if b)
+            return f" ({said})" if said else ""
+        out.append("Characters not in the scene: " + "; ".join(f"`{e.id}`{about(e)}" for e in away))
     dormant = world.dormant_props()
     if dormant:
         out.append(
             "Dormant props (introduced earlier, not in the scene; fair game for callbacks): "
-            + ", ".join(f"`{e.id}` (last seen segment {e.last_seen})" for e in dormant)
+            + ", ".join(f"`{e.id}` (last seen segment {e.last_seen}" + (f", {elsewhere(e)}" if elsewhere(e) else "")
+                        + ")" for e in dormant)
         )
     gone = world.gone_props()
     if gone:

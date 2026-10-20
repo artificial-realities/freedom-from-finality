@@ -50,8 +50,15 @@ class Storyteller(BaseModel):
 
 
 class Location(BaseModel):
+    """A place the film can be. `description` is what it is in the story,
+    for the writers; `look` and `look_short` are for the renderer, like a
+    character's: without a look the video prompt never names the place and
+    the style carries it."""
+
     name: str
     description: str
+    look: str = ""              # verbatim for the renderer: the full look, on the clip the picture arrives there
+    look_short: str = ""        # the look on clips that continue there ("" → the name only)
 
 
 class Character(BaseModel):
@@ -70,6 +77,10 @@ class Character(BaseModel):
     # stages it. Ignored for the protagonist, who is in the film from the start.
     appears: Literal["must", "should", "may"] = "may"
     appears_when: str = ""      # the narrative condition, "" = whenever it serves the story
+    # Where a supporting character is when the film starts (a location's
+    # name), so the writers know where to find it; "" = nowhere in
+    # particular. Ignored for the protagonist, who starts in the first location.
+    location: str = ""
 
     @field_validator("voice", mode="before")
     @classmethod
@@ -139,6 +150,10 @@ class Story(BaseModel):
         names = [c.name for c in self.cast.characters]
         if self.cast.protagonist and self.cast.protagonist not in names:
             raise ValueError(f"protagonist {self.cast.protagonist!r} is not one of the characters")
+        places = {loc.name.lower() for loc in self.locations}
+        for c in self.cast.characters:
+            if c.location and c.location.lower() not in places:
+                raise ValueError(f"{c.name}'s location {c.location!r} is not one of the locations")
         return self
 
     def protagonist_character(self) -> Character | None:

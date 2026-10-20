@@ -1,0 +1,100 @@
+{
+  "title": "Lego Man and the Dragon's Tower",
+  "premise": "When the dragon takes the princess, the king asks for a hero, and the only minifigure left standing in the village square is Lego Man: no training, no horse, no plan. He sets off on the road to the Dragon's Tower anyway.",
+  "question": "Can the most ordinary minifigure in the kingdom reach the Dragon's Tower and bring the princess home?",
+  "engine": "Each place on the road puts an obstacle between him and the tower (a troll's bridge, a locked gate, a riddle, a storm). He tries it the knightly way, it falls apart, and he gets through his own odd way, often helped by someone he met earlier. He leaves every place with something or someone that comes back later.",
+  "opening": "The village square, just after the king's herald has announced that the dragon has taken the princess. The villagers step back one by one until only Lego Man is left in front, and the herald hands him a sword far too big for him.",
+  "truths": [
+    "This is a LEGO world and everything in it is plastic. Anatomy is absolute: claw hands that grip but cannot point or do fine work, legs that do not bend at the knee, a head that turns all the way round, parts that pop off and click back on.",
+    "Every minifigure's face is one fixed print. Never write a facial expression in the action or the shot (no eyebrows, frown, scowl, grin, smirk, glare, wide eyes, gritted teeth): the video model paints whatever is written onto the face. Emotion is head tilt, posture, timing and gesture only.",
+    "The princess is held at the top of the Dragon's Tower. The road there runs from the Village through the Dark Forest and over the Mountain Pass; there is no shortcut.",
+    "Lego Man has never held a sword and never suddenly becomes a trained knight: he gets through by trying, by kindness and by luck.",
+    "Danger is real but no one is truly hurt: a minifigure that falls apart clicks back together, and a foe is outwitted or befriended, never killed."
+  ],
+  "storyteller": {
+    "theme": "Courage is doing it anyway, not being the kind of person who does it.",
+    "tone": "Earnest adventure with warm physical comedy: big brick landscapes, a small hero. Every click, clatter and pop-off lands; the humour is in the timing. When someone speaks it is plain and brief, and Lego Man is a little too formal about being a hero.",
+    "temperament": "Say yes to anything a LEGO kingdom could hold. When the viewer asks for the impossible, he tries it anyway, fails with dignity, and the failure opens another way forward. Give each place a few minutes before the road moves on, with a quiet moment between dangers. Let what he finds in one place pay off in a later one.",
+    "never": [
+      "Turn cynical, or wink at the audience.",
+      "Make failure cruel: it is funny, never humiliating.",
+      "Kill anyone, or let the princess be only a prize."
+    ]
+  },
+  "locations": [
+    {
+      "name": "The Village",
+      "description": "The kingdom's small village, where the quest begins: the square, the well, the herald and the curious villagers.",
+      "look": "a small LEGO Castle village square: half-timbered houses of white and brown bricks, a round well of grey bricks under a small brown roof, grey cobblestone tiles, the grey walls and towers of the castle behind, warm low sunlight",
+      "look_short": "the LEGO village square with half-timbered houses"
+    },
+    {
+      "name": "The Dark Forest",
+      "description": "The deep forest between the village and the mountains, where travellers lose the path and odd folk live.",
+      "look": "a dense LEGO forest: tall pine trees of dark green cone bricks on brown trunk pieces, red and white mushroom pieces, a winding path of tan tiles on a dark green baseplate, dim light through the branches",
+      "look_short": "the dark LEGO pine forest with a tan tile path"
+    },
+    {
+      "name": "The Mountain Pass",
+      "description": "The cold, narrow road over the mountains, with a rope bridge over a deep gorge.",
+      "look": "a LEGO mountain pass: steep cliffs of grey rock bricks and slopes, white plates of snow, a rope bridge of brown planks over a deep gorge, a pale blue sky",
+      "look_short": "the grey LEGO mountain pass with a rope bridge"
+    },
+    {
+      "name": "The Dragon's Tower",
+      "description": "The dragon's home on a black rock beyond the mountains; the princess is held at the top.",
+      "look": "a tall round LEGO tower of dark grey bricks on a black rock, orange transparent bricks glowing in its windows, gold coins scattered on the ground, a red evening sky",
+      "look_short": "the dark grey LEGO tower on the black rock"
+    }
+  ],
+  "cast": {
+    "protagonist": "Lego Man",
+    "characters": [
+      {
+        "name": "Lego Man",
+        "who": "The most default minifigure in the kingdom, who answered the king's call because nobody else did.",
+        "wants": "To bring the princess home and prove he can be a hero, and to get it right.",
+        "nature": "Earnest and game for anything; takes small things very seriously. Shows what he feels through posture, head tilts and physical comedy.",
+        "voice": {"description": "earnest, slightly formal, a little breathless", "language": "English"},
+        "look": "the most default LEGO minifigure: bare yellow head with no hair piece, printed only with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands",
+        "look_short": "the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands",
+        "state": "standing upright in the village square, centre frame, arms at his sides"
+      },
+      {
+        "name": "Princess",
+        "who": "The king's daughter, held at the top of the Dragon's Tower, who has been planning her own escape for weeks.",
+        "wants": "To get out on her own terms, and to see the world beyond the castle walls.",
+        "nature": "Clever, impatient and practical; treats rescuers as useful assistants.",
+        "voice": {"description": "clear, brisk, a little impatient", "language": "English"},
+        "look": "a LEGO Castle princess minifigure: tall golden cone hat with a white veil, long dark red dress piece, yellow head printed with the classic two-dot eyes and curved smile",
+        "look_short": "the LEGO princess in the golden cone hat and dark red dress",
+        "appears": "must",
+        "appears_when": "Lego Man reaches the Dragon's Tower, unless she has already got herself out",
+        "location": "The Dragon's Tower"
+      },
+      {
+        "name": "Dragon",
+        "who": "A big brick-built dragon who took the princess and guards the tower.",
+        "wants": "To be left alone with its treasure and, secretly, someone to talk to.",
+        "nature": "Grand, dramatic and lonely; roars first and listens later.",
+        "voice": {"description": "deep, rumbling, slow", "language": "English"},
+        "look": "a large brick-built LEGO dragon: dark green bricks and slopes, red wing plates, a long tail of hinged green segments, a brick head with printed yellow eyes and a hinged jaw",
+        "look_short": "the large green brick-built LEGO dragon with red wings",
+        "appears": "must",
+        "appears_when": "Lego Man reaches the Dragon's Tower, or earlier as a shadow passing overhead",
+        "location": "The Dragon's Tower"
+      }
+    ],
+    "newcomers": "Other LEGO Castle and fantasy minifigures met on the road (a herald, a blacksmith, a troll, a wizard), each marked by one clear piece (a hat, a helmet, a tool), with the same fixed printed face."
+  },
+  "picture": {
+    "style": "A LEGO Castle world built entirely from LEGO bricks, plates and tiles, photographed like a miniature film set: real plastic sheen, studs on every surface, warm natural light with soft shadows, shallow depth of field. The landscape is brick-built: baseplates for ground, brick trees and rocks, transparent blue bricks for water. Only the minifigures the shot names are on screen. Motion has a slight stop-motion feel: every click, snap and pop-off reads clearly. No on-screen text.",
+    "anchor": "A LEGO Castle world built from LEGO bricks, photographed like a miniature film set, real plastic sheen, studs on every surface, warm natural light, a slight stop-motion feel, no on-screen text.",
+    "reference": {
+      "image": "legoman-quest-16x9.png",
+      "shows": "Lego Man standing upright in the middle of the village square in a wide shot, facing the camera, arms at his sides, feet together, with half-timbered houses on the left, a grey brick well on the right and the castle gate behind him"
+    },
+    "cuts": true,
+    "cutting": "Cut to arrive at a new place on the road, or to reveal something big (the dragon, the tower). Keep minifigures in wide or medium shots: no close-ups of faces."
+  }
+}

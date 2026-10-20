@@ -7,12 +7,14 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from src.models.config import Config
-from src.models.story import Picture, Story
+from src.models.story import Cast, Character, Location, Picture, Story
 from src.story.compiler import compile_clip
-from src.story.context import format_cut_rule, format_plan
+from src.story.context import format_cut_rule, format_plan, format_world_now
 from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, SceneCardOut, ShowrunnerUpdate, ThreadOp
-from src.story.validator import apply_clip, apply_showrunner, check
+from src.story.validator import apply_clip, apply_showrunner, check, resolve_location
 from src.story.world import EventRecord, WorldModel
 
 PLAIN = Picture()   # no style, no reference: the compiler's own words only
@@ -46,9 +48,32 @@ def _emit(beat: BeatPlan, w: WorldModel, seg: int, index: int = 0, **kw) -> str:
     _apply(beat, w, seg, index)
     prompt = compile_clip(beat, index, w, picture=PLAIN, segment_no=seg, **kw)
     clip = beat.clips[index]
+    here = w.current_location()
     w.events.append(EventRecord(segment=seg, scene_id=1, narration=clip.action_text(),
-                                on_screen=list(clip.on_screen), end_state=clip.end_state, duration=6))
+                                on_screen=list(clip.on_screen), end_state=clip.end_state,
+                                location=here.id if here else "", duration=6))
     return prompt
+
+
+def _road(**picture) -> WorldModel:
+    """A story with three places, two of them with looks, and a squire
+    waiting in the forest."""
+    story = Story(
+        title="The road", premise="A knight sets out.",
+        locations=[Location(name="Castle", description="home", look="a grey castle", look_short="the castle"),
+                   Location(name="Castle Tower", description="the top", look="a tall tower"),
+                   Location(name="Forest", description="the wild", look="tall pine trees", look_short="the pines")],
+        cast=Cast(characters=[Character(name="Knight", look="a knight"),
+                              Character(name="Squire", look="a boy", location="Forest")]),
+        picture=Picture(**picture),
+    )
+    return WorldModel.from_story(story)
+
+
+def _go(where: str, **clip) -> BeatPlan:
+    """A beat whose one clip takes the knight to `where`."""
+    ops = [EntityOp(op="update", entity="knight", kind="character", location=where), *clip.pop("entity_ops", [])]
+    return _beat(clips=[_clip(**{"on_screen": ["knight"], **clip, "entity_ops": ops})])
 
 
 def test_world_from_blueprint():
@@ -272,6 +297,72 @@ def test_the_showrunner_lands_an_unnumbered_arc():
     apply_showrunner(w, update, at_segment=0, force_replan=True)
     assert w.plan.arc == ["He wakes.", "He finds a ball.", "Actors arrive."] and w.plan.current_act == 1
     assert "▶ act 2: He finds a ball." in format_plan(w, Config())
+
+
+def test_a_location_reference_resolves_to_the_longest_whole_name():
+    w = _road()
+    assert resolve_location(w, "castle_tower").id == "castle_tower"
+    assert resolve_location(w, "at the castle tower gate").id == "castle_tower", "not `castle`, a prefix of it"
+    assert resolve_location(w, "in the castle courtyard").id == "castle"
+    assert resolve_location(w, "forestry office") is None, "whole words only"
+
+
+def test_the_scene_follows_the_protagonist():
+    """When the knight moves, what is in the picture and what is new comes
+    along; whatever else was in the scene stays behind, listed where it was
+    left. A character waiting elsewhere says where."""
+    w = _road()
+    assert w.current_location().id == "castle" and w.entities["squire"].location == "forest"
+    assert "`squire` (not yet in the film, at `forest`)" in format_world_now(w)
+    lantern = EntityOp(op="introduce", entity="lantern", description="a brass lantern")
+    cart = EntityOp(op="introduce", entity="cart", description="a wooden cart")
+    _emit(_beat(clips=[_clip(on_screen=["knight"], entity_ops=[lantern, cart])]), w, 1)
+
+    mapped = EntityOp(op="introduce", entity="map", description="a paper map")
+    r = _apply(_go("forest", on_screen=["knight", "lantern"], entity_ops=[mapped]), w, 2)
+    assert w.current_location().id == "forest"
+    for prop in ("lantern", "map"):
+        assert w.entities[prop].present and w.entities[prop].location == "forest", prop
+    assert not w.entities["cart"].present and w.entities["cart"].location == "castle"
+    assert "moved to forest; left behind at castle: cart" in r.applied
+    now = format_world_now(w)
+    assert "`cart` (last seen segment 1, at `castle`)" in now and "`squire` (not yet in the film)" in now
+
+    w2 = _road()
+    _apply(_beat(clips=[_clip(on_screen=["knight"])]), w2, 1)
+    r = _apply(_beat(clips=[_clip(on_screen=["knight"])]), w2, 2)
+    assert not any(a.startswith("moved") for a in r.applied), "staying put moves nothing"
+
+
+def test_a_place_with_a_look_is_in_the_video_prompt():
+    """In full on the opening clip and on the clip that arrives there
+    (after the action, or after the cut), by its short look while the
+    picture stays; a place without a look (the white void) never."""
+    w = _road()
+    assert "Setting: Castle (a grey castle)." in _emit(_beat(clips=[_clip(on_screen=["knight"])]), w, 1, opening=True)
+    assert "Setting: Castle (the castle)." in _emit(_beat(clips=[_clip(on_screen=["knight"])]), w, 2)
+    walk = _emit(_go("forest", action="He walks into the trees."), w, 3)
+    assert "Setting:" not in walk
+    assert walk.index("He walks into the trees.") < walk.index("Arriving in Forest (tall pine trees).")
+    assert "Setting: Forest (the pines)." in _emit(_beat(clips=[_clip(on_screen=["knight"])]), w, 4)
+
+    w = _road(cuts=True)
+    _emit(_beat(clips=[_clip(on_screen=["knight"])]), w, 1, opening=True)
+    cut = _emit(_go("forest", cut_to="wide shot of the forest path"), w, 2)
+    assert "The view cuts to a wide shot of the forest path" in cut and "Arriving" not in cut
+    assert cut.index("The view cuts to") < cut.index("The new setting: Forest (tall pine trees).")
+
+    w = _world()
+    assert "Setting" not in _emit(_beat(), w, 1, opening=True) + _emit(_beat(), w, 2)
+
+
+def test_a_character_starts_only_in_a_known_place():
+    with pytest.raises(ValueError, match="not one of the locations"):
+        Story(title="t", premise="p", locations=[Location(name="Here", description="d")],
+              cast=Cast(characters=[Character(name="A"), Character(name="B", location="There")]))
+    quest = WorldModel.from_story(Story.from_json("stories/lego-quest"))
+    assert quest.cuts and quest.current_location().id == "the_village"
+    assert quest.entities["princess"].location == quest.entities["dragon"].location == "the_dragons_tower"
 
 
 def test_compiler_opening_clip_carries_style_look_and_reference():

@@ -31,7 +31,8 @@ MAX_NOTES = 4
 
 
 def slugify(name: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    # "The Dragon's Tower" → `the_dragons_tower`, the id a writer would guess.
+    slug = re.sub(r"[^a-z0-9]+", "_", re.sub(r"['’]", "", name.strip().lower())).strip("_")
     return slug or "entity"
 
 
@@ -142,6 +143,7 @@ class EventRecord(BaseModel):
     on_screen: list[str] = Field(default_factory=list)
     end_state: str = ""
     dialogue: list[str] = Field(default_factory=list)   # "Name: line", as spoken in the clip
+    location: str = ""           # the location the clip ends in (the protagonist's)
     duration: float = 0.0        # delivered seconds of the clip's shape (older logs: whole seconds)
 
 
@@ -200,11 +202,13 @@ class WorldModel(BaseModel):
         (None: there is none); the characters it names are in the picture
         before the first clip."""
         world = cls(title=title, newcomers=newcomers.strip(), cuts=cuts, cutting=cutting.strip())
+        place_ids: dict[str, str] = {}
         for i, loc in enumerate(locations):
             lid = world._unique_id(slugify(loc.name))
+            place_ids[loc.name.lower()] = lid
             world.entities[lid] = Entity(
                 id=lid, name=loc.name, kind="location",
-                description=loc.description, present=(i == 0),
+                description=loc.description, look=loc.look, look_short=loc.look_short, present=(i == 0),
             )
         home = next((e.id for e in world.entities.values() if e.kind == "location"), "")
         lead = next((ch for ch in characters if protagonist and ch.name == protagonist), None) or (
@@ -218,7 +222,8 @@ class WorldModel(BaseModel):
                 voice=ch.voice, wants=ch.wants, nature=ch.nature,
                 appears="" if is_lead else ch.appears,
                 appears_when="" if is_lead else ch.appears_when,
-                state=ch.state, present=is_lead, location=home if is_lead else "",
+                state=ch.state, present=is_lead,
+                location=home if is_lead else place_ids.get(ch.location.lower(), ""),
             )
             if is_lead:
                 world.protagonist = cid

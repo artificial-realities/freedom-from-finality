@@ -74,7 +74,7 @@ The world model is the film's memory of what exists, where it is and who has it,
 - `introduce` something new: `entity` is a short human name such as "rope ladder" (the system makes the id), `kind` is `character` or `prop`, and `description` says how it looks, for the renderer. A new character (where the story allows them) also gets `who` (who it is in the story and what it wants, one sentence) and `voice` (how it sounds, a few words: "rough, booming").
 - `update` an existing entity by its id exactly as listed, such as `rope_ladder`; `remove` one that leaves the story for good.
 - `state`: the entity at the end of the clip in at most fifteen words, written whole because it replaces the last one. A character's body, place in the frame and what it is doing ("lying on his back centre frame, asleep"); a thing's place, condition and who has it ("in the guard's hands at waist height").
-- `location`: a location id from the Locations list only; where something sits within a location ("on the bench", "beside the door") belongs in `state`.
+- `location`: a location id from the Locations list only; where something sits within a location ("on the bench", "beside the door") belongs in `state`. The scene is where the protagonist is: give the protagonist the new `location` in the clip where it gets there. Whatever is on screen in that clip comes along; something that comes along out of sight (a key in a pocket) gets the new `location` too; everything else stays behind.
 - `present`: whether the entity is in the scene.
 
 What needs an op: every thing that appears, changes hands, moves, breaks or leaves. A character gets one when something lasting changes: it enters or leaves, takes or puts down something, sits, lies down or gets up, moves to another part of the frame or another location, or starts or stops doing something that lasts. A passing gesture, a look or a step on the spot gets none: the clip's `end_state` already shows it.
@@ -93,6 +93,7 @@ A video model renders each clip from your text, {clip_seconds} seconds at a time
 
 - The picture continues; the story moves on. The beat starts from the last clip's end state and from each character's `now`, and develops what is happening rather than restarting it. The film does not wait for the viewer to move it: keep the story progressing, and when the moment invites something new (someone arriving, an obstacle, a discovery, a turn), bring it, but at most one new thing per beat so the picture can follow it.
 - Let states last. A state the story has established (sleeping, sitting and watching, carrying something, waiting for something) persists across beats until something changes it; do not end a state because a beat ends. A beat that holds it quietly is a good beat, as long as the film keeps moving.
+- The film stays with the protagonist. Getting to another location takes time: show the journey on screen or, where the story allows cuts, cut to the new place.
 - Notice when the film is going in circles. Holding a state is not repeating a bit: when the recent clips show the same action or exchange coming round again with small variations, it has run its course. End it and move the story on, or set `scene_done` or `needs_replan` if the scene has nothing left.
 - {cut_rule}
 - Never break the fourth wall in the action or the dialogue.

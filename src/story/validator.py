@@ -47,10 +47,11 @@ def resolve_location(world: WorldModel, ref: str):
         ent = world.resolve(cand)
         if ent is not None and ent.kind == "location":
             return ent
-    for ent in world.by_kind("location"):
-        if ent.id in slugify(text):
-            return ent
-    return None
+    # A location's id inside the text, as whole words; the longest wins, so
+    # `castle_tower` is not taken for `castle`.
+    padded = f"_{slugify(text)}_"
+    found = [ent for ent in world.by_kind("location") if f"_{ent.id}_" in padded]
+    return max(found, key=lambda e: len(e.id)) if found else None
 
 
 def _doubles_protagonist(name: str, world: WorldModel) -> bool:
@@ -184,6 +185,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     r = Report()
     clip = beat.clips[index]
     seg = segment_no
+    before = world.current_location()
 
     for op in clip.entity_ops:
         ent = world.resolve(op.entity)
@@ -262,6 +264,28 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
         if ent.id not in kept:
             kept.append(ent.id)
     clip.on_screen = kept
+
+    # The scene is where the protagonist is. What is in the picture is
+    # there; when the protagonist moves to another location, what came
+    # along (on screen, given the new location, or new in this clip) is in
+    # the scene there, and everything else stays behind and leaves it.
+    here = world.current_location()
+    if here is not None:
+        for eid in kept:
+            if world.entities[eid].kind != "location":
+                world.entities[eid].location = here.id
+        if before is not None and before.id != here.id:
+            left: list[str] = []
+            for ent in world.entities.values():
+                if ent.kind == "location" or ent.id == world.protagonist or ent.gone or not ent.present:
+                    continue
+                if ent.first_seen == seg:
+                    ent.location = here.id
+                elif ent.location != here.id:
+                    ent.present = False
+                    ent.location = ent.location or before.id
+                    left.append(ent.id)
+            r.applied.append(f"moved to {here.id}" + (f"; left behind at {before.id}: {', '.join(left)}" if left else ""))
 
     clip.dialogue = [
         d for d in clip.dialogue

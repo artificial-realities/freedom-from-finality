@@ -499,6 +499,7 @@ class DirectorEngine:
         self._write_views(state, beat, clip, prompt, duration, said, first)
 
         card = world.plan.scene
+        here = world.current_location()
         world.events.append(EventRecord(
             segment=seg,
             clip_id=clip_id,
@@ -515,6 +516,7 @@ class DirectorEngine:
             on_screen=list(clip.on_screen),
             end_state=clip.end_state,
             dialogue=said,
+            location=here.id if here else "",
             duration=duration,
         ))
         self._save()

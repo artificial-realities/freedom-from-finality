@@ -15,8 +15,12 @@ short visual anchor and each character's short look, which hold framing
 and identity over long chains. A clip that cuts (where the story
 allows it) opens on the shot the picture is in and says "The view cuts to
 …" before its action, LTX-2.5's convention for a cut in prose; the clips
-after it open on the new shot. When the model changes, this file
-changes; the schemas do not.
+after it open on the new shot. A location with a look in the
+blueprint is named the same way as a character: in full on the opening
+clip and on the clip the picture arrives there (after its cut, or after
+the action that gets it there), by its short look on the clips that
+continue there; a location without a look is never named, and the style
+carries it. When the model changes, this file changes; the schemas do not.
 """
 
 from __future__ import annotations
@@ -181,6 +185,17 @@ def previous_picture(world: WorldModel, segment_no: int) -> set[str] | None:
     return picture
 
 
+def previous_location(world: WorldModel, segment_no: int) -> str | None:
+    """The location the previous clip ended in, or None when it is not
+    known (the opening clip, or a replay with a gap)."""
+    if not world.events:
+        return None
+    prev = world.events[-1]
+    if prev.segment != segment_no - 1 or not prev.location:
+        return None
+    return prev.location
+
+
 def compile_clip(
     beat: BeatPlan,
     index: int,
@@ -199,6 +214,12 @@ def compile_clip(
     world's event log), enters during this clip and is described then."""
     clip = beat.clips[index]
     parts: list[str] = []
+    here = world.current_location()
+    place = here if here is not None and here.look.strip() else None
+    arriving = (place is not None and not opening
+                and previous_location(world, segment_no) not in (None, place.id))
+    if place is not None and not arriving:
+        parts.append(f"Setting: {describe(place, full=opening)}.")
     if clip.ambient_sound.strip():
         parts.append(_sentence(clip.ambient_sound))
     framing = " ".join(shot_before(beat, index).split()).rstrip(".") or "medium shot"
@@ -260,10 +281,14 @@ def compile_clip(
         parts.append(f"The shot opens with {shows}, then the action begins.")
     if cut:
         parts.append(_sentence(f"The view cuts to {_with_article(cut)}; {camera_clause(clip.camera_motion)}"))
+        if arriving:
+            parts.append(f"The new setting: {describe(place, full=True)}.")
     if entering:
         parts.append("Entering the picture during this clip: " + "; ".join(entering_name(e) for e in entering) + ".")
     if clip.action.strip():
         parts.append(_sentence(clip.action))
+    if arriving and not cut:
+        parts.append(f"Arriving in {describe(place, full=True)}.")
     for line in clip.dialogue:
         speaker = world.resolve(line.speaker)
         name = speaker.name if speaker is not None else line.speaker
