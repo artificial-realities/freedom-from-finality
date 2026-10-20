@@ -115,10 +115,10 @@ def format_cut_rule(world: WorldModel) -> str:
         return ("The picture never cuts: a change of angle or distance is a camera move within a clip, "
                 "and `cut_to` stays empty.")
     guide = f" {' '.join(world.cutting.split())}" if world.cutting.strip() else ""
-    return ("This story allows cuts: besides camera moves, a clip may cut to a different shot when a new view shows "
-            "the moment better, such as a detail, a reveal, or a new angle on a changed situation. Write the new shot "
-            "in `cut_to` as size, angle and subject (\"close-up of the key in her hand\"), never the current framing "
-            "again. The clip cuts at its start: its `action`, `end_state` and `camera_motion` belong to the new shot, "
+    return ("This story allows cuts, and a cut costs the picture: the video model lands it seconds into the clip "
+            "and can repaint faces. So cut only when a camera move cannot get there: to another location, or for a "
+            "reveal the story calls for; any other change of view is a camera move. Write the new shot in `cut_to` as "
+            "size, angle and subject (\"wide shot of the tower on its rock\"), never the current framing again. The clip cuts at its start: its `action`, `end_state` and `camera_motion` belong to the new shot, "
             "which holds for the rest of the beat and after it. At most one cut per clip, never on the film's first "
             "clip. Within a location a cut changes only the view: everyone and everything keeps its place, posture "
             "and holdings, and the new shot continues the same moment. A cut to another location jumps to a later "
@@ -220,14 +220,14 @@ def format_world_now(world: WorldModel) -> str:
         out.append("Present in the scene: (nothing but the location)")
     # Everyone in the scene is here; what is elsewhere says where.
     def elsewhere(e) -> str:
-        return f"at `{e.location}`" if e.location and (here is None or e.location != here.id) else ""
+        return e.location if e.location and (here is None or e.location != here.id) else ""
 
     # Characters not in the scene still have a state worth knowing.
     away = [e for e in world.by_kind("character") if not e.present and not e.gone]
     if away:
         def about(e) -> str:
             bits = ["not yet in the film" if not e.first_seen and not e.last_seen and e.appears else e.state,
-                    elsewhere(e)]
+                    elsewhere(e) and f"at `{elsewhere(e)}`"]
             said = ", ".join(b for b in bits if b)
             return f" ({said})" if said else ""
         out.append("Characters not in the scene: " + "; ".join(f"`{e.id}`{about(e)}" for e in away))
@@ -235,7 +235,7 @@ def format_world_now(world: WorldModel) -> str:
     if dormant:
         out.append(
             "Dormant props (introduced earlier, not in the scene; fair game for callbacks): "
-            + ", ".join(f"`{e.id}` (last seen segment {e.last_seen}" + (f", {elsewhere(e)}" if elsewhere(e) else "")
+            + ", ".join(f"`{e.id}` (last seen segment {e.last_seen}" + (f", left at `{elsewhere(e)}`" if elsewhere(e) else "")
                         + ")" for e in dormant)
         )
     gone = world.gone_props()

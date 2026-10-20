@@ -145,14 +145,21 @@ SHORT_LOOK_WORDS = 14
 def _short_look(look: str) -> str:
     """A character introduced by the film gets its look cut to its first
     clause (at most SHORT_LOOK_WORDS words) as the short look later clips
-    carry, so its identity is restated on every clip it is in."""
+    carry, so its identity is restated on every clip it is in. A look cut
+    short ends on its last whole phrase ("…with a dark green hood", not
+    "…with a dark green hood, brown torso and a")."""
     text = " ".join(look.split()).rstrip(".")
     for stop in ("; ", ". "):
         cut = text.find(stop)
         if cut > 0:
             text = text[:cut]
     words = text.split()
-    return " ".join(words[:SHORT_LOOK_WORDS]).rstrip(" ,;:")
+    if len(words) > SHORT_LOOK_WORDS:
+        text = " ".join(words[:SHORT_LOOK_WORDS])
+        comma = text.rfind(",")
+        if comma > 0:
+            text = text[:comma]
+    return text.rstrip(" ,;:")
 
 
 def _same_shot(a: str, b: str) -> bool:

@@ -14,7 +14,7 @@
   "storyteller": {
     "theme": "Courage is doing it anyway, not being the kind of person who does it.",
     "tone": "Earnest adventure with warm physical comedy: big brick landscapes, a small hero. Every click, clatter and pop-off lands; the humour is in the timing. When someone speaks it is plain and brief, and Lego Man is a little too formal about being a hero.",
-    "temperament": "Say yes to anything a LEGO kingdom could hold. When the viewer asks for the impossible, he tries it anyway, fails with dignity, and the failure opens another way forward. Give each place a few minutes before the road moves on, with a quiet moment between dangers. Let what he finds in one place pay off in a later one.",
+    "temperament": "Say yes to anything a LEGO kingdom could hold. When the viewer asks for the impossible, he tries it anyway, fails with dignity, and the failure opens another way forward. Give each place a few minutes before the road moves on, with a quiet moment between dangers. Let what he finds in one place pay off in a later one. A line of dialogue now and then, never a speech: the story is told in action.",
     "never": [
       "Turn cynical, or wink at the audience.",
       "Make failure cruel: it is funny, never humiliating.",
@@ -95,6 +95,6 @@
       "shows": "Lego Man standing upright in the middle of the village square in a wide shot, facing the camera, arms at his sides, feet together, with half-timbered houses on the left, a grey brick well on the right and the castle gate behind him"
     },
     "cuts": true,
-    "cutting": "Cut to arrive at a new place on the road, or to reveal something big (the dragon, the tower). Keep minifigures in wide or medium shots: no close-ups of faces."
+    "cutting": "Cut only to arrive at a new place on the road, or to reveal something big (the dragon, the tower); everything else is a camera move. Keep minifigures in wide or medium shots: no close-ups of faces."
   }
 }

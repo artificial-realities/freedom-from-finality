@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from src.models.config import Config
-from src.models.story import Cast, Character, Location, Picture, Story
-from src.story.compiler import compile_clip
+from src.models.story import Cast, Character, Location, Picture, Story, Voice
+from src.story.compiler import compile_clip, speech
 from src.story.context import format_cut_rule, format_plan, format_world_now
 from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, SceneCardOut, ShowrunnerUpdate, ThreadOp
 from src.story.validator import apply_clip, apply_showrunner, check, resolve_location
@@ -282,6 +282,7 @@ def test_cuts_are_the_storys_choice():
     w = WorldModel.from_story(story)
     rule = format_cut_rule(w)
     assert w.cuts and "Write the new shot in `cut_to`" in rule and rule.endswith("Cut on a reveal.")
+    assert "a cut costs the picture" in rule, "the Director knows what a cut does to the render"
     w.events.append(EventRecord(segment=1, scene_id=1, narration="n"))
     cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
     _apply(cut, w, 2)
@@ -326,7 +327,7 @@ def test_the_scene_follows_the_protagonist():
     assert not w.entities["cart"].present and w.entities["cart"].location == "castle"
     assert "moved to forest; left behind at castle: cart" in r.applied
     now = format_world_now(w)
-    assert "`cart` (last seen segment 1, at `castle`)" in now and "`squire` (not yet in the film)" in now
+    assert "`cart` (last seen segment 1, left at `castle`)" in now and "`squire` (not yet in the film)" in now
 
     w2 = _road()
     _apply(_beat(clips=[_clip(on_screen=["knight"])]), w2, 1)
@@ -354,6 +355,22 @@ def test_a_place_with_a_look_is_in_the_video_prompt():
 
     w = _world()
     assert "Setting" not in _emit(_beat(), w, 1, opening=True) + _emit(_beat(), w, 2)
+
+
+def test_a_newcomers_short_look_ends_on_a_whole_phrase():
+    w = _world()
+    look = "A small LEGO forest traveler with a dark green hood, brown torso and a handcart wheel beside them."
+    traveler = EntityOp(op="introduce", entity="forest traveler", kind="character", description=look, voice="dry")
+    _apply(_beat(clips=[_clip(on_screen=["lego_man", "forest traveler"], entity_ops=[traveler])]), w, 2)
+    assert w.entities["forest_traveler"].look_short == "A small LEGO forest traveler with a dark green hood"
+
+
+def test_a_line_says_each_quality_of_the_voice_once():
+    voice = Voice(description="earnest, slightly formal, a little breathless", language="English")
+    assert speech("Lego Man", "Onward.", delivery="formal, slightly breathless", voice=voice) == \
+        'Lego Man says in a formal, slightly breathless, earnest voice, in English, "Onward."'
+    assert speech("Lego Man", "Hi.", delivery="quiet", voice=voice).startswith(
+        "Lego Man says in a quiet, earnest, slightly formal, a little breathless voice")
 
 
 def test_a_character_starts_only_in_a_known_place():

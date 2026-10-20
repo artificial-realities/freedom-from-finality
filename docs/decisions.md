@@ -30,7 +30,7 @@ Why the prototype is built the way it is: each entry is a decision, what it was 
 
 **No re-seeding mid-film.** A cut re-seeded from the reference image resets everything the story changed: a cap picked up mid-film vanished, and a re-entry put a second figure on screen. Only a film's first clip is seeded from the reference; every other clip continues from the last 9 frames of the one before. After a server restart the client sends that tail, and the scene survives (a frame difference at the seam of 1.7, against 66 with a re-seed).
 
-**Cuts are a story option; the LEGO story is one take.** LTX-2.5 follows a written cut ("The view cuts to …"): 6 of 6 requested cuts happened and none of 12 unrequested. But the cut lands 2-4 s into the clip, a new angle renders as the figure turning, close-ups repaint the face, and some cuts dissolve. A story may allow cuts; LEGO does not.
+**Cuts are a story option; the LEGO story is one take.** LTX-2.5 follows a written cut ("The view cuts to …"): 6 of 6 requested cuts happened and none of 12 unrequested. But the cut lands 2-4 s into the clip, a new angle renders as the figure turning, close-ups repaint the face, and some cuts dissolve. A story may allow cuts; LEGO does not. In the first text film of a story with cuts on, the Director cut on 42 of 100 clips, mostly to a new angle; it is now told what a cut costs the render, and to cut only to another location or for a reveal.
 
 **No frame observer.** A vision model checked every rendered clip and could force a cut on drift. After the recipe fix it measured drift that was gone, its forced cut never fired in any run, and it misread framing. Removed.
 

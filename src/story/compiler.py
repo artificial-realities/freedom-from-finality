@@ -125,15 +125,25 @@ def _language(voice: Voice | None) -> str:
     return ""
 
 
+# Words that only soften a quality: "slightly formal" says nothing "formal" does not.
+_HEDGES = frozenset({"a", "an", "bit", "little", "slightly", "somewhat", "quite", "very", "rather"})
+
+
 def speech(name: str, line: str, *, delivery: str = "", voice: Voice | None = None) -> str:
     """One spoken line in LTX-2's form: `Name says in a {delivery} voice,
     "line"`, the delivery being the line's own, then the speaker's
     default, then the speaker's vocal characteristics; language and
-    accent follow when the voice gives them."""
-    words = [_voice_words(delivery or (voice.delivery if voice else ""))]
+    accent follow when the voice gives them. A quality the delivery already
+    names is not said again ("formal, slightly breathless" then "earnest",
+    not "…, slightly formal, a little breathless")."""
+    words = [p for p in (x.strip() for x in _voice_words(delivery or (voice.delivery if voice else "")).split(","))
+             if p]
     if voice is not None and voice.description.strip():
-        words.append(_voice_words(voice.description))
-    how = ", ".join(w for w in words if w)
+        said = {w for p in words for w in p.lower().split()}
+        for phrase in (x.strip() for x in _voice_words(voice.description).split(",")):
+            if phrase and not {w for w in phrase.lower().split() if w not in _HEDGES} <= said:
+                words.append(phrase)
+    how = ", ".join(words)
     lead = f"{name[:1].upper()}{name[1:]} says" + (f" in {'an' if how[:1].lower() in 'aeiou' else 'a'} {how} voice" if how else "")
     tongue = _language(voice)
     if tongue:
