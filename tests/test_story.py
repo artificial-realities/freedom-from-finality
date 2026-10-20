@@ -357,6 +357,16 @@ def test_a_place_with_a_look_is_in_the_video_prompt():
     assert "Setting" not in _emit(_beat(), w, 1, opening=True) + _emit(_beat(), w, 2)
 
 
+def test_the_writers_see_the_place_as_the_video_model_draws_it():
+    """So a picture that has moved on from the place it is told shows."""
+    assert format_world_now(_road()).startswith("Location: `castle` Castle · drawn as: the castle\n")
+    w = _road()
+    _apply(_go("castle_tower"), w, 1)
+    assert format_world_now(w).startswith("Location: `castle_tower` Castle Tower · drawn as: a tall tower\n"), \
+        "no short look: the full one"
+    assert format_world_now(_world()).startswith("Location: `the_white_void` The White Void\n"), "no look, nothing said"
+
+
 def test_a_newcomers_short_look_ends_on_a_whole_phrase():
     w = _world()
     look = "A small LEGO forest traveler with a dark green hood, brown torso and a handcart wheel beside them."

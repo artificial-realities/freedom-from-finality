@@ -42,9 +42,9 @@
     },
     {
       "name": "The Dragon's Tower",
-      "description": "The dragon's home on a black rock beyond the mountains; the princess is held at the top.",
-      "look": "a tall round LEGO tower of dark grey bricks on a black rock, orange transparent bricks glowing in its windows, gold coins scattered on the ground, a red evening sky",
-      "look_short": "the dark grey LEGO tower on the black rock"
+      "description": "The dragon's home beyond the mountains: everything from the foot of the black rock, through the passages and stairs inside it, up to the room at the top of the tower where the princess is held.",
+      "look": "the dragon's black rock and its tower: a tall round tower of dark grey bricks on a black rock, narrow dark grey brick passages and stairs inside lit by glowing orange transparent bricks, gold coins scattered on the floors, a red evening sky outside",
+      "look_short": "the dark grey bricks and orange glow of the dragon's tower"
     }
   ],
   "cast": {

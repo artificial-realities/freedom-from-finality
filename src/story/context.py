@@ -187,7 +187,13 @@ def _clip(text: str, n: int) -> str:
 def format_world_now(world: WorldModel) -> str:
     out: list[str] = []
     here = world.current_location()
-    out.append(f"Location: `{here.id}` {here.name}" if here else "Location: (none)")
+    if here is None:
+        out.append("Location: (none)")
+    else:
+        # The place as the video model is told it, so a picture that has
+        # moved on from it shows.
+        drawn = " ".join((here.look_short or here.look).split()).rstrip(".")
+        out.append(f"Location: `{here.id}` {here.name}" + (f" · drawn as: {drawn}" if drawn else ""))
     present = world.present_entities()
     if present:
         # Characters first, then props by recency; a long-running film can
