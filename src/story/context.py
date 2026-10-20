@@ -29,7 +29,7 @@ def format_film(story: Story, *, opening: bool = False) -> str:
         ("How the film opens", story.opening if opening else ""),
         ("What it is about", teller.theme),
         ("Tone", teller.tone),
-        ("How this storyteller takes the unexpected", teller.temperament),
+        ("How this storyteller takes the unexpected and paces the film", teller.temperament),
     ]
     out = [f"{label}: {' '.join(text.split())}" for label, text in lines if text.strip()]
     if teller.never:
@@ -115,10 +115,13 @@ def format_cut_rule(world: WorldModel) -> str:
         return ("The picture never cuts: a change of angle or distance is a camera move within a clip, "
                 "and `cut_to` stays empty.")
     guide = f" {' '.join(world.cutting.split())}" if world.cutting.strip() else ""
-    return ("This story allows cuts: besides camera moves, a clip may cut to a different shot (`cut_to`) when a new "
-            "view shows the moment better, such as a detail, a reveal, or a new angle on a changed situation. At most "
-            "one cut per clip, never on the film's first clip. A cut changes only the view: everyone and everything "
-            "keeps its place, posture and holdings, and the new shot continues the same moment." + guide)
+    return ("This story allows cuts: besides camera moves, a clip may cut to a different shot when a new view shows "
+            "the moment better, such as a detail, a reveal, or a new angle on a changed situation. Write the new shot "
+            "in `cut_to` as size, angle and subject (\"close-up of the key in her hand\"), never the current framing "
+            "again. The clip cuts at its start: its `action`, `end_state` and `camera_motion` belong to the new shot, "
+            "which holds for the rest of the beat and after it. At most one cut per clip, never on the film's first "
+            "clip. A cut changes only the view: everyone and everything keeps its place, posture and holdings, and "
+            "the new shot continues the same moment." + guide)
 
 
 def format_locations(world: WorldModel) -> str:
@@ -261,12 +264,7 @@ def format_interventions(world: WorldModel, current_input: str, answer_clips: in
     out: list[str] = []
     text = (current_input or "").strip()
     if text:
-        out.append(
-            f'Viewer input for this beat: "{text}"\n'
-            "A suggestion, not a command: take it up in the story's own way. Record "
-            "its disposition: absorbed (it changes what happens in this beat), deferred "
-            "(it needs setup; say what you will do), or declined (only if it breaks the truths)."
-        )
+        out.append(f'Viewer input for this beat: "{text}"')
         if answer_clips:
             out.append(f"This beat answers the viewer: at most {answer_clips} clip{'s' if answer_clips != 1 else ''}. "
                        "Start the answer now; the next beat continues it.")
@@ -274,11 +272,8 @@ def format_interventions(world: WorldModel, current_input: str, answer_clips: in
         out.append("No viewer input for this beat.")
         if world.viewer_momentum:
             out.append(
-                f'The viewer\'s last direction (segment {world.viewer_momentum_segment}): '
-                f'"{world.viewer_momentum}"\n'
-                "This energy should still shape your beats — develop it naturally, "
-                "build on its consequences, let the story grow from it. Don't snap "
-                "back to the scene card as if the viewer never spoke."
+                f'The viewer\'s direction is still active (said at segment {world.viewer_momentum_segment}): '
+                f'"{world.viewer_momentum}". Keep building on it.'
             )
     deferred = [i for i in world.interventions if i.disposition == "deferred"]
     if deferred:

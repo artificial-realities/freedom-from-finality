@@ -386,6 +386,10 @@ def redundant_note(body: str, ent: Entity, world: WorldModel, update: Showrunner
     return None
 
 
+# "Act 2: …": the model numbering an act the prompt already numbers.
+_ACT_NUMBER = re.compile(r"^act\s+(\d+|[ivx]+|one|two|three|four|five|six|seven)\s*[:.)\-–—]\s*", re.I)
+
+
 def apply_showrunner(
     world: WorldModel, update: ShowrunnerUpdate, *, at_segment: int, force_replan: bool,
     triggered_at: int | None = None,
@@ -439,7 +443,7 @@ def apply_showrunner(
             thread.closed_at = at_segment
             notes.append(f"thread {tid} dropped")
 
-    arc = [a.strip() for a in update.arc if a.strip()]
+    arc = [a for a in (_ACT_NUMBER.sub("", a.strip()).strip() for a in update.arc) if a]
     if arc:
         world.plan.arc = arc
         world.plan.current_act = min(max(update.current_act, 0), len(arc) - 1)

@@ -7,11 +7,12 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from src.models.config import Config
 from src.models.story import Picture, Story
 from src.story.compiler import compile_clip
-from src.story.context import format_cut_rule
-from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThreadOp
-from src.story.validator import apply_clip, check
+from src.story.context import format_cut_rule, format_plan
+from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, SceneCardOut, ShowrunnerUpdate, ThreadOp
+from src.story.validator import apply_clip, apply_showrunner, check
 from src.story.world import EventRecord, WorldModel
 
 PLAIN = Picture()   # no style, no reference: the compiler's own words only
@@ -241,7 +242,8 @@ def test_validator_threads_and_interventions_land_on_the_first_clip():
 def test_cuts_are_the_storys_choice():
     """One continuous take by default: a cut is dropped and the Director
     is told `cut_to` stays empty. A story that allows cuts keeps one (not
-    on the film's first clip), and the Director is told it may cut."""
+    on the film's first clip), and only then does the Director read how to
+    write it."""
     w = _world()
     assert not w.cuts and "`cut_to` stays empty" in format_cut_rule(w)
     w.events.append(EventRecord(segment=1, scene_id=1, narration="n"))
@@ -254,11 +256,22 @@ def test_cuts_are_the_storys_choice():
                                                                                  "cutting": "Cut on a reveal."})})
     w = WorldModel.from_story(story)
     rule = format_cut_rule(w)
-    assert w.cuts and "may cut to a different shot" in rule and rule.endswith("Cut on a reveal.")
+    assert w.cuts and "Write the new shot in `cut_to`" in rule and rule.endswith("Cut on a reveal.")
     w.events.append(EventRecord(segment=1, scene_id=1, narration="n"))
     cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
     _apply(cut, w, 2)
     assert cut.clips[0].cut_to == "close-up of his hands" and w.shot == "close-up of his hands"
+
+
+def test_the_showrunner_lands_an_unnumbered_arc():
+    """The plan numbers the acts; one the model numbered itself ("Act 2: …")
+    lands without its number, so the Director does not read it twice."""
+    w = _world()
+    update = ShowrunnerUpdate(arc=["Act 1: He wakes.", "ACT II - He finds a ball.", "Actors arrive."], current_act=1,
+                              next_scene=SceneCardOut(goal="g", tension="t", exit_condition="e"))
+    apply_showrunner(w, update, at_segment=0, force_replan=True)
+    assert w.plan.arc == ["He wakes.", "He finds a ball.", "Actors arrive."] and w.plan.current_act == 1
+    assert "▶ act 2: He finds a ball." in format_plan(w, Config())
 
 
 def test_compiler_opening_clip_carries_style_look_and_reference():

@@ -4,7 +4,7 @@ Everything the film has established lives here: entities (characters,
 props, locations) with what code needs in structure (kind, presence,
 location, whether they are gone) and their state in one line of prose
 (a character's "lying on his back centre frame, asleep", a prop's "in
-Spaceman's hands at waist height"), open threads, viewer interventions with their disposition, the plan (arc +
+the guard's hands at waist height"), open threads, viewer interventions with their disposition, the plan (arc +
 current scene card), an append-only event log (one record per clip),
 and the summaries the Showrunner compacts the log into.
 
