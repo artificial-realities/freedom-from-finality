@@ -9,6 +9,7 @@ from pathlib import Path
 
 from src.models.story import Picture, Story
 from src.story.compiler import compile_clip
+from src.story.context import format_cut_rule
 from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThreadOp
 from src.story.validator import apply_clip, check
 from src.story.world import EventRecord, WorldModel
@@ -237,6 +238,29 @@ def test_validator_threads_and_interventions_land_on_the_first_clip():
     assert w.drop_pending_interventions(5) == 1 and not w.unresolved_interventions()[1:]
 
 
+def test_cuts_are_the_storys_choice():
+    """One continuous take by default: a cut is dropped and the Director
+    is told `cut_to` stays empty. A story that allows cuts keeps one (not
+    on the film's first clip), and the Director is told it may cut."""
+    w = _world()
+    assert not w.cuts and "`cut_to` stays empty" in format_cut_rule(w)
+    w.events.append(EventRecord(segment=1, scene_id=1, narration="n"))
+    cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
+    r = _apply(cut, w, 2)
+    assert cut.clips[0].cut_to == "" and any("one continuous take" in x for x in r.warnings)
+
+    story = Story.from_json("stories/lego-void")
+    story = story.model_copy(update={"picture": story.picture.model_copy(update={"cuts": True,
+                                                                                 "cutting": "Cut on a reveal."})})
+    w = WorldModel.from_story(story)
+    rule = format_cut_rule(w)
+    assert w.cuts and "may cut to a different shot" in rule and rule.endswith("Cut on a reveal.")
+    w.events.append(EventRecord(segment=1, scene_id=1, narration="n"))
+    cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
+    _apply(cut, w, 2)
+    assert cut.clips[0].cut_to == "close-up of his hands" and w.shot == "close-up of his hands"
+
+
 def test_compiler_opening_clip_carries_style_look_and_reference():
     w = _world()
     reference = Story.from_json("stories/lego-void").picture.reference
@@ -370,4 +394,4 @@ def test_every_blueprint_field_is_in_the_field_guide():
             todo.extend(models(field.annotation))
     assert not missing, f"document these in stories/README.md: {missing}"
     assert {m.__name__ for m in seen} >= {"Story", "Storyteller", "Cast", "Character", "Voice", "Picture", "Reference",
-                                          "Perspective", "Location"}
+                                          "Location"}

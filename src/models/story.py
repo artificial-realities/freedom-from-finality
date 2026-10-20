@@ -13,7 +13,6 @@ author: stories/README.md.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Literal
 
@@ -38,11 +37,6 @@ class Voice(BaseModel):
         if isinstance(value, str):
             return cls(description=value)
         return value
-
-
-def perspective_key(text: str) -> str:
-    """A perspective as the policy compares it: "First person" → "first-person"."""
-    return re.sub(r"[^a-z]+", "-", text.strip().lower()).strip("-")
 
 
 class Storyteller(BaseModel):
@@ -105,26 +99,6 @@ class Cast(BaseModel):
     newcomers: str = ""
 
 
-class Perspective(BaseModel):
-    """How the film is shot: its default perspective ("third-person",
-    "first-person", "observer", …), the perspectives a beat may switch to,
-    and when a switch is right. The Director declares a switch in
-    `BeatPlan.perspective`; the validator refuses one the story does not
-    allow. `cuts`: whether a clip may cut to a new shot
-    (`ClipSpec.cut_to`), with `cutting` as the story's guidance on when;
-    without it the film is one continuous take and a cut is dropped."""
-
-    default: str = "third-person"
-    allowed: list[str] = Field(default_factory=list)
-    switching: str = ""
-    cuts: bool = False
-    cutting: str = ""
-
-    def permits(self, perspective: str) -> bool:
-        key = perspective_key(perspective)
-        return not key or key in {perspective_key(p) for p in [self.default, *self.allowed]}
-
-
 class Reference(BaseModel):
     """The image the first clip is rendered from, and what it shows in
     words (the Director cannot see it). `shows` names any character in
@@ -136,12 +110,16 @@ class Reference(BaseModel):
 
 
 class Picture(BaseModel):
-    """How the film looks, for the Director and the compiler."""
+    """How the film looks, for the Director and the compiler. `cuts`:
+    whether a clip may cut to a new shot (`ClipSpec.cut_to`), with
+    `cutting` as the story's guidance on when; without it the film is one
+    continuous take and a cut is dropped."""
 
     style: str = ""             # the full style, on the film's first clip
     anchor: str = ""            # one sentence of look and framing for later clips ("" → the style's first sentence)
     reference: Reference | None = None
-    perspective: Perspective = Field(default_factory=Perspective)
+    cuts: bool = False
+    cutting: str = ""
 
 
 class Story(BaseModel):

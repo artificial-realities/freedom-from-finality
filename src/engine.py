@@ -318,7 +318,7 @@ class DirectorEngine:
         # call is restarted with it).
         status = self._reseed_note + self._beat_status_plain()
         world = self.world
-        if world is not None and world.perspective.cuts and world.shot:
+        if world is not None and world.cuts and world.shot:
             # Where cuts are allowed the shot can change between beats, so
             # the next beat is told which one the picture is in.
             status += f" The picture is in this shot: {world.shot}."
@@ -689,7 +689,7 @@ class DirectorEngine:
         if card is not None and any(n.startswith("scene ") for n in landed):
             self._showrunner_notes.append(
                 f"scene {card.id} card: goal: {card.goal} · tension: {card.tension} · "
-                f"exit: {card.exit_condition} · intensity: {card.intensity}"
+                f"exit: {card.exit_condition}"
                 + (" · beats: " + " | ".join(card.candidate_beats) if card.candidate_beats else "")
             )
         if self.world.plan.arc:

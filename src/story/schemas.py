@@ -100,9 +100,6 @@ class BeatPlan(BaseModel):
     thread_ops: list[ThreadOp] = Field(default_factory=list)
     intervention: Literal["none", "absorbed", "deferred", "declined"] = "none"
     intervention_reason: str = ""
-    # The perspective this beat is shot from when it switches away from the
-    # story's default ("" = the default); the story says which are allowed.
-    perspective: str = ""
     # The segment of the earlier, deferred request this beat delivers (as
     # listed under "Earlier requests still owed"); 0 = none.
     delivered_request: int = 0
@@ -119,7 +116,6 @@ class SceneCardOut(BaseModel):
     goal: str
     tension: str
     exit_condition: str
-    intensity: Literal["low", "medium", "high"] = "medium"
     candidate_beats: list[str] = Field(default_factory=list)
 
 

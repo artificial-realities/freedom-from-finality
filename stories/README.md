@@ -9,7 +9,7 @@ The film's two writers read the blueprint:
 - **Director**: writes every beat, clip by clip, and answers the viewer. It is the only writer on the critical path.
 - **Showrunner**: works on a slower clock. It keeps the story's memory and writes the arc and the scene card for the stretches when the viewer is quiet.
 
-The **compiler** turns each clip into the video model's prompt; the **validator** holds the Director to the cast and perspective rules.
+The **compiler** turns each clip into the video model's prompt; the **validator** holds the Director to the cast rules.
 
 Every text field is optional unless marked *required*. An empty field adds no text to any prompt, so a small story stays small. Keep prose fields to one to three sentences and lists to about five items: the models follow what is short.
 
@@ -82,13 +82,10 @@ A list of places, each with a **`name`** and a **`description`**. Both writers s
 
 A story may leave out `reference` entirely. It runs headless, but a video run refuses to start without one, since the renderer starts every film from an image.
 
-**`perspective`**. How the film is shot:
-- `default`: "third-person" unless you say otherwise.
-- `allowed`: other perspectives a beat may switch to (["first-person"]). The validator refuses any perspective not listed, and the compiler shoots a first-person beat as a point-of-view shot.
-- `switching`: when a switch is right ("Only while a minifigure looks through something…").
-- `cuts`: whether a clip may cut to a new shot. Without it the film is one continuous take: a change of angle is a camera move, and the validator drops any cut. The Lego story is one take, because cuts repainted faces on the GPU.
-- `cutting`: the story's guidance on when to cut, when cuts are on.
+**`cuts`**. Whether a clip may cut to a new shot (`true`/`false`, default `false`). Without it the film is one continuous take: a change of angle is a camera move, and the validator drops any cut. A cut does not re-seed the picture: the clip still continues from the last frames of the one before, and the video model draws the cut inside it. The Lego story is one take, because cuts landed late and repainted faces on the GPU.
+
+**`cutting`**. The story's guidance on when to cut, when cuts are on.
 
 ## Checking a story
 
-`Story.from_json` loads and checks the blueprint: a protagonist that is one of the characters, a reference image that exists and decodes. A text run (`python main.py play --story stories/<folder>`) shows what the writers make of it: the transcript under `logs/` has every clip, its lines, its compiled video prompt and the world's state, and the session directory has the writers' raw outputs. `stories/lego-void/story.json` uses every field.
+`Story.from_json` loads and checks the blueprint: a protagonist that is one of the characters, a reference image that exists and decodes. A text run (`python main.py play --story stories/<folder>`) shows what the writers make of it: the transcript under `logs/` has every clip, its lines, its compiled video prompt and the world's state, and the session directory has the writers' raw outputs. `stories/lego-void/story.json` uses every field except `cuts` and `cutting`.

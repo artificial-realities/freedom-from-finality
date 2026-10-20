@@ -4,9 +4,9 @@ Plan → Diff → Validate → Apply. The LLM proposes, this module decides
 what is structurally admissible, applies the admissible part, and
 reports the rest so the caller can re-ask once and log the remainder.
 Hard violations (unknown entities, a character the story's cast does
-not allow, the protagonist removed or doubled, a perspective the story
-does not permit, a line from someone who is not a character) are the
-ones worth a retry; warnings are fixed up silently.
+not allow, the protagonist removed or doubled, a line from someone who
+is not a character) are the ones worth a retry; warnings are fixed up
+silently.
 
 `check` looks at the whole beat before any of it plays. `apply_clip`
 applies one clip when it is emitted, so a beat the viewer cuts short
@@ -130,13 +130,6 @@ def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
 
     if beat.delivered_request and not _owed_item(world, beat.delivered_request):
         r.warnings.append(f"delivered_request {beat.delivered_request} names no deferred request; ignored")
-
-    if not world.perspective.permits(beat.perspective):
-        allowed = ", ".join([world.perspective.default, *world.perspective.allowed])
-        r.violations.append(
-            f"perspective '{beat.perspective}' is not one this story allows ({allowed}); "
-            "leave `perspective` empty for the default",
-        )
 
     open_ids = {t.id for t in world.open_threads()}
     for top in beat.thread_ops:
@@ -278,7 +271,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     # The shot: a cut is kept only where the story allows cuts and
     # never on the film's first clip, which opens the film.
     cut = " ".join(clip.cut_to.split()).rstrip(".")
-    if cut and not world.perspective.cuts:
+    if cut and not world.cuts:
         r.warnings.append(f"cut to '{cut}' dropped: this story is one continuous take")
         cut = ""
     elif cut and not world.events:
@@ -458,7 +451,6 @@ def apply_showrunner(
             goal=update.next_scene.goal.strip(),
             tension=update.next_scene.tension.strip(),
             exit_condition=update.next_scene.exit_condition.strip(),
-            intensity=update.next_scene.intensity,
             candidate_beats=[b.strip() for b in update.next_scene.candidate_beats if b.strip()],
             opened_at=at_segment + 1,
         )

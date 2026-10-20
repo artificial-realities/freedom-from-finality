@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr
 
-from src.models.story import Perspective, Story, Voice
+from src.models.story import Story, Voice
 
 EntityKind = Literal["character", "prop", "location"]
 
@@ -106,7 +106,6 @@ class SceneCard(BaseModel):
     goal: str
     tension: str
     exit_condition: str
-    intensity: Literal["low", "medium", "high"] = "medium"
     candidate_beats: list[str] = Field(default_factory=list)
     opened_at: int
 
@@ -151,7 +150,8 @@ class WorldModel(BaseModel):
     segment: int = 0
     protagonist: str = ""
     newcomers: str = ""          # what kind of characters the film may introduce; "" = none
-    perspective: Perspective = Field(default_factory=Perspective)
+    cuts: bool = False           # whether a clip may cut to a new shot (the story's choice)
+    cutting: str = ""            # the story's guidance on when to cut
     # The characters the reference image shows (ids): the picture before the
     # first clip. None = no reference, so nothing is said to enter on it.
     opening_picture: list[str] | None = None
@@ -184,13 +184,13 @@ class WorldModel(BaseModel):
         return cls.from_blueprint(
             title=story.title, characters=story.cast.characters, locations=story.locations,
             protagonist=story.cast.protagonist, newcomers=story.cast.newcomers,
-            perspective=story.picture.perspective, shows=ref.shows if ref is not None else None,
+            cuts=story.picture.cuts, cutting=story.picture.cutting, shows=ref.shows if ref is not None else None,
         )
 
     @classmethod
     def from_blueprint(
         cls, *, title: str, characters, locations, protagonist: str = "", newcomers: str = "",
-        perspective: Perspective | None = None, shows: str | None = None,
+        cuts: bool = False, cutting: str = "", shows: str | None = None,
     ) -> "WorldModel":
         """The world at the start of a film: every location, and every
         character of the blueprint with who it is, its look, voice and
@@ -199,8 +199,7 @@ class WorldModel(BaseModel):
         the film brings them in. `shows` is what the reference image shows
         (None: there is none); the characters it names are in the picture
         before the first clip."""
-        world = cls(title=title, newcomers=newcomers.strip(),
-                    perspective=(perspective or Perspective()).model_copy())
+        world = cls(title=title, newcomers=newcomers.strip(), cuts=cuts, cutting=cutting.strip())
         for i, loc in enumerate(locations):
             lid = world._unique_id(slugify(loc.name))
             world.entities[lid] = Entity(

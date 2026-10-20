@@ -19,7 +19,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
         clips (action · end state · world ops) · dialogue · viewer disposition
                      │ proposes            ◀── a hard violation: one re-ask
                      ▼
-        Validator (code): cast, entities, speakers, perspective, per clip
+        Validator (code): cast, entities, speakers, cuts, per clip
                      │ applies one clip per segment
                      ▼
         World model (typed, saved per clip)
@@ -43,7 +43,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
 
 ## A beat, then its clips
 
-**Plan** (one Director call). A finished Showrunner run lands first; one still running is left alone, so the fast clock never pays for the slow one. The viewer's line, if any, is recorded as an intervention. On the first segment the Showrunner runs once synchronously, before anything is on air, to write the arc and the opening scene card from the blueprint. The Director then gets a cached system prompt (the film, its truths, the picture, the cast with looks and voices) and a user prompt with the plan, the world as it is now, open threads, the viewer's lines, summaries, the recent clips verbatim, and where the picture is. It returns a `BeatPlan`. A hard violation anywhere in the beat (an unknown entity, a character the cast does not allow, a second protagonist, a line spoken by a prop, a perspective the story does not permit) earns exactly one re-ask with the violations spelled out. The Director can flag `scene_done` or `needs_replan`, which triggers the Showrunner; so does every `compaction_interval` segments. At most one run is in flight, and runs are at least `showrunner_min_gap` segments apart.
+**Plan** (one Director call). A finished Showrunner run lands first; one still running is left alone, so the fast clock never pays for the slow one. The viewer's line, if any, is recorded as an intervention. On the first segment the Showrunner runs once synchronously, before anything is on air, to write the arc and the opening scene card from the blueprint. The Director then gets a cached system prompt (the film, its truths, the picture, the cast with looks and voices) and a user prompt with the plan, the world as it is now, open threads, the viewer's lines, summaries, the recent clips verbatim, and where the picture is. It returns a `BeatPlan`. A hard violation anywhere in the beat (an unknown entity, a character the cast does not allow, a second protagonist, a line spoken by a prop) earns exactly one re-ask with the violations spelled out. The Director can flag `scene_done` or `needs_replan`, which triggers the Showrunner; so does every `compaction_interval` segments. At most one run is in flight, and runs are at least `showrunner_min_gap` segments apart.
 
 **Emit** (one clip per segment, no LLM). `apply_clip` applies that clip's world changes, so a beat cut short leaves the world exactly as far along as the picture. The compiler turns the clip into one flowing prompt: sound, framing and camera, who is on screen, who enters, the action, the dialogue as `Name says in a … voice, "line"`, and the image the clip ends on. The first clip carries the full style and every character's full look and opens on what the reference image shows; later clips carry a one-sentence anchor and short looks, and anything entering the picture is described on the clip it enters. The event record is appended and the world saved to `logs/sessions/<id>/`.
 
@@ -53,7 +53,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
 
 Entities (characters, props, locations) carry what code reads in structured fields (kind, present, gone, location) and what only the writers read in prose: each entity has one `state` sentence (a character's pose, place and doing; a prop's place, condition and who has it), replaced whole by the op that changes it. Characters also carry `who`, `wants`, `nature`, `voice`, `look` and `look_short`, and up to four durable notes from the Showrunner. Threads live until paid off or pruned; nothing expires them in code. Interventions are kept for the whole run: a request the Director defers stays visible as owed until a later beat delivers it by name. The event log is append-only, one record per clip; only the last `recent_clips` reach the Director verbatim, the rest as summaries.
 
-The blueprint (`stories/<story>/story.json`) is the essential story, not a script: what the film is (`premise`, `question`, `engine`, `opening`, `truths`), who tells it (`storyteller`), who is in it (`locations`, `cast`) and how it looks (`picture`). It names the protagonist (kept single and in the story by the validator), supporting characters with entrance conditions (the Showrunner decides when, the Director stages it), what kind of newcomers the film may introduce, and which perspectives a beat may switch to. There is no time axis beyond the opening: the Showrunner writes the arc. The field guide is [stories/README.md](../stories/README.md).
+The blueprint (`stories/<story>/story.json`) is the essential story, not a script: what the film is (`premise`, `question`, `engine`, `opening`, `truths`), who tells it (`storyteller`), who is in it (`locations`, `cast`) and how it looks (`picture`). It names the protagonist (kept single and in the story by the validator), supporting characters with entrance conditions (the Showrunner decides when, the Director stages it), what kind of newcomers the film may introduce, and whether the picture may cut. There is no time axis beyond the opening: the Showrunner writes the arc. The field guide is [stories/README.md](../stories/README.md).
 
 ## Who decides what
 
@@ -81,7 +81,7 @@ The LTX-2.5 server (`server/ltx2_server.py`) holds the distilled model resident 
 
 **Sound.** LTX-2.5 renders all of it from the compiled prompt: ambient sound and the characters' lines, in each character's `voice`. There is no narrator and no text-to-speech. Unverified on the GPU: two speakers in one clip.
 
-**Cuts are the story's choice.** A blueprint may allow cuts (`picture.perspective.cuts`); the Director then writes "The view cuts to …", which LTX-2.5 follows. The LEGO story is one continuous take: cuts land late in the clip and repaint faces in close-ups.
+**Cuts are the story's choice.** A blueprint may allow cuts (`picture.cuts`); the Director then writes "The view cuts to …", which LTX-2.5 follows. The LEGO story is one continuous take: cuts land late in the clip and repaint faces in close-ups.
 
 ## Not built yet
 

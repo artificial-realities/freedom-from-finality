@@ -86,9 +86,9 @@ def format_cast(world: WorldModel) -> str:
 
 
 def format_cast_rules(world: WorldModel) -> str:
-    """The story's cast and perspective policy, for both system
-    prompts: the protagonist's continuity, whether new characters may be
-    introduced and how, and how the film is shot."""
+    """The story's cast policy, for both system prompts: the
+    protagonist's continuity, who enters when, and whether new characters
+    may be introduced and how."""
     out: list[str] = []
     hero = world.entities.get(world.protagonist)
     if hero is not None:
@@ -105,24 +105,16 @@ def format_cast_rules(world: WorldModel) -> str:
                    "and its `voice`; it is then registered and must look and sound the same in every later clip.")
     else:
         out.append("- No characters beyond the cast: anything else that appears is a prop.")
-    persp = world.perspective
-    if persp.allowed:
-        rule = f" {' '.join(persp.switching.split())}" if persp.switching.strip() else ""
-        out.append(f"- Perspective: the film is shot {persp.default}. A beat may switch to "
-                   f"{' or '.join(persp.allowed)}; set `perspective` on that beat, otherwise leave it empty.{rule}")
-    else:
-        out.append(f"- Perspective: the film is shot {persp.default}, always. Leave `perspective` empty.")
     return "\n".join(out)
 
 
 def format_cut_rule(world: WorldModel) -> str:
     """The story's editing, for the Director's system prompt: one
     continuous take, or cuts as a choice with the story's guidance."""
-    persp = world.perspective
-    if not persp.cuts:
+    if not world.cuts:
         return ("The picture never cuts: a change of angle or distance is a camera move within a clip, "
                 "and `cut_to` stays empty.")
-    guide = f" {' '.join(persp.cutting.split())}" if persp.cutting.strip() else ""
+    guide = f" {' '.join(world.cutting.split())}" if world.cutting.strip() else ""
     return ("This story allows cuts: besides camera moves, a clip may cut to a different shot (`cut_to`) when a new "
             "view shows the moment better, such as a detail, a reveal, or a new angle on a changed situation. At most "
             "one cut per clip, never on the film's first clip. A cut changes only the view: everyone and everything "
@@ -172,7 +164,6 @@ def format_plan(world: WorldModel, config: Config, *, paused: bool = False) -> s
         out.append(f"  goal: {card.goal}")
         out.append(f"  tension: {card.tension}")
         out.append(f"  exit condition: {card.exit_condition}")
-        out.append(f"  intensity: {card.intensity}")
         if card.candidate_beats:
             out.append("  candidate beats (options, not a script):")
             out.extend(f"    - {b}" for b in card.candidate_beats)

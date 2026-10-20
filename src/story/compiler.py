@@ -21,7 +21,7 @@ changes; the schemas do not.
 
 from __future__ import annotations
 
-from src.models.story import Picture, Voice, perspective_key
+from src.models.story import Picture, Voice
 from src.story.schemas import BeatPlan
 from src.story.world import Entity, WorldModel
 
@@ -202,8 +202,6 @@ def compile_clip(
     if clip.ambient_sound.strip():
         parts.append(_sentence(clip.ambient_sound))
     framing = " ".join(shot_before(beat, index).split()).rstrip(".") or "medium shot"
-    if (perspective_key(beat.perspective) or perspective_key(world.perspective.default)) == "first-person":
-        framing = f"first-person point of view, {framing}"
     cut = " ".join(clip.cut_to.split()).rstrip(".")
     if cut:
         # The clip opens on the shot the picture is in and cuts at once;

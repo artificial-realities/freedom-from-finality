@@ -58,11 +58,6 @@
     "reference": {
       "image": "legoman-16x9.png",
       "shows": "Lego Man standing upright in a wide product shot, facing the camera, arms straight at his sides, feet together, centred on a white background"
-    },
-    "perspective": {
-      "default": "third-person",
-      "allowed": ["first-person"],
-      "switching": "Only while a minifigure looks through something (binoculars, a telescope, a camera), and back to third-person when it lowers it."
     }
   }
 }
