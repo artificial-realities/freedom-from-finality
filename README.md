@@ -2,6 +2,10 @@
 
 An AI-generated film that keeps playing in your browser while you type suggestions into it.
 
+![The player page: a LEGO minifigure in a white void. The viewer types "Make him start juggling a soccer ball like Neymar." and two clips later a LEGO soccer ball appears and he tries to keep it up with stiff plastic legs.](docs/demo.gif)
+
+A live film on an H100, not sped up ([MP4 with sound](docs/demo.mp4)). The typing is placed just before the ball for pacing; in the live session it reached the screen two clips (12 s) later. The browser frame is a headless recording; the picture area shows the session's saved film.
+
 ```
 ┌─▶ the viewer types a suggestion (or doesn't)
 │     → Director (LLM) writes the next beat: 1-4 clips of action, dialogue and world changes
