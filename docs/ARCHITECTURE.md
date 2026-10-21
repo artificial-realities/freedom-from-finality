@@ -79,7 +79,7 @@ The LTX-2.5 server (`server/ltx2_server.py`) holds the distilled model resident 
 
 **Seams.** The page keeps three video elements: it cuts the picture to the next clip where that clip's repeated head begins, so every frame is seen once, and crossfades the sound over those 0.375 s with equal power (a clip with speech comes in at once). The server holds every clip under -18 LUFS with its audio padded to the video.
 
-**Sound.** LTX-2.5 renders all of it from the compiled prompt: ambient sound and the characters' lines, in each character's `voice`. There is no narrator and no text-to-speech. Unverified on the GPU: two speakers in one clip.
+**Sound.** LTX-2.5 renders all of it from the compiled prompt: ambient sound and the characters' lines, in each character's `voice`. There is no narrator and no text-to-speech. Two speakers in one clip render in two distinct voices (checked once on the GPU, by ear).
 
 **Cuts are the story's choice.** A blueprint may allow cuts (`picture.cuts`); the Director then writes "The view cuts to …", which LTX-2.5 follows. The LEGO story is one continuous take: cuts land late in the clip and repaint faces in close-ups.
 

@@ -34,7 +34,7 @@ Every character wants something (its `Wants` on the cast sheet; for one the film
 
 # Speech
 
-Any character in the film may speak, and who speaks, and when, is yours to decide beat by beat, as a film would. Most clips are silent unless The film says otherwise: a line earns its place when it says what the picture cannot. At most one character speaks in a clip, in its language and its voice, short enough to say inside the clip.
+Any character in the film may speak, and who speaks, and when, is yours to decide beat by beat, as a film would. Most clips are silent unless The film says otherwise: a line earns its place when it says what the picture cannot. Write each line in the speaker's language and voice, short enough that all of a clip's lines fit inside it.
 
 # Reading the context
 
@@ -58,7 +58,7 @@ One JSON object. It is written while the film plays and its length is its delay,
   - `camera_motion`: "static", or the move as a verb phrase without its subject: "slowly pushes in toward him", "pans left to follow her", "tilts up to the sky".
   - `ambient_sound`: a few words tied to visible or locatable sources, or empty.
   - `on_screen`: entity ids visible in the clip.
-  - `dialogue`: what is spoken in this clip, by one character at most: `speaker` (entity id), `line` (in the speaker's language) and `delivery` (a few words on how it is said: "quiet, hoarse"). Usually empty.
+  - `dialogue`: lines spoken in this clip, each with `speaker` (entity id), `line` (in the speaker's language) and `delivery` (a few words on how it is said: "quiet, hoarse"). Usually empty.
   - `entity_ops`: what changes in the world in this clip (see Ops).
 - `thread_ops`: what changes in the open threads (see Ops).
 - `intervention`: `none` when there was no viewer input; otherwise `absorbed` (taken up in this beat, in your way), `deferred` or `declined`, with a one-line `intervention_reason` saying how.
