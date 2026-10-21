@@ -118,11 +118,13 @@ def format_cut_rule(world: WorldModel) -> str:
     return ("This story allows cuts, and a cut costs the picture: the video model lands it seconds into the clip "
             "and can repaint faces. So cut only when a camera move cannot get there: to another location, or for a "
             "reveal the story calls for; any other change of view is a camera move. Write the new shot in `cut_to` as "
-            "size, angle and subject (\"wide shot of the tower on its rock\"), never the current framing again. The clip cuts at its start: its `action`, `end_state` and `camera_motion` belong to the new shot, "
-            "which holds for the rest of the beat and after it. At most one cut per clip, never on the film's first "
-            "clip. Within a location a cut changes only the view: everyone and everything keeps its place, posture "
-            "and holdings, and the new shot continues the same moment. A cut to another location jumps to a later "
-            "moment there: in that clip, give the protagonist the new `location`." + guide)
+            "size, angle and subject (\"wide shot of the tower on its rock\"), never the current framing again. The "
+            "clip cuts at its start: its `action`, `end_state` and `camera_motion` belong to the new shot, which holds "
+            "for the rest of the beat and after it. At most one cut per clip, never on the film's first clip. Within a "
+            "location a cut changes only the view: everyone and everything keeps its place, posture and holdings, and "
+            "the new shot continues the same moment. The video model replaces the place reliably only on a cut: a "
+            "walk keeps drawing the place it comes from. So arrive at another location by cutting to it, which jumps "
+            "to a later moment there, and give the protagonist the new `location` in that clip." + guide)
 
 
 def format_locations(world: WorldModel) -> str:
@@ -241,8 +243,8 @@ def format_world_now(world: WorldModel) -> str:
     if dormant:
         out.append(
             "Dormant props (introduced earlier, not in the scene; fair game for callbacks): "
-            + ", ".join(f"`{e.id}` (last seen segment {e.last_seen}" + (f", left at `{elsewhere(e)}`" if elsewhere(e) else "")
-                        + ")" for e in dormant)
+            + ", ".join(f"`{e.id}` (last seen segment {e.last_seen}"
+                        + (f", left at `{elsewhere(e)}`" if elsewhere(e) else "") + ")" for e in dormant)
         )
     gone = world.gone_props()
     if gone:

@@ -283,6 +283,7 @@ def test_cuts_are_the_storys_choice():
     rule = format_cut_rule(w)
     assert w.cuts and "Write the new shot in `cut_to`" in rule and rule.endswith("Cut on a reveal.")
     assert "a cut costs the picture" in rule, "the Director knows what a cut does to the render"
+    assert "arrive at another location by cutting to it" in rule, "a walk keeps drawing the old place"
     w.events.append(EventRecord(segment=1, scene_id=1, narration="n"))
     cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
     _apply(cut, w, 2)

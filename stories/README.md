@@ -88,7 +88,7 @@ A list of places. Both writers see the list. The film starts in the first one an
 
 A story may leave out `reference` entirely. It runs headless, but a video run refuses to start without one, since the renderer starts every film from an image.
 
-**`cuts`**. Whether a clip may cut to a new shot (`true`/`false`, default `false`). Without it the film is one continuous take: a change of angle is a camera move, and the validator drops any cut. A cut does not re-seed the picture: the clip still continues from the last frames of the one before, and the video model draws the cut inside it. The Lego story is one take, because cuts landed late and repainted faces on the GPU.
+**`cuts`**. Whether a clip may cut to a new shot (`true`/`false`, default `false`). Without it the film is one continuous take: a change of angle is a camera move, and the validator drops any cut. A cut does not re-seed the picture: the clip still continues from the last frames of the one before, and the video model draws the cut inside it. In a story with several places a cut is the reliable way to arrive somewhere new: a walk keeps drawing the place it comes from. The Lego void is one take, because cuts landed late and repainted faces on the GPU.
 
 **`cutting`**. The story's guidance on when to cut, when cuts are on.
 

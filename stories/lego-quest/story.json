@@ -31,7 +31,7 @@
     {
       "name": "The Dark Forest",
       "description": "The deep forest between the village and the mountains, where travellers lose the path and odd folk live.",
-      "look": "a dense LEGO forest: tall pine trees of dark green cone bricks on brown trunk pieces, red and white mushroom pieces, a winding path of tan tiles on a dark green baseplate, dim light through the branches",
+      "look": "a dense LEGO forest: tall pine trees of dark green cone bricks on brown trunk pieces, red and white mushroom pieces, a winding path of tan tiles on a dark green baseplate, soft daylight through the branches",
       "look_short": "the dark LEGO pine forest with a tan tile path"
     },
     {
@@ -88,8 +88,8 @@
     "newcomers": "Other LEGO Castle and fantasy minifigures met on the road (a herald, a blacksmith, a troll, a wizard), each marked by one clear piece (a hat, a helmet, a tool), with the same fixed printed face."
   },
   "picture": {
-    "style": "A LEGO Castle world built entirely from LEGO bricks, plates and tiles, photographed like a miniature film set: real plastic sheen, studs on every surface, warm natural light with soft shadows, shallow depth of field. The landscape is brick-built: baseplates for ground, brick trees and rocks, transparent blue bricks for water. Only the minifigures the shot names are on screen. Motion has a slight stop-motion feel: every click, snap and pop-off reads clearly. No on-screen text.",
-    "anchor": "A LEGO Castle world built from LEGO bricks, photographed like a miniature film set, real plastic sheen, studs on every surface, warm natural light, a slight stop-motion feel, no on-screen text.",
+    "style": "A LEGO Castle world built entirely from LEGO bricks, plates and tiles, photographed like a miniature film set: real plastic sheen, studs on every surface, warm natural light with soft shadows, shallow depth of field. Everything in the picture is LEGO, the landscape and the sky included: baseplates for ground, brick trees, rocks and mountains, transparent blue bricks for water, never a real landscape. Only the minifigures the shot names are on screen. Motion has a slight stop-motion feel: every click, snap and pop-off reads clearly. No on-screen text.",
+    "anchor": "A LEGO Castle world built entirely from LEGO bricks, landscape and sky included, photographed like a miniature film set, real plastic sheen, studs on every surface, warm natural light, a slight stop-motion feel, no on-screen text.",
     "reference": {
       "image": "legoman-quest-16x9.png",
       "shows": "Lego Man standing upright in the middle of the village square in a wide shot, facing the camera, arms at his sides, feet together, with half-timbered houses on the left, a grey brick well on the right and the castle gate behind him"

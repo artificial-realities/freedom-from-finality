@@ -6,7 +6,7 @@ It runs one recipe, the one every number in the README was measured with: the di
 
 ## Requirements
 
-Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL), torch 2.9.1 with CUDA 12.8 (the `pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel` image has it), ffmpeg, and about 72 GB of disk for the weights. The weights are gated; once:
+Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL, and H200 NVL), torch 2.9.1 with CUDA 12.8 (the `pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel` image has it), ffmpeg, and about 72 GB of disk for the weights. The weights are gated; once:
 
 1. Open [Lightricks/LTX-2.5-Diffusers](https://huggingface.co/Lightricks/LTX-2.5-Diffusers), read the LTX-2 Community License and click **Agree and access repository**.
 2. Create a read token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and put it in `.env` as `HF_TOKEN`.

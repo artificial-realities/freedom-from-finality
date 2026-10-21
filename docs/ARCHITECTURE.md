@@ -85,4 +85,4 @@ The LTX-2.5 server (`server/ltx2_server.py`) holds the distilled model resident 
 
 ## Not built yet
 
-Per-character reference images; retrieval over the event log; relationship graphs; multi-viewer input; resuming a run (every run starts a fresh world, and what it writes is for reading back). No story with several locations has played on the GPU yet (`stories/lego-quest` is the first), and a cut to another location is untested on the GPU. The film follows the protagonist: there are no cutaways to a place it is not.
+Per-character reference images; retrieval over the event log; relationship graphs; multi-viewer input; resuming a run (every run starts a fresh world, and what it writes is for reading back). One story with several locations has played on the GPU (`stories/lego-quest`, once): a cut lands the new place, a walk does not. The film follows the protagonist: there are no cutaways to a place it is not.
