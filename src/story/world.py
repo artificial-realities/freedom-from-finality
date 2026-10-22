@@ -48,6 +48,8 @@ class Entity(BaseModel):
     description: str = ""        # who/what it is (for the writer): a character's `who`
     look: str = ""               # how it looks (for the renderer; see `render_look`)
     look_short: str = ""         # a few words of look for clips that continue the picture
+    look_since: int = 0          # segment an op last replaced the look (0 = its first look)
+    cast_look: str = ""          # the look before the first replacement: the cached cast sheet keeps it
     # The state the next clip continues from, in prose: a character's body,
     # place in the frame and what it is doing; a prop's place, condition and
     # who has it. Replaced whole by the op that changes it.

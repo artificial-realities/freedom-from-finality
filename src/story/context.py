@@ -73,8 +73,8 @@ def format_cast(world: WorldModel) -> str:
         if ent.appears:
             when = f", when {ent.appears_when.rstrip('.')}" if ent.appears_when else ""
             bits.append(f"  Not in the film at the start; {ent.appears} appear{when}.")
-        if ent.look:
-            bits.append(f"  Look (verbatim for shots): {ent.look}")
+        if ent.cast_look or ent.look:
+            bits.append(f"  Look (verbatim for shots): {ent.cast_look or ent.look}")
         if ent.voice is not None:
             voice = ent.voice
             said = "; ".join(x for x in (voice.description, voice.language and f"speaks {voice.language}",
@@ -207,6 +207,9 @@ def format_world_now(world: WorldModel) -> str:
             if ent.kind == "character":
                 now = ent.state or "(not recorded yet: describe it in your first op)"
                 line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATE_CHARS)}"
+                if ent.look_since:
+                    # The cast sheet (system prompt) keeps the blueprint's look.
+                    line += f" · looks now: {ent.look}"
                 if ent.dynamic:
                     # Not on the cast sheet (it came into the film at segment
                     # `first_seen`): who it is and how it sounds.
@@ -218,10 +221,11 @@ def format_world_now(world: WorldModel) -> str:
                     out.append("  notes: " + " | ".join(ent.notes[-MAX_NOTES:]))
                 continue
             now = f" · now: {_clip(ent.state, STATE_CHARS)}" if ent.state else ""
-            # No `looks:` here: the renderer's description is the compiler's
-            # business (it reads `look` from the model); the Director writes
-            # what happens, not what things look like.
-            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{now}")
+            # A thing's look is the compiler's business (it reads `look` from
+            # the model); only a look an op has changed is shown, so the next
+            # change starts from it.
+            looks = f" · looks now: {ent.look}" if ent.look_since else ""
+            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{now}{looks}")
         if rest:
             out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))
     else:

@@ -245,6 +245,17 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             continue
 
         changes: list[str] = []
+        # A lasting change of appearance (a helmet put on or taken off)
+        # replaces the look, and the short look with it, whole: every clip
+        # then names the figure as it now is. A short look cut from the new
+        # one would drop either the change or the identity, and a look that
+        # still said "bare head" took the helmet off a figure that wore it.
+        look = " ".join(op.description.split())
+        if op.op == "update" and look and ent.kind != "location" and look != ent.look:
+            ent.cast_look = ent.cast_look or ent.look
+            ent.look = ent.look_short = look
+            ent.look_since = seg
+            changes.append(f"look={look}")
         # The state is prose, replaced whole.
         state = " ".join(op.state.split())
         if state and state != ent.state:

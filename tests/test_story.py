@@ -368,6 +368,38 @@ def test_the_writers_see_the_place_as_the_video_model_draws_it():
     assert format_world_now(_world()).startswith("Location: `the_white_void` The White Void\n"), "no look, nothing said"
 
 
+def test_a_lasting_change_of_appearance_replaces_the_look():
+    """A helmet put on rewrites the wearer's look, so later clips name him
+    as he now is instead of the "bare head" that took it off again; the
+    cached cast sheet keeps the blueprint's look and World now shows the
+    new one; taking it off writes the plain look back."""
+    from src.story.context import format_cast, format_cast_rules
+    w = _world()
+    system_before = format_cast(w) + format_cast_rules(w)
+    helmeted = "the plain LEGO minifigure wearing a silver knight's helmet with a red plume, plain red torso, plain blue legs"
+    on = EntityOp(op="update", entity="lego_man", kind="character", description=helmeted, state="helmet on, centre frame")
+    r = _apply(_beat(on, clips=[_clip(entity_ops=[on])]), w, 3)
+    hero = w.entities["lego_man"]
+    assert hero.look == hero.look_short == helmeted and hero.look_since == 3, r.applied
+    assert any(a.startswith("update lego_man: look=") for a in r.applied)
+    p = _emit(_beat(clips=[_clip(action="He nods.")]), w, 4)
+    assert f"On screen: Lego Man ({helmeted})." in p and "bare yellow head" not in p, "the whole new look, uncut"
+    assert f"· looks now: {helmeted}" in format_world_now(w)
+    assert format_cast(w) + format_cast_rules(w) == system_before, "the system prompt stays byte-identical (cache)"
+    # A prop's look changes the same way; an introduce of something that exists does not.
+    _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="shield", description="a red LEGO shield")])]), w, 5)
+    _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="shield", description="a blue LEGO shield")])]), w, 6)
+    assert w.entities["shield"].look == "a red LEGO shield"
+    paint = EntityOp(op="update", entity="shield", description="a red LEGO shield with a white star painted on it")
+    _apply(_beat(clips=[_clip(entity_ops=[paint])]), w, 7)
+    assert w.entities["shield"].look_short == "a red LEGO shield with a white star painted on it"
+    assert "shield (prop): shield · looks now: a red LEGO shield with a white star" in format_world_now(w)
+    plain = "the plain LEGO minifigure: bare yellow head, plain red torso, plain blue legs"
+    off = EntityOp(op="update", entity="lego_man", kind="character", description=plain)
+    _apply(_beat(clips=[_clip(entity_ops=[off])]), w, 8)
+    assert hero.look_short == plain and hero.look_since == 8
+
+
 def test_a_newcomers_short_look_ends_on_a_whole_phrase():
     w = _world()
     look = "A small LEGO forest traveler with a dark green hood, brown torso and a handcart wheel beside them."
