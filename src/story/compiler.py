@@ -11,8 +11,9 @@ an entity's description goes on the clip in which it enters the picture
 (introduced, back after an absence, or on the opening clip without being
 in the reference image), and an entering entity is never listed as
 already on screen, because the conditioning frames do not have it. Later clips carry the blueprint's
-short visual anchor and each character's short look, which hold framing
-and identity over long chains. A clip that cuts (where the story
+short visual anchor and the short look of each character and prop, which
+hold framing and identity over long chains: a prop named alone gets
+redrawn within a few clips. A clip that cuts (where the story
 allows it) opens on the shot the picture is in and says "The view cuts to
 …" before its action, LTX-2.5's convention for a cut in prose; the clips
 after it open on the new shot. A location with a look in the
@@ -59,7 +60,7 @@ def _first_sentence(text: str) -> str:
 def describe(entity: Entity, *, full: bool) -> str:
     """The entity as the prompt names it: with its full look when `full`
     (the opening clip, or the clip in which it enters the picture),
-    otherwise a character's short look or just the name."""
+    otherwise its short look or, without one, just the name."""
     if full:
         look = " ".join(entity.render_look().split()).rstrip(".")
         if look and look.lower() != entity.name.lower():

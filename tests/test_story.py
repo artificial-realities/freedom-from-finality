@@ -374,6 +374,11 @@ def test_a_newcomers_short_look_ends_on_a_whole_phrase():
     traveler = EntityOp(op="introduce", entity="forest traveler", kind="character", description=look, voice="dry")
     _apply(_beat(clips=[_clip(on_screen=["lego_man", "forest traveler"], entity_ops=[traveler])]), w, 2)
     assert w.entities["forest_traveler"].look_short == "A small LEGO forest traveler with a dark green hood"
+    # A prop gets one too, and a look without a comma still ends on a whole phrase.
+    look = "A round red LEGO shield with a raised golden lion emblem and a black rim and handle"
+    shield = EntityOp(op="introduce", entity="lion shield", kind="prop", description=look)
+    _apply(_beat(clips=[_clip(on_screen=["lego_man", "lion shield"], entity_ops=[shield])]), w, 3)
+    assert w.entities["lion_shield"].look_short == "A round red LEGO shield with a raised golden lion emblem"
 
 
 def test_a_line_says_each_quality_of_the_voice_once():
@@ -420,8 +425,7 @@ def test_compiler_continuing_clip_is_compact():
     p1 = compile_clip(beat, 0, w, picture=Picture(style=style, anchor="Studio shot, white."), segment_no=2)
     assert p1.startswith("Studio shot, white.") and "Pure white cyclorama" not in p1, "the anchor replaces the style paragraph"
     assert "Lego Man (the same plain LEGO minifigure" in p1 and "the most default" not in p1, "short look on continues"
-    assert "soccer ball;" in p1 or "soccer ball." in p1
-    assert "(a studded LEGO ball)" not in p1, "a prop already introduced is named, not described"
+    assert "soccer ball (a studded LEGO ball)" in p1, "a prop already introduced carries its short look"
     assert "The shot opens with" not in p1 and "Cut to" not in p1
     p2 = compile_clip(beat, 1, w, picture=Picture(style=style), segment_no=3)
     assert p2.startswith("Studio product shot.") and "cyclorama" not in p2, "no anchor: the style's first sentence"
@@ -450,10 +454,10 @@ def test_compiler_describes_entering_and_returning_entities():
     p2 = _emit(ball, w, 2)
     assert "On screen: Lego Man (the same plain LEGO minifigure" in p2 and "soccer ball" not in p2.split("Entering")[0]
     assert "Entering the picture during this clip: soccer ball (a studded LEGO ball). A soccer ball rolls in" in p2
-    # The next clip: the ball was in the previous picture, so it is listed by name.
+    # The next clip: the ball was in the previous picture, so it is listed with its short look.
     p3 = _emit(_beat(clips=[_clip(action="He nudges the ball.", on_screen=["lego_man", "soccer_ball"])]), w, 3)
-    assert "On screen: Lego Man (the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands); soccer ball." in p3
-    assert "Entering" not in p3 and "(a studded LEGO ball)" not in p3
+    assert "On screen: Lego Man (the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands); soccer ball (a studded LEGO ball)." in p3
+    assert "Entering" not in p3
     # Introduced by an op but not listed: described anyway.
     crown = _beat(clips=[_clip(action="The crown pops off with a click. He holds it up.", on_screen=["lego_man"],
                                entity_ops=[EntityOp(op="introduce", entity="princess crown", description="a bright, blocky LEGO crown", state="in Lego Man's hand")])])
@@ -462,18 +466,18 @@ def test_compiler_describes_entering_and_returning_entities():
     assert "On screen: Lego Man (the same plain" in p4 and "soccer ball" not in p4, "not listed this clip: not in the picture"
     # Listed for the first time on the clip after its entrance: it was in the picture, so no second entrance.
     p5 = _emit(_beat(clips=[_clip(action="He turns the crown over.", on_screen=["lego_man", "princess_crown"])]), w, 5)
-    assert "; princess crown." in p5 and "Entering" not in p5
+    assert "; princess crown (a bright, blocky LEGO crown)." in p5 and "Entering" not in p5
     # The ball, absent from two clips' pictures, returns: identifiers again.
     p6 = _emit(_beat(clips=[_clip(action="He kicks the ball, crown still in hand.", on_screen=["lego_man", "princess_crown", "soccer_ball"])]), w, 6)
     assert "Entering the picture during this clip: soccer ball (a studded LEGO ball). He kicks the ball" in p6
-    assert "On screen: Lego Man (the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands); princess crown." in p6
+    assert "On screen: Lego Man (the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands); princess crown (a bright, blocky LEGO crown)." in p6
     # A character that leaves the frame and comes back is re-identified in full.
     p7 = _emit(_beat(clips=[_clip(action="The ball sits alone; he is out of frame.", end_state="the ball alone", on_screen=["soccer_ball"])]), w, 7)
-    assert "On screen: soccer ball." in p7 and "Lego Man" not in p7
+    assert "On screen: soccer ball (a studded LEGO ball)." in p7 and "Lego Man" not in p7
     p8 = _emit(_beat(clips=[_clip(action="He walks back in carrying a hat.", on_screen=["lego_man", "soccer_ball", "hat"],
                                entity_ops=[EntityOp(op="introduce", entity="hat", description="a red LEGO cap")])]), w, 8)
     assert "Entering the picture during this clip: Lego Man (the most default LEGO minifigure" in p8, "characters first, full look"
-    assert "; hat (a red LEGO cap). He walks back in" in p8 and "On screen: soccer ball." in p8
+    assert "; hat (a red LEGO cap). He walks back in" in p8 and "On screen: soccer ball (a studded LEGO ball)." in p8
     # A look the Director's action already carries verbatim is not repeated.
     dup = _beat(clips=[_clip(action="A brick-built dog, a squat grey LEGO dog with a stud nose, trots in.", on_screen=["lego_man", "soccer_ball", "hat", "dog"],
                              entity_ops=[EntityOp(op="introduce", entity="dog", description="a squat grey LEGO dog with a stud nose")])])

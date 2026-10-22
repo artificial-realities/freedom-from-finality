@@ -143,9 +143,9 @@ SHORT_LOOK_WORDS = 14
 
 
 def _short_look(look: str) -> str:
-    """A character introduced by the film gets its look cut to its first
-    clause (at most SHORT_LOOK_WORDS words) as the short look later clips
-    carry, so its identity is restated on every clip it is in. A look cut
+    """A character or prop introduced by the film gets its look cut to its
+    first clause (at most SHORT_LOOK_WORDS words) as the short look later
+    clips carry, so its identity is restated on every clip it is in. A look cut
     short ends on its last whole phrase ("…with a dark green hood", not
     "…with a dark green hood, brown torso and a")."""
     text = " ".join(look.split()).rstrip(".")
@@ -157,8 +157,11 @@ def _short_look(look: str) -> str:
     if len(words) > SHORT_LOOK_WORDS:
         text = " ".join(words[:SHORT_LOOK_WORDS])
         comma = text.rfind(",")
+        joint = text.rfind(" and ")
         if comma > 0:
             text = text[:comma]
+        elif joint > len(text) // 2:
+            text = text[:joint]    # "…lion emblem", not "…lion emblem and a black"
     return text.rstrip(" ,;:")
 
 
@@ -219,6 +222,9 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 ent.description = " ".join(op.who.split())
                 ent.voice = Voice(description=" ".join(op.voice.split())) if op.voice.strip() else None
             if ent.kind == "prop":
+                # A prop keeps its look the way a character does: named
+                # alone on later clips, the video model redraws it.
+                ent.look_short = _short_look(look)
                 here = world.current_location()
                 ent.location = here.id if here else ""
             ent.present = True

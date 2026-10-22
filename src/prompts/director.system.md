@@ -57,7 +57,7 @@ One JSON object. It is written while the film plays and its length is its delay,
   - `end_state`: the final image of the clip, one short sentence.
   - `camera_motion`: "static", or the move as a verb phrase without its subject: "slowly pushes in toward him", "pans left to follow her", "tilts up to the sky".
   - `ambient_sound`: a few words tied to visible or locatable sources, or empty.
-  - `on_screen`: entity ids visible in the clip.
+  - `on_screen`: entity ids visible in the clip, including what a character on screen wears or carries in view. The video model draws only what the prompt names: a hat or shield left off this list comes off or changes shape.
   - `dialogue`: lines spoken in this clip, each with `speaker` (entity id), `line` (in the speaker's language) and `delivery` (a few words on how it is said: "quiet, hoarse"). Usually empty.
   - `entity_ops`: what changes in the world in this clip (see Ops).
 - `thread_ops`: what changes in the open threads (see Ops).
