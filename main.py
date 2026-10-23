@@ -18,13 +18,13 @@ from dotenv import load_dotenv
 from src.i2v.ltxv import ReferenceRefused
 from src.i2v.shape import RendererNotReady
 from src.models.config import Config
-from src.models.story import Story
+from src.models.story import FrameZero
 from src.preflight import check_setup
 from src.runner import run_live
 from src.web import WebPlayer
 
 DEFAULT_CONFIG = Path("configs/text.yaml")
-DEFAULT_STORY = Path("stories/lego-void")
+DEFAULT_STORY = Path("data/frame_zero")
 DEFAULT_LOG_DIR = Path("logs")
 
 
@@ -60,16 +60,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def load(args: argparse.Namespace) -> tuple[Config, Story]:
-    """The run's config and story, or SystemExit with what is wrong."""
+def load(args: argparse.Namespace) -> tuple[Config, FrameZero]:
+    """The run's config and frame zero, or SystemExit with what is wrong."""
     try:
         config = Config.from_yaml(args.config)
     except Exception as exc:
         raise SystemExit(f"Cannot load the config {args.config}: {exc}") from None
     try:
-        story = Story.from_json(args.story)
+        story = FrameZero.from_json(args.story)
     except Exception as exc:
-        raise SystemExit(f"Cannot load the story {args.story}: {exc}") from None
+        raise SystemExit(f"Cannot load the frame zero {args.story}: {exc}") from None
     return config, story
 
 

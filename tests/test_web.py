@@ -76,7 +76,7 @@ async def test_web_player_text_mode_streams_and_takes_input():
         state = await run
 
         hello = events[0]
-        assert hello[0] == "hello" and hello[1]["title"] == story.title and hello[1]["now"], \
+        assert hello[0] == "hello" and hello[1]["title"] == story.name and hello[1]["now"], \
             "a late joiner is told what is on air"
         playing = [e for n, e in events if n == "playing"]
         assert len(state.history) == 5 and playing, "segments played after the client connected"

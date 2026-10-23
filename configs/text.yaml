@@ -1,6 +1,6 @@
-# The film as text, in the browser: no GPU, only OPENAI_API_KEY.
+# The story as text, in the browser: no GPU, only OPENAI_API_KEY.
 # Every setting and its default is in src/models/config.py.
-director_model: "gpt-5.6-luna"
-showrunner_model: "gpt-5.6-luna"
-director_reasoning_effort: "none"
-showrunner_reasoning_effort: "none"
+spark_model: "gpt-5.6-luna"
+echo_model: "gpt-5.6-luna"
+spark_reasoning_effort: "none"
+echo_reasoning_effort: "none"

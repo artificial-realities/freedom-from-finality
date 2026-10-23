@@ -1,17 +1,13 @@
 Segment {segment}
 
-## Plan
-{plan}
+## The notebook
+{notebook}
 
 ## World now
 {world_now}
 
-## Open threads
-{threads}
-
-## Viewer
+## The viewer
 {interventions}
-{viewer_callbacks}
 
 ## Story so far
 {summaries}
@@ -22,4 +18,4 @@ Segment {segment}
 ## Where the picture is
 {beat_status}
 
-Write the next beat now, starting at segment {segment}, as a single JSON object.
+Continue the story now, starting at segment {segment}, as a single JSON object.

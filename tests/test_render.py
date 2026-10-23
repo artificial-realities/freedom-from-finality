@@ -142,10 +142,10 @@ async def test_a_run_is_refused_when_its_shape_is_not_warm():
 
 
 async def test_every_consumer_reads_the_selected_shape():
-    """Through the live loop with rendered clip files: the Director is
-    told the shape's length, the render request carries its frames, the
-    player holds each clip for its delivered seconds, the event record and
-    the story clock count them; a clip file of another length is flagged."""
+    """Through the live loop with rendered clip files: Spark is told the
+    shape's length, the render request carries its frames, the player
+    holds each clip for its delivered seconds, the event record counts
+    them; a clip file of another length is flagged."""
     from src import runner
     from src.llm.mock_backend import MockBackend
     from tests.test_engine import Clips, Scripted, rendering, tiny_clip
@@ -188,8 +188,8 @@ async def test_every_consumer_reads_the_selected_shape():
     one = 1.0
     assert [s.render_frames for s in shapes_seen] == [33, 33, 33]
     assert held == [one] * 3 and [h.shot.duration_seconds for h in state.history] == [one] * 3
-    assert [e.duration for e in world.events] == [one] * 3 and world.scene_seconds() == 3 * one
-    assert all("clips of 1 seconds" in s for s in systems), "the Director is told the shape's length"
+    assert [e.duration for e in world.events] == [one] * 3
+    assert all("clips of 1 seconds" in s for s in systems), "Spark is told the shape's length"
     assert not [r for r in records if r["event"] == "shape_mismatch"]
     mismatch = [r for r in wrong_records if r["event"] == "shape_mismatch"]
     assert mismatch and mismatch[0]["frames"] == 57 and abs(mismatch[0]["measured_s"] - 33 / 24) < 0.01

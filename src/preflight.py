@@ -18,7 +18,7 @@ import tempfile
 from dataclasses import dataclass
 
 from src.models.config import Config
-from src.models.story import Story
+from src.models.story import FrameZero
 
 OPENAI_KEYS_URL = "https://platform.openai.com/api-keys"
 
@@ -29,7 +29,7 @@ class Finding:
     message: str
 
 
-def check_setup(config: Config, story: Story, *, probe_server: bool = True) -> list[Finding]:
+def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) -> list[Finding]:
     found: list[Finding] = []
 
     def add(level: str, message: str) -> None:
@@ -41,7 +41,7 @@ def check_setup(config: Config, story: Story, *, probe_server: bool = True) -> l
 
     _check_llm(config, add)
 
-    add("ok", f"story {story.title!r}")
+    add("ok", f"story {story.name!r}")
     if not config.video_enabled:
         add("ok", "video off: the film plays as text, no GPU or ffmpeg needed")
         return found
@@ -67,17 +67,17 @@ def _check_llm(config: Config, add) -> None:
     if backend != "openai":
         add("error", f"unknown llm_backend {config.llm_backend!r} (use \"openai\" or \"mock\")")
         return
-    if not (config.director_model and config.showrunner_model):
-        add("error", "director_model and showrunner_model must both be set in the config")
+    if not (config.spark_model and config.echo_model):
+        add("error", "spark_model and echo_model must both be set in the config")
     if os.getenv("OPENAI_API_KEY", "").strip():
         add("ok", f"OPENAI_API_KEY is set (not tried against OpenAI); "
-                  f"Director {config.director_model}, Showrunner {config.showrunner_model}")
+                  f"Spark {config.spark_model}, Echo {config.echo_model}")
     else:
         add("error", f"OPENAI_API_KEY is not set: create a key at {OPENAI_KEYS_URL} and put it in .env "
                      f"(cp .env.example .env)")
 
 
-def _check_server(config: Config, story: Story, add) -> None:
+def _check_server(config: Config, story: FrameZero, add) -> None:
     from src.i2v.ltxv import LtxvI2V, ReferenceRefused
     from src.i2v.shape import ClipShape, RendererNotReady
 

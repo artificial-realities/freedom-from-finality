@@ -1,9 +1,9 @@
-# The film as video with sound: needs the LTX-2.5 server (server/README.md)
+# The story as video with sound: needs the LTX-2.5 server (server/README.md)
 # and OPENAI_API_KEY. Every setting and its default is in src/models/config.py.
-director_model: "gpt-5.6-luna"
-showrunner_model: "gpt-5.6-luna"
-director_reasoning_effort: "none"
-showrunner_reasoning_effort: "none"
+spark_model: "gpt-5.6-luna"
+echo_model: "gpt-5.6-luna"
+spark_reasoning_effort: "none"
+echo_reasoning_effort: "none"
 
 video_enabled: true
 clip_seconds: 6                           # the one clip length: 153 frames, which the server warms

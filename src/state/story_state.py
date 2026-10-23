@@ -2,7 +2,7 @@
 
 The engine owns the story (see `src.story.world.WorldModel`); this
 object is the surface the runner, playback and transcript work with:
-the blueprint, the current segment's views and history. The blueprint
+the frame zero, the current segment's views and history. The frame zero
 is set once at initialization and read-only during a run.
 """
 
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from src.i2v.shape import ClipShape
 from src.models.responses import Beat, Shot
-from src.models.story import Story
+from src.models.story import FrameZero
 
 
 class HistoryEntry(BaseModel):
@@ -23,30 +23,22 @@ class HistoryEntry(BaseModel):
 
 
 class StoryState(BaseModel):
-    story: Story
+    story: FrameZero
 
-    # Current turn
     turn_number: int = 0
     user_input: str = ""
     current_beat: Beat | None = None
     current_shot: Shot | None = None
-    # How the Director handled `user_input` this segment (none | absorbed |
-    # deferred | declined) and why; the player shows this to the viewer.
     current_intervention: str = "none"
     current_intervention_reason: str = ""
-    current_beat_intent: str = ""   # the beat this clip belongs to, in a few words
-    current_clip: str = ""          # "2/3": the clip's place in its beat
-    # The clip's spoken lines ("Name: line"): the player shows them, and the
-    # overlap seam brings a clip with speech in at once instead of
-    # crossfading its first syllable.
+    current_beat_intent: str = ""
+    current_clip: str = ""
     current_dialogue: list[str] = Field(default_factory=list)
-    current_shape: ClipShape | None = None   # the clip's selected shape: what is rendered and held
-    current_clip_id: int = 0                # monotonic clip identity (never reused)
-    current_parent_clip_id: int = 0         # the clip this one continues from (0 = reference)
-    turn_notes: str = ""  # engine-specific markdown appended to the transcript
+    current_shape: ClipShape | None = None
+    current_clip_id: int = 0
+    current_parent_clip_id: int = 0
+    turn_notes: str = ""
 
-    # Compact views of the world model for the transcript (the engine
-    # writes them; the world model itself is the source of truth).
     world_state: dict = Field(default_factory=dict)
     context_brief: str = ""
 
@@ -54,5 +46,5 @@ class StoryState(BaseModel):
     config_name: str = ""
 
     @classmethod
-    def initialize(cls, story: Story, config_name: str) -> "StoryState":
+    def initialize(cls, story: FrameZero, config_name: str) -> "StoryState":
         return cls(story=story, config_name=config_name)

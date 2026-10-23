@@ -1,3 +1,3 @@
-from src.agents import director, showrunner
+from src.agents import echo, spark
 
-__all__ = ["director", "showrunner"]
+__all__ = ["echo", "spark"]

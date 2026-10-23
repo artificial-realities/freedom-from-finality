@@ -1,0 +1,47 @@
+{
+  "name": "Lego Man in the White Void",
+  "opening": "He wakes in the empty white space, tests a few moves and soon finds the first prop. Props start appearing within the first minute; the void is boring without them.",
+  "truths": [
+    "This is a LEGO world and everything in it is plastic. Anatomy is absolute: claw hands that grip but cannot point or do fine work, legs that do not bend at the knee, a head that turns all the way round, parts that pop off and click back on.",
+    "Every minifigure's face is one fixed print. Never write a facial expression in the action or the shot (no eyebrows, frown, scowl, grin, smirk, glare, wide eyes, gritted teeth): the video model paints whatever is written onto the face. Emotion is head tilt, posture, timing and gesture only.",
+    "The white void is the only place: no floor line, no horizon, no walls. The story never relocates; variety comes from props, visitors and actions.",
+    "Props enter in one of two ways: they appear in frame, or a minifigure walks a few steps out of frame and comes back carrying them. They leave by coming apart into bricks, being thrown off-screen or packed away. Visitors walk in from the edge of the frame."
+  ],
+  "newcomers": "Other minifigures from any LEGO theme (a pirate, a knight, a chef), each marked by one clear piece (a hat, a helmet, a tool), with the same fixed printed face.",
+  "locations": [
+    {
+      "name": "The White Void",
+      "description": "An infinite, featureless white space under soft, shadowless studio light, empty except for the minifigures and whatever props the story summons."
+    }
+  ],
+  "characters": [
+    {
+      "name": "Lego Man",
+      "who": "The most default minifigure imaginable, alone in the void until someone drops in.",
+      "wants": "Something to do, and to get it right.",
+      "nature": "Earnest and game for anything; takes small things very seriously. Shows what he feels through posture, head tilts and physical comedy.",
+      "voice": {"description": "earnest, slightly formal, a little breathless", "language": "English"},
+      "look": "the most default LEGO minifigure: bare yellow head with no hair piece, printed only with the classic two-dot eyes and curved smile, plain red torso with no print, plain blue legs, claw hands",
+      "look_short": "the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands",
+      "state": "standing upright centre frame, arms at his sides"
+    },
+    {
+      "name": "Spaceman",
+      "who": "A classic LEGO Space astronaut who drops into the void and treats it as an uncharted planet.",
+      "wants": "To plant his flag and claim the void for science.",
+      "nature": "Brisk and by the book; reports everything as if over the radio, and is easily impressed.",
+      "voice": {"description": "crisp, clipped, with a faint radio crackle", "language": "English"},
+      "look": "a classic LEGO Space astronaut minifigure: black space suit with a printed space logo on the chest, black classic space helmet with a chin strap, black air tanks on his back, yellow head printed with the classic two-dot eyes and curved smile",
+      "look_short": "the LEGO spaceman in the black space suit and helmet",
+      "present": false
+    }
+  ],
+  "picture": {
+    "style": "Clean product photograph of LEGO minifigures on a seamless pure white cyclorama: no background, no horizon, no floor seam, no walls, no objects behind them. Even, shadowless studio light from all directions; the only shadow is a faint soft contact shadow directly under each minifigure. Flat neutral colours, no coloured light, no glow, no texture. The background stays pure white for the entire shot. Only the minifigures the shot names are on screen; props come and go as the story requires. Motion has a slight stop-motion feel: every click, snap and pop-off reads clearly. No on-screen text, no camera flourish. Zooms only when they genuinely serve a gag.",
+    "anchor": "Clean product photograph of LEGO minifigures on a seamless pure white cyclorama, even shadowless studio light, pure white background, flat neutral colours, a slight stop-motion feel, no on-screen text.",
+    "reference": {
+      "image": "legoman-16x9.png",
+      "shows": "Lego Man standing upright in a wide product shot, facing the camera, arms straight at his sides, feet together, centred on a white background"
+    }
+  }
+}

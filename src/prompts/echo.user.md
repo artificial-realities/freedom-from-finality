@@ -1,8 +1,8 @@
 Trigger: {reason}
 Segment: {segment}
 
-## Current plan
-{plan}
+## The notebook (as last written)
+{notebook}
 
 ## Story so far
 {summaries}
@@ -13,10 +13,7 @@ Segment: {segment}
 ## World now
 {world_now}
 
-## Open threads
-{threads}
-
-## Viewer requests
+## The viewer
 {interventions}
 
 {instruction}

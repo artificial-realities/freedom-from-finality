@@ -71,7 +71,7 @@ def test_a_config_names_only_known_settings(tmp_path):
         Config.from_yaml(tmp_path / "old.yaml")
         raise AssertionError("an unknown setting must be refused")
     except ValueError as exc:
-        assert "seam" in str(exc)
+        assert "director_model" in str(exc) or "seam" in str(exc)
     assert Config.from_yaml("configs/text.yaml").name == "text", "a config is named after its file"
 
 
@@ -93,9 +93,6 @@ async def test_play_refuses_to_start_without_a_key(tmp_path):
 
 
 async def test_check_probes_the_video_server(monkeypatch):
-    """The video config's check reaches the server: unreachable is an error;
-    a ready server with the config's warm shape and size passes, and the
-    reference image fits it."""
     monkeypatch.setenv("OPENAI_API_KEY", FAKE_KEY)
     monkeypatch.setenv("LTXV_SERVER_URL", f"http://127.0.0.1:{_closed_port()}")
     code, out = _check("configs/video.yaml")
@@ -108,14 +105,13 @@ async def test_check_probes_the_video_server(monkeypatch):
         })
 
     async with _serve([web.get("/health", health)]) as url:
-        # The check's HTTP client blocks, so it runs beside the stand-in's loop.
         monkeypatch.setenv("LTXV_SERVER_URL", url)
         code, out = await asyncio.to_thread(_check, "configs/video.yaml")
         assert code == 0 and "ready on Test GPU" in out, out
 
 
 async def test_the_openai_backend_against_a_local_api(monkeypatch):
-    """The Director's call as the installed SDK sends it: strict JSON schema,
+    """Spark's call as the installed SDK sends it: strict JSON schema,
     reasoning effort, completion-token cap; the reply's text comes back. A
     refused key is an error result, not an exception."""
     seen: list[dict] = []

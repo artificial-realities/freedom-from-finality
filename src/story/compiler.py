@@ -78,10 +78,10 @@ CAMERA_STATIC = ("static", "static camera", "none", "no movement", "no camera mo
 
 def camera_clause(motion: str) -> str:
     """The camera as one clause: "the camera remains static", or the
-    Director's motion after "the camera" in a form that reads as a
+    Spark's motion after "the camera" in a form that reads as a
     sentence whether the motion is a verb phrase ("slowly pushes in"), a
     participle ("tracking him") or a noun phrase ("slow push-in toward
-    the pair", the form the Director writes today)."""
+    the pair", the form Spark writes today)."""
     text = " ".join(motion.split()).strip().rstrip(".").strip()
     low = text.lower()
     for prefix in ("the camera ", "camera "):
@@ -250,7 +250,7 @@ def compile_clip(
             seen.add(e.id)
             ents.append(e)
     # Who enters the picture during this clip: introduced in this segment
-    # (listed by the Director or not: the world has it present), or on
+    # (listed by Spark or not: the world has it present), or on
     # screen now without having been in the previous clip's picture.
     previous = previous_picture(world, segment_no)
     entering: list[Entity] = []
@@ -278,7 +278,7 @@ def compile_clip(
     def entering_name(e: Entity) -> str:
         look = " ".join(e.render_look().split()).rstrip(".")
         if not described[e.id] or (look and look.lower() in action_low):
-            return e.name          # the Director's action already carries the look
+            return e.name          # the action already carries the look
         return describe(e, full=True)
 
     named = [describe(e, full=opening) if described[e.id] else e.name for e in staying]

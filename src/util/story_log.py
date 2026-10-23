@@ -132,7 +132,7 @@ class StoryLogger:
             out.append("\n")
 
         out.append("**Memory**\n\n")
-        location = world_state.get("protagonist_location")
+        location = world_state.get("camera_location")
         characters = world_state.get("characters")
         if location:
             out.append(f"- Location: {location}\n")
