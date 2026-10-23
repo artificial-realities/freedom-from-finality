@@ -1,6 +1,8 @@
 # Decisions
 
-Why the prototype is built the way it is: each entry is a decision, what it was weighed against, and the evidence. The runs behind them were made between September and October 2026 on one story (the LEGO minifigure in a white void), with OpenAI models and LTX-2.5 on rented H100s. They are grounding for the design, not benchmarks; the current performance numbers are in the [README](../README.md#performance).
+Why the system is built the way it is: each entry is a decision, what it was weighed against, and the evidence. The runs behind them were made between September and October 2026 on one story (the LEGO minifigure in a white void), with OpenAI models and LTX-2.5 on rented H100s. They are grounding for the design, not benchmarks; the current performance numbers are in the [README](../README.md#performance).
+
+> **Name changes (October 2026).** The Director became **Spark**, the Showrunner became **Echo**, and the story blueprint (`story.json`) became the **frame zero** (`frame_zero.json`). The entries below use the names that were current when the evidence was gathered.
 
 ## Orchestration
 

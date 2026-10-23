@@ -1,25 +1,25 @@
 # AGENTS.md: working on Untitled Project
 
-Project facts and rules for coding agents (and humans). How the film works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), why it is built that way in [docs/decisions.md](docs/decisions.md), and the goal in [docs/vision.md](docs/vision.md).
+Project facts and rules for coding agents (and humans). How the story works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), why it is built that way in [docs/decisions.md](docs/decisions.md), and the goal in [docs/vision.md](docs/vision.md).
 
 ## What this is
 
-An interactive video generation system: a continuously generated film that a viewer steers by typing suggestions into a browser page. Two LLM roles (a **Director** that writes one beat of a few clips per call, and a slow-clock **Showrunner** that keeps the memory and plans the next scene) write the film over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
+An infinite, continuously generated story that a viewer steers by typing suggestions into a browser page. Two LLM roles — **Spark** (the creative voice, one beat per call on the critical path) and **Echo** (memory and intuition, off the critical path on a slow clock) — write the story over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
 
-Two configs: `configs/text.yaml` (the default: the film as text in the browser, no GPU, only an OpenAI key) and `configs/video.yaml` (needs the LTX-2.5 server on an 80 GB NVIDIA GPU, best with the client on the same machine).
+Two configs: `configs/text.yaml` (the default: the story as text in the browser, no GPU, only an OpenAI key) and `configs/video.yaml` (needs the LTX-2.5 server on an 80 GB NVIDIA GPU, best with the client on the same machine).
 
 ## Repository map
 
 ```
 main.py                    # check | play; --config, --story, --segments, --log-dir, --host, --port
 src/
-  runner.py                # run_live: the film loop (just-in-time render, viewer interrupts, the saved film)
-  engine.py                # DirectorEngine: plan a beat, emit its clips, roll back, the Showrunner clock
-  agents/                  # director.py (BeatPlan per beat), showrunner.py (ShowrunnerUpdate)
-  prompts/                 # director.*.md, showrunner.*.md
+  runner.py                # run_live: the story loop (just-in-time render, viewer interrupts, the saved film)
+  engine.py                # SparkEngine: plan a beat, emit its clips, roll back, the Echo clock
+  agents/                  # spark.py (BeatPlan per beat), echo.py (EchoUpdate)
+  prompts/                 # spark.*.md, echo.*.md
   story/                   # typed world model, schemas, validator (per clip), context assembler, prompt compiler
   state/story_state.py     # StoryState: the runner-facing surface
-  models/                  # config (Config, every field commented), story (the blueprint), responses
+  models/                  # config (Config, every field commented), story (FrameZero), responses
   i2v/                     # the renderer boundary, the LTX-2.5 HTTP client, the clip shape
   llm/                     # OpenAI backend, scripted mock backend for the tests
   playback/player.py       # Playable + Player: the loop's boundary to the page
@@ -28,7 +28,7 @@ src/
   util/                    # media probe, prompt loader, transcript, timing log
 tests/                     # pytest, offline: test_story, test_engine, test_render, test_web, test_setup
 configs/                   # text.yaml · video.yaml
-stories/                   # one folder per story (story.json + reference image); README.md is the field guide
+stories/                   # one folder per story (frame_zero.json + reference image)
 docs/                      # ARCHITECTURE.md (how) · decisions.md (why) · vision.md (the goal)
 server/                    # the LTX-2.5 server for the GPU box, and vast_run.sh to rent one; see server/README.md
 logs/                      # run output (git-ignored): transcripts, sessions/<id>/ (world, events, timing), video/
@@ -55,11 +55,11 @@ python main.py play --config configs/video.yaml        # the film as video (need
 
 - Secrets are environment variables, from the shell or from `.env` in the repo root (`.env.example` is the template). `.env` is git-ignored. `OPENAI_API_KEY` is required for every config; `HF_TOKEN` is for the GPU machine (the gated weights); `VAST_API_KEY` only for `server/vast_run.sh`; `LTXV_SERVER_URL` overrides the config's server address.
 - **Never print, log, commit, echo or paste a key or the contents of `.env`.** `python main.py check` reports only whether a key is set. If one is missing, tell the human where to create it and to put it in `.env` themselves.
-- Everything else is in the config YAML (`Config` in `src/models/config.py`; an unknown key is an error) and the story's `story.json`. Both roles are `gpt-5.6-luna` at no reasoning; don't switch models without the owner's agreement and a real test.
+- Everything else is in the config YAML (`Config` in `src/models/config.py`; an unknown key is an error) and the story's `frame_zero.json`. Both roles are `gpt-5.6-luna` at no reasoning; don't switch models without the owner's agreement and a real test.
 
 ## Paid calls and rented GPUs: rules
 
-- **Never run `python main.py play` or start a film in the browser without the human's explicit permission for that run.** Each beat is a Director call and each viewer line another, about $0.50 per hour of film.
+- **Never run `python main.py play` or start a film in the browser without the human's explicit permission for that run.** Each beat is a Spark call and each viewer line another, about $0.50 per hour of film.
 - **Never run `server/vast_run.sh up` (or anything that rents, starts or restarts a GPU) without explicit approval.** A rented GPU bills by the hour until `server/vast_run.sh down`; after any GPU work, confirm with `server/vast_run.sh status` that nothing is left running.
 - Tests, CI and `check` stay offline and free. The suite's `offline` fixture fails any connection beyond loopback and clears keys from the environment. Fake the models the way the tests do: the mock LLM (`llm_backend: "mock"`), `Clips` in `tests/test_engine.py` for rendering, `_Health` in `tests/test_render.py` for the server, `_serve` in `tests/test_setup.py` for a local HTTP stand-in.
 
@@ -74,9 +74,9 @@ python main.py play --config configs/video.yaml        # the film as video (need
 - **State & responses**: Pydantic v2 `BaseModel`, not `TypedDict` or raw dicts. The world model (`src/story/world.py`) is the system of record; prose is never the source of truth.
 - **Agents** are async functions, not classes. They read prompt sections from `src/story/context.py` and return schema instances; only `src/story/validator.py` mutates the world.
 - **Workflow, not agent system**: no tool use, no LLM-directed control flow. The engine decides order and triggers; the LLM proposes, code validates and applies.
-- **Rendering is opt-out, content is not.** The Director writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
+- **Rendering is opt-out, content is not.** Spark writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
 - **The video model's dialect lives in one place**: `src/story/compiler.py`. Schemas do not change when the model does.
-- **Structured outputs are strict**: keep `BeatPlan` and `ShowrunnerUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
+- **Structured outputs are strict**: keep `BeatPlan` and `EchoUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
 - **Prompts, schemas, compiler and engine are story-agnostic.** Anything story-specific lives in its folder under `stories/`.
 - **Facts, not thresholds, for story quality.** No code judges pacing, loops or whether the film is moving; give the roles what they need to judge it.
 - **A product, not a research harness.** Experiments, benchmarks and evaluation tooling stay out of the repository; what one decides goes into `docs/decisions.md` in a few lines with its numbers. Comments say why in plain words, without tracker IDs or dates.
