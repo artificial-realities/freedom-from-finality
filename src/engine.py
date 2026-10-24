@@ -241,19 +241,16 @@ class NowEngine:
     def _fallback_beat(self) -> BeatPlan:
         world = self.world
         assert world is not None
-        present = world.present_entities()
-        chars = [e for e in present if e.kind == "character"]
-        if chars:
-            name = chars[0].name
-            on_screen = [chars[0].id]
-        else:
-            name = "The scene"
-            on_screen = []
+        # Hold whatever the last clip showed, so nobody leaves the picture.
+        last = world.events[-1].on_screen if world.events else (world.opening_picture or [])
+        on_screen = [eid for eid in last if (e := world.entities.get(eid)) is not None and e.present and not e.gone]
+        names = [world.entities[eid].name for eid in on_screen if world.entities[eid].kind == "character"]
+        action = (f"{' and '.join(names)} hold{'s' if len(names) == 1 else ''} still. Nothing else happens."
+                  if names else "The scene holds still. Nothing happens.")
         return BeatPlan(
             intent="holding the picture",
             framing="medium shot",
-            clips=[ClipSpec(action=f"{name} holds still. Nothing else happens.",
-                            end_state="unchanged", on_screen=on_screen)],
+            clips=[ClipSpec(action=action, end_state="unchanged", on_screen=on_screen)],
         )
 
     # ── Emit: one clip of the beat ──────────────────────────────────

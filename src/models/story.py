@@ -36,15 +36,18 @@ class Voice(BaseModel):
 
 
 class StartingCharacter(BaseModel):
-    """The character in the first frame. `personality` is who it is when
-    the story begins, until Then's notebook has a portrait of it; `state`
-    is where it stands and what it is doing."""
+    """The character in the first frame, given the way Now introduces any
+    character later: `personality` is who it is at heart (only Then
+    rewrites it once the story starts), `voice` how it sounds (or empty,
+    for Now to give when it first speaks), `state` where it stands and
+    what it is doing."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
     look: str
     personality: str = ""
+    voice: str = ""
     state: str = ""
 
 

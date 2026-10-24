@@ -25,6 +25,7 @@ from src.story.context import (
     format_policy,
     format_summaries,
     format_world_now,
+    recalled,
 )
 from src.story.schemas import ThenUpdate
 from src.story.world import WorldModel
@@ -38,18 +39,21 @@ USER_PATH: Path = prompt_path("then.user.md")
 INSTRUCTIONS = {
     "bootstrap": (
         "The story has not started; there is nothing to summarize. Its first "
-        "frame shows: {scene}. Write the opening notebook: a portrait of each "
-        "character who is present, from who World now says it is and nothing "
-        "more, since nothing has happened yet; your initial sense of what is "
-        "alive; any seeds you notice in the first frame; and your opening "
-        "intentions. The audience section is empty."
+        "frame shows: {scene}. Write the opening notebook: for each character "
+        "who is present, an empty `personality` (it keeps the one World now "
+        "gives it) and a `lately` from the first frame and nothing more, since "
+        "nothing has happened yet; your initial sense of what is alive; any "
+        "seeds you notice in the first frame; and your opening intentions. The "
+        "audience section is empty."
     ),
     "compact": (
         "Compress the events since the last compaction into `scene_summary`. "
         "Update the act summary if the current phase has changed meaningfully. "
-        "Then rewrite the notebook: who has each character become, what is "
-        "alive, which seeds remain or are new, where the story might go, and "
-        "what you sense about the audience. Notice if an era has ended."
+        "Then rewrite the notebook: how each character has been lately, and "
+        "whether the story has changed who any of them is at heart; who the "
+        "story is following and who else is pulling at it; what is alive, "
+        "which seeds remain or are new, where the story might go, and what you "
+        "sense about the audience. Notice if an era has ended."
     ),
 }
 
@@ -65,14 +69,15 @@ async def run(
 ) -> ThenUpdate | None:
     system_prompt = load_prompt(SYSTEM_PATH, policy=format_policy())
     scene = " ".join(state.story.scene.split()).rstrip(".")
+    recall = recalled(world, recent=config.recent_clips)
     user_prompt = load_prompt(
         USER_PATH,
         reason=reason,
         segment=world.segment,
         notebook=format_notebook(world),
-        summaries=format_summaries(world, scene_limit=6),
+        summaries=format_summaries(world, scene_limit=6, recall=recall),
         events=format_events(world, world.last_compacted),
-        world_now=format_world_now(world),
+        world_now=format_world_now(world, recall),
         interventions=format_interventions_all(world),
         instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["compact"]).format(scene=scene),
     )

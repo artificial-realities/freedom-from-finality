@@ -27,6 +27,7 @@ from src.story.context import (
     format_recent,
     format_summaries,
     format_world_now,
+    recalled,
 )
 from src.story.schemas import BeatPlan
 from src.story.validator import check
@@ -85,13 +86,14 @@ async def run(
         typical_seconds=f"{round(2 * clip_seconds)} to {round(3 * clip_seconds)}",
         max_clips=config.max_clips_per_beat,
     )
+    recall = recalled(world, state.user_input, config.recent_clips)
     user_prompt = load_prompt(
         USER_PATH,
         segment=state.turn_number,
         notebook=format_notebook(world),
-        world_now=format_world_now(world),
+        world_now=format_world_now(world, recall),
         interventions=format_interventions(world, state.user_input, answer_clips=config.answer_max_clips),
-        summaries=format_summaries(world),
+        summaries=format_summaries(world, recall=recall),
         recent=format_recent(world, config.recent_clips),
         beat_status=beat_status,
     )

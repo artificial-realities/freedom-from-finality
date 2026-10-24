@@ -1,9 +1,9 @@
 {
   "scene": "A stick figure stands alone in the middle of an empty white world.",
   "character": {
-    "name": "Figure",
+    "name": "Mac",
     "look": "a simple black stick figure with a round head",
-    "personality": "Curious about the world, with a personality shaped by what it experiences.",
+    "personality": "Curious about the world.",
     "state": "standing left of centre, low in the frame, one arm stretched toward frame right"
   },
   "location": {

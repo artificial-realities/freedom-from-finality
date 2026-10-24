@@ -119,6 +119,31 @@ def _owed_item(world: WorldModel, segment: int):
     return next((i for i in world.interventions if i.disposition == "deferred" and i.segment == segment), None)
 
 
+def _cut_lands(world: WorldModel, refs: list[str], cut: str, seg: int):
+    """Where a cut lands when no op moved the picture: nowhere new while
+    anything in the shot is already here (it is a new view of this place);
+    otherwise the known location the cut names, or else the one location
+    everything in the shot was last at. Things introduced in this clip
+    carry no evidence of where they are."""
+    here = world.camera_location
+    places: set[str] = set()
+    for ref in refs:
+        ent = world.resolve(ref)
+        if ent is None or ent.gone or ent.first_seen == seg:
+            continue
+        place = ent.id if ent.kind == "location" else ent.location
+        if place == here:
+            return None
+        if place:
+            places.add(place)
+    named = resolve_location(world, cut)
+    if named is not None:
+        return named if named.id != here else None
+    if len(places) == 1:
+        return world.entities.get(places.pop())
+    return None
+
+
 def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int) -> Report:
     """Apply clip `index` of `beat` to `world`, in place: its entity ops,
     presence from its `on_screen`, its dialogue filter. The first clip
@@ -127,12 +152,14 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     Normalises the clip: `on_screen` references become entity ids,
     invalid dialogue is dropped, and a cut on the story's first clip (or
     to the shot it already opens on) is dropped; the world's shot follows
-    the beat's framing and the clip's cut.
+    the beat's framing and the clip's cut, and the picture's location
+    follows an op or, failing one, where the cut evidently lands.
     """
     r = Report()
     clip = beat.clips[index]
     seg = segment_no
     before = world.current_location()
+    shown = {e.id for ref in clip.on_screen if (e := world.resolve(ref)) is not None}
 
     for op in clip.entity_ops:
         ent = world.resolve(op.entity)
@@ -151,9 +178,8 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 first_seen=seg,
             )
             if ent.kind == "character":
-                ent.dynamic = True
-                ent.description = " ".join(op.who.split())
-                ent.voice = Voice(description=" ".join(op.voice.split())) if op.voice.strip() else None
+                ent.personality = " ".join(op.personality.split())
+                ent.voice = Voice.coerce(" ".join(op.voice.split()))
             if ent.kind == "prop":
                 here = world.current_location()
                 ent.location = here.id if here else ""
@@ -173,6 +199,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             continue
 
         changes: list[str] = []
+        was_present = ent.present
         look = " ".join(op.description.split())
         if op.op == "update" and look and look != ent.look:
             ent.look = ent.look_short = look
@@ -191,18 +218,52 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             changes.append(f"state={state}")
         if op.location:
             loc = resolve_location(world, op.location)
-            if loc is not None and loc.id != ent.location:
-                ent.location = loc.id
-                changes.append(f"location={loc.id}")
-                world.camera_location = loc.id
-                for place in world.by_kind("location"):
-                    place.present = place.id == loc.id
+            if loc is not None:
+                if loc.id != ent.location:
+                    ent.location = loc.id
+                    changes.append(f"location={loc.id}")
+                # The camera goes where something in the picture goes. One
+                # leaving the picture, or out of it already, goes there alone
+                # and the camera stays; coming back to one left elsewhere is
+                # going to its place, even though its location is unchanged.
+                in_picture = op.present if op.present is not None else (ent.present or ent.id in shown)
+                if in_picture and loc.id != world.camera_location:
+                    world.camera_location = loc.id
+                    for place in world.by_kind("location"):
+                        place.present = place.id == loc.id
         if op.present is not None and op.present != ent.present:
             ent.present = op.present
             changes.append(f"present={op.present}")
-        ent.last_seen = seg
+        if was_present or ent.present:
+            ent.last_seen = seg
         if changes:
             r.applied.append(f"update {ent.id}: " + ", ".join(changes))
+
+    cut = " ".join(clip.cut_to.split()).rstrip(".")
+    if cut and not world.events:
+        r.warnings.append(f"cut to '{cut}' dropped: the story's first clip never cuts")
+        cut = ""
+    elif cut and _same_shot(cut, shot_before(beat, index)):
+        r.warnings.append(f"cut to '{cut}' dropped: it is the shot the clip already opens on")
+        cut = ""
+    clip.cut_to = cut
+    if cut:
+        world.shot = cut
+        r.applied.append(f"cut to {cut}")
+    elif index == 0 and beat.framing.strip():
+        world.shot = " ".join(beat.framing.split()).rstrip(".")
+
+    # A cut can go back to someone or something left at another location
+    # without an op saying so. When no op moved the picture, the cut lands
+    # where its shot evidently is (see `_cut_lands`), and everything the
+    # clip shows is there, as with an op.
+    if cut and before is not None and world.camera_location == before.id:
+        dest = _cut_lands(world, clip.on_screen, cut, seg)
+        if dest is not None:
+            world.camera_location = dest.id
+            for place in world.by_kind("location"):
+                place.present = place.id == dest.id
+            r.applied.append(f"the cut lands in {dest.id}")
 
     kept: list[str] = []
     for ref in clip.on_screen:
@@ -241,20 +302,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
         if (sp := world.resolve(d.speaker)) is not None and sp.kind == "character"
     ]
 
-    cut = " ".join(clip.cut_to.split()).rstrip(".")
-    if cut and not world.events:
-        r.warnings.append(f"cut to '{cut}' dropped: the story's first clip never cuts")
-        cut = ""
-    elif cut and _same_shot(cut, shot_before(beat, index)):
-        r.warnings.append(f"cut to '{cut}' dropped: it is the shot the clip already opens on")
-        cut = ""
-    clip.cut_to = cut
-    if cut:
-        world.shot = cut
-        r.applied.append(f"cut to {cut}")
-    elif index == 0 and beat.framing.strip():
-        world.shot = " ".join(beat.framing.split()).rstrip(".")
-
     if index == 0:
         reason = beat.intervention_reason.strip()
         pending = [i for i in world.interventions if i.disposition == "pending"]
@@ -292,7 +339,12 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
 
 
 def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int) -> list[str]:
-    """Land a Then update: summaries, the rewritten notebook, and eras."""
+    """Land a Then update: summaries, the rewritten notebook, and eras.
+    Each portrait also lands on its character, so who a character is
+    survives the notebook dropping it. An empty personality keeps the one
+    the character has; a new one replaces it only with a `because` (what
+    in the story changed it), so a core change is a recorded development,
+    never a rewording. A first personality needs none."""
     notes: list[str] = []
 
     text = update.scene_summary.strip()
@@ -307,8 +359,27 @@ def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int) -> lis
         world.act_summary = update.act_summary.strip()
         notes.append("act summary updated")
 
-    world.notebook = update.notebook
+    # A copy, so the raw update recorded in then.jsonl stays as Then wrote it.
+    world.notebook = update.notebook.model_copy(deep=True)
     notes.append("notebook updated")
+    for portrait in world.notebook.characters:
+        ent = world.resolve(portrait.entity)
+        if ent is None or ent.kind != "character":
+            continue
+        portrait.entity = ent.id
+        personality = " ".join(portrait.personality.split())
+        because = " ".join(portrait.because.split())
+        if personality and personality != ent.personality:
+            if ent.personality and not because:
+                notes.append(f"personality of {ent.id} kept: a new one came without `because`")
+            else:
+                ent.personality = personality
+                ent.personality_since, ent.personality_because = at_segment, because
+                notes.append(f"personality of {ent.id} rewritten: {personality}"
+                             + (f" (because: {because})" if because else ""))
+        portrait.personality = ent.personality
+        ent.lately = " ".join(portrait.lately.split())
+        ent.lately_at = at_segment
 
     if update.era is not None:
         world.eras.append(Era(

@@ -31,18 +31,19 @@ class EntityOp(BaseModel):
     of a new thing for `introduce`. Empty strings mean "unchanged".
     `description` is how a new thing looks (introduce), or the whole new
     look of an existing character, prop or place whose appearance changes
-    for good (update); a new character also says `who` it is in the story
-    and what it wants, and how its `voice` sounds, so it is registered
-    once and stays the same. An update may give a character the voice it
-    lacks, or a new one. `state` is the entity at the end of the clip, in
-    prose, replacing its last one.
+    for good (update); a new character also gives its `personality`, as
+    the frame zero gives its character's, and how its `voice` sounds, so
+    it is registered once and stays the same. An update may give a
+    character the voice it lacks, or a new one; personality is Then's to
+    rewrite. `state` is the entity at the end of the clip, in prose,
+    replacing its last one.
     """
 
     op: Literal["introduce", "update", "remove"]
     entity: str
     kind: EntityKind = "prop"
     description: str = ""
-    who: str = ""
+    personality: str = ""
     voice: str = ""
     state: str = ""
     location: str = ""
@@ -98,8 +99,15 @@ class BeatPlan(BaseModel):
 # ── Then schemas ────────────────────────────────────────────────────
 
 class CharacterPortrait(BaseModel):
+    """`personality` is who the character is at heart, and changes slowly:
+    empty keeps the one it has, so it is not reworded on every run, and a
+    new one needs `because`, what in the story changed it. `lately` is how
+    it has been behaving and why, rewritten each run."""
+
     entity: str
-    portrait: str
+    personality: str
+    because: str
+    lately: str
 
 
 class Seed(BaseModel):

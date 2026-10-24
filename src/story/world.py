@@ -55,9 +55,16 @@ def short_look(look: str) -> str:
 
 
 class Entity(BaseModel):
-    """`description` is how a prop or place looks as introduced, or, for a
-    character, who it is: the frame zero's personality or the `who` Now
-    gave it, shown to the roles until Then's notebook has a portrait of it."""
+    """`description` is how the entity looked when it was introduced.
+
+    A character also carries who it is, on the entity so that it outlives
+    the notebook: `personality` (who it is at heart: the one it came with,
+    from the frame zero or Now's introduce, until Then rewrites it, at
+    segment `personality_since` and `personality_because` of what the story
+    showed) and `lately` (how it has been behaving and why, as Then last
+    wrote it, at segment `lately_at`). A character Then drops from the
+    notebook keeps both, so one that comes back much later is still who it
+    was."""
 
     id: str
     name: str
@@ -73,7 +80,11 @@ class Entity(BaseModel):
     first_seen: int = 0
     last_seen: int = 0
     voice: Voice | None = None
-    dynamic: bool = False
+    personality: str = ""
+    personality_since: int = 0
+    personality_because: str = ""
+    lately: str = ""
+    lately_at: int = 0
 
     def render_look(self) -> str:
         if self.look:
@@ -160,19 +171,20 @@ class WorldModel(BaseModel):
     @classmethod
     def from_frame_zero(cls, frame_zero: FrameZero) -> "WorldModel":
         """A fresh world from a frame zero: its place and its character,
-        ordinary entities from here on."""
+        built as Now's introduce builds them, ordinary entities from here on."""
         world = cls()
         place, ch = frame_zero.location, frame_zero.character
         lid = slugify(place.name)
         look = " ".join(place.look.split())
-        world.entities[lid] = Entity(id=lid, name=place.name.strip(), kind="location",
+        world.entities[lid] = Entity(id=lid, name=place.name.strip(), kind="location", description=look,
                                      look=look, look_short=short_look(look), present=True)
         world.camera_location = lid
         cid = world._unique_id(slugify(ch.name))
         look = " ".join(ch.look.split())
         world.entities[cid] = Entity(
-            id=cid, name=ch.name.strip(), kind="character",
-            description=" ".join(ch.personality.split()), look=look, look_short=short_look(look),
+            id=cid, name=ch.name.strip(), kind="character", description=look,
+            look=look, look_short=short_look(look), personality=" ".join(ch.personality.split()),
+            voice=Voice.coerce(" ".join(ch.voice.split())),
             state=" ".join(ch.state.split()), present=True, location=lid,
         )
         # The first frame shows the character, so the opening clip does not

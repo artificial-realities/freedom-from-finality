@@ -2,8 +2,9 @@
 
 Everything Now and Then read comes through here, so the prompt budget
 is decided in one place: active entities in full with each character's
-current state, dormant ones by name, recent clips verbatim, older
-history as summaries. The system prompts (each role's craft, the
+current state, dormant ones by name (except absent characters the story
+is pointing at, recalled in full), recent clips verbatim, older history
+as summaries. The system prompts (each role's craft, the
 content policy, the output contract) never change during a run so the
 API's prompt cache hits; everything that moves, every character
 included, goes into the user prompt.
@@ -11,7 +12,9 @@ included, goes into the user prompt.
 
 from __future__ import annotations
 
-from src.story.world import WorldModel
+import re
+
+from src.story.world import Entity, WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
 
 
@@ -33,7 +36,13 @@ def format_notebook(world: WorldModel) -> str:
     if nb.characters:
         out.append("**Characters**")
         for ch in nb.characters:
-            out.append(f"- `{ch.entity}`: {ch.portrait}")
+            ent = world.resolve(ch.entity)
+            if ent is not None and ent.kind == "character":
+                bits = _who(ent, dated=False)
+            else:
+                bits = [b for b in (ch.personality and f"personality: {ch.personality}",
+                                    ch.lately and f"lately: {ch.lately}") if b]
+            out.append(" · ".join([f"- `{ch.entity}`", *bits]))
     if nb.alive:
         out.append(f"\n**What is alive**\n{nb.alive}")
     if nb.seeds:
@@ -48,6 +57,7 @@ def format_notebook(world: WorldModel) -> str:
 
 
 PRESENT_IN_FULL = 12
+RECALLED_IN_FULL = 6
 STATE_CHARS = 160
 GONE_LISTED = 12
 
@@ -57,14 +67,78 @@ def _clip(text: str, n: int) -> str:
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
 
 
-def format_world_now(world: WorldModel) -> str:
+def _who(ent: Entity, *, dated: bool) -> list[str]:
+    """Who a character is: its personality (with the development that last
+    changed it, if one did) and how it has been lately."""
+    bits: list[str] = []
+    if ent.personality:
+        changed = (f" (changed at segment {ent.personality_since}: {ent.personality_because})"
+                   if ent.personality_because else "")
+        bits.append(f"personality{changed}: {ent.personality}")
+    if ent.lately:
+        bits.append(f"lately (as of segment {ent.lately_at}): {ent.lately}" if dated else f"lately: {ent.lately}")
+    return bits
+
+
+def _character(ent: Entity, portrayed: set[str], lead: list[str]) -> str:
+    """One character in full. Who it is comes from the notebook for the
+    characters Then portrays; any other carries it here, from the entity,
+    so a newcomer, or one coming back, is still who it was."""
+    bits = [f"- {ent.id} (character): {ent.name}", *lead]
+    if ent.look:
+        bits.append(f"looks: {ent.look}")
+    if ent.id not in portrayed:
+        bits += _who(ent, dated=True)
+    if ent.voice and ent.voice.description:
+        bits.append(f"voice: {ent.voice.description}")
+    return " · ".join(bits)
+
+
+def _words(text: str) -> str:
+    return " " + re.sub(r"[^a-z0-9]+", " ", text.lower()).strip() + " "
+
+
+def recalled(world: WorldModel, viewer_input: str = "", recent: int = 6) -> list[Entity]:
+    """Absent characters the story is pointing at: left where the picture
+    is now, or named, or their place named, in what the roles read this
+    call (the viewer's words, Then's notebook, the characters in the
+    scene, the recent clips). Those are shown in full, with the summary of
+    when they were last seen, so a return is written knowing who comes
+    back; the rest stay one line each. Code only matches names: which
+    mentions matter is the roles' judgment, and Then keeps one in reach by
+    naming it."""
+    nb = world.notebook
+    texts = [viewer_input, world.viewer_momentum, nb.alive, nb.intentions, nb.audience]
+    texts += [i.text for i in world.interventions if i.disposition == "deferred"]
+    texts += [f"{s.seed} {s.potential}" for s in nb.seeds]
+    texts += [c.lately for c in nb.characters]
+    texts += [f"{e.state} {e.lately}" for e in world.present_entities()]
+    for ev in world.events[-recent:] if recent > 0 else []:
+        texts += [ev.narration, ev.end_state, *ev.dialogue]
+    said = _words(" ".join(t for t in texts if t))
+
+    def named(ent: Entity | None) -> bool:
+        return ent is not None and any(_words(n) in said for n in (ent.name, ent.id))
+
+    here = world.camera_location
+    found = [e for e in world.by_kind("character")
+             if not e.present and not e.gone
+             and ((here and e.location == here) or named(e) or named(world.entities.get(e.location)))]
+    found.sort(key=lambda e: (e.location != here, -e.last_seen))
+    return found[:RECALLED_IN_FULL]
+
+
+def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
+    """The world as it is now. `recall` (from `recalled`) are the absent
+    characters shown in full."""
     out: list[str] = []
     here = world.current_location()
     if here is None:
         out.append("Location: (none)")
     else:
         drawn = " ".join((here.look_short or here.look).split()).rstrip(".")
-        out.append(f"Location: `{here.id}` {here.name}" + (f" · drawn as: {drawn}" if drawn else ""))
+        out.append(f"Location: `{here.id}` {here.name}" + (f" · drawn as: {drawn}" if drawn else "")
+                   + (f" · now: {_clip(here.state, STATE_CHARS)}" if here.state else ""))
     portrayed = {e.id for c in world.notebook.characters if (e := world.resolve(c.entity)) is not None}
     present = world.present_entities()
     if present:
@@ -74,18 +148,7 @@ def format_world_now(world: WorldModel) -> str:
         for ent in full:
             if ent.kind == "character":
                 now = ent.state or "(not recorded yet: describe it in your first op)"
-                line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATE_CHARS)}"
-                if ent.look:
-                    line += f" · looks: {ent.look}"
-                if ent.dynamic:
-                    line += f" · introduced at segment {ent.first_seen}"
-                # Who a character is starts here and moves to Then's
-                # portrait once there is one, so it can change.
-                if ent.description and ent.id not in portrayed:
-                    line += f" · who: {ent.description}"
-                if ent.voice and ent.voice.description:
-                    line += f" · voice: {ent.voice.description}"
-                out.append(line)
+                out.append(_character(ent, portrayed, [f"now: {_clip(now, STATE_CHARS)}"]))
                 continue
             now = f" · now: {_clip(ent.state, STATE_CHARS)}" if ent.state else ""
             looks = f" · looks: {ent.look}" if ent.look_since else ""
@@ -97,13 +160,29 @@ def format_world_now(world: WorldModel) -> str:
     def elsewhere(e) -> str:
         return e.location if e.location and (here is None or e.location != here.id) else ""
 
+    def where(e) -> str:
+        if here is not None and e.location == here.id:
+            return "left here"
+        return f"at `{e.location}`" if e.location else ""
+
     away = [e for e in world.by_kind("character") if not e.present and not e.gone]
-    if away:
+    full_ids = {e.id for e in recall}
+    full = [e for e in away if e.id in full_ids]
+    if full:
+        out.append("Characters not in the scene that the story is pointing at (named in what you read, "
+                   "or left where the picture is):")
+        for e in full:
+            lead = [f"last seen segment {e.last_seen}", where(e)]
+            if e.state:
+                lead.append(f"then: {_clip(e.state, STATE_CHARS)}")
+            out.append(_character(e, portrayed, [b for b in lead if b]))
+    rest = [e for e in away if e.id not in full_ids]
+    if rest:
         def about(e) -> str:
-            bits = [e.state, elsewhere(e) and f"at `{elsewhere(e)}`"]
-            said = ", ".join(b for b in bits if b)
-            return f" ({said})" if said else ""
-        out.append("Characters not in the scene: " + "; ".join(f"`{e.id}`{about(e)}" for e in away))
+            bits = [f"last seen segment {e.last_seen}", e.state, where(e)]
+            return " (" + ", ".join(b for b in bits if b) + ")"
+        out.append(("Other characters" if full else "Characters") + " not in the scene: "
+                   + "; ".join(f"`{e.id}`{about(e)}" for e in rest))
     dormant = world.dormant_props()
     if dormant:
         out.append(
@@ -158,13 +237,20 @@ def format_interventions_all(world: WorldModel) -> str:
     return "\n".join(lines)
 
 
-def format_summaries(world: WorldModel, scene_limit: int = 3) -> str:
-    """Act summary, the opening scene, and the most recent scene summaries."""
+def format_summaries(world: WorldModel, scene_limit: int = 3, recall: list[Entity] = ()) -> str:
+    """Act summary, the opening scene, the most recent scene summaries, and
+    the scene each recalled character was last seen in."""
     out: list[str] = []
     scenes = [s for s in world.summaries if s.scope == "scene"]
     if scenes:
         first = scenes[0]
         out.append(f"Opening (segments {first.first_segment}-{first.last_segment}): {first.text}")
+    shown = scenes[:1] + scenes[-scene_limit:]
+    for s in scenes:
+        last_here = [f"`{e.id}`" for e in recall if s.first_segment <= e.last_seen <= s.last_segment]
+        if last_here and not any(s is x for x in shown):
+            out.append(f"Segments {s.first_segment}-{s.last_segment} (when {', '.join(last_here)} "
+                       f"{'was' if len(last_here) == 1 else 'were'} last seen): {s.text}")
     if world.act_summary:
         out.append(f"Act so far: {world.act_summary}")
     for s in scenes[-scene_limit:]:
