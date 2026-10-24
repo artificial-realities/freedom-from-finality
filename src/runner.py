@@ -116,7 +116,8 @@ def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog)
 
 def _maybe_i2v(config: Config, clips_dir: Path, seed_key: str) -> I2VBackend | None:
     """The run's renderer: its clips go to `clips_dir` until they have
-    played, and its seeds derive from `seed_key` (the adventure id)."""
+    played, and its seeds derive from `seed_key` (the adventure, and the
+    timeline of a branch)."""
     if not config.video_enabled:
         return None
     return LtxvI2V(
@@ -198,7 +199,7 @@ async def run_live(
     queue_size = max(1, config.startup_clips + 1)
     session_dir = Path(log_dir) / "sessions" / session_id
     clips_dir = session_dir / "clips"
-    i2v = _maybe_i2v(config, clips_dir, adventure.id)
+    i2v = _maybe_i2v(config, clips_dir, adventure.seed_key)
     shape = ClipShape.from_config(config, fps=i2v.frame_rate if i2v is not None else DEFAULT_FPS)
     timing = _start_timing(
         config, story, session_id, session_dir, shape=shape,

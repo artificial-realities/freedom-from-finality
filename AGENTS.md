@@ -13,7 +13,8 @@ Each viewer has one adventure, which never ends: it begins once from the frame z
 ```
 main.py                    # check | play | adopt; --config, --adventure, --story, --segments, --log-dir, --host, --port
 src/
-  adventure.py             # the adventure on disk: begin, resume, commit as of each aired clip, crash recovery, adopt
+  adventure.py             # the adventure on disk: begin, resume, commit as of each aired clip, checkpoints,
+                           # branches, crash recovery, adopt
   runner.py                # run_live: the story loop (just-in-time render, viewer interrupts, commit on air)
   engine.py                # NowEngine: plan a beat, emit its clips, roll back, the Then clock
   agents/                  # now.py (BeatPlan per beat), then.py (ThenUpdate)

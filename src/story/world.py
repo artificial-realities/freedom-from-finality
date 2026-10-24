@@ -7,9 +7,12 @@ viewer interventions with their disposition, Then's notebook, an
 append-only event log (one record per clip), and the summaries Then
 compacts the log into.
 
-A world is one timeline (`timeline`). What the viewer said and put into
-the story, and Then's understanding of them, belong to the person and
-live outside it, in the viewer's memory (`viewer.py`).
+A world is one timeline (`timeline`). A branch begins from another
+timeline's checkpoint and inherits its past up to there (`ancestry`);
+`in_history` tells what happened in this timeline's past from what
+happened in another. What the viewer said and put into the story, and
+Then's understanding of them, belong to the person and live outside it,
+in the viewer's memory (`viewer.py`).
 
 Only validated deltas mutate it (see `validator.py`). The adventure
 (`src/adventure.py`) saves it as of every clip the viewer sees and loads
@@ -169,6 +172,14 @@ class EventRecord(BaseModel):
     duration: float = 0.0
 
 
+class Fork(BaseModel):
+    """Where a timeline left an ancestor: everything of `timeline` up to
+    the clip of `at` is its own past too."""
+
+    timeline: str
+    at: int
+
+
 class Direction(BaseModel):
     """The viewer's line Now is still building on, from the clip that
     took it up until Now closes it or a newer line takes its place."""
@@ -181,6 +192,8 @@ class Direction(BaseModel):
 
 class WorldModel(BaseModel):
     timeline: str = ROOT_TIMELINE
+    # The timelines this one grew from, oldest first, and where it left each.
+    ancestry: list[Fork] = Field(default_factory=list)
     segment: int = 0
     opening_picture: list[str] | None = None
     camera_location: str = ""
@@ -254,6 +267,18 @@ class WorldModel(BaseModel):
             if ent.name.lower() == low:
                 return ent
         return None
+
+    def in_history(self, timeline: str, segment: int) -> bool:
+        """Whether what happened in `timeline` at `segment` is part of this
+        timeline's past: it happened here, or in an ancestor before this
+        timeline branched from it."""
+        return timeline == self.timeline or any(f.timeline == timeline and segment <= f.at for f in self.ancestry)
+
+    @property
+    def forked_at(self) -> int:
+        """The segment this timeline branched at (0: it began at the frame
+        zero); its own clips come after it."""
+        return self.ancestry[-1].at if self.ancestry else 0
 
     def mentions(self, text: str) -> set[str]:
         """Ids of the entities `text` names, by name or id, as whole words."""

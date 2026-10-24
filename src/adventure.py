@@ -8,11 +8,15 @@ video:
     adventure.json        format, id, kind (video, or text for a test
                           adventure) and the current timeline
     origin/               the frame zero it began from, copied once
-    viewer.jsonl          the viewer's memory (`src/story/viewer.py`)
+    viewer.jsonl          the viewer's memory (`src/story/viewer.py`),
+                          across every timeline
     timelines/<id>/
-        timeline.json     its parent and the segment it forked at (none
-                          for the root, the only timeline so far)
-        events.jsonl      every clip the viewer saw: the story's history
+        timeline.json     its parent and the segment it branched at (none
+                          for the root, or one begun again from the
+                          frame zero)
+        events.jsonl      every clip the viewer saw in it after it began:
+                          its own history (a branch's past before the
+                          fork is its parent's)
         continuations/<segment>/
             world.json    the world as of that clip
             window.mp4    the frames the renderer continues the picture
@@ -37,7 +41,12 @@ at most RING_MAX: a turning point it names there becomes a story
 checkpoint, kept for good, which the viewer can return to. One it names
 at a moment no longer kept, or at a clip that is not the one that aired,
 stays an era without a checkpoint; it is never moved to a nearby clip.
-A branch will be a new timeline that starts from a checkpoint.
+
+A branch is a new timeline that begins from a checkpoint (or from the
+frame zero, to start over) with that moment as its first continuation,
+so the story goes on from there; the world knows the timelines it grew
+from (`WorldModel.ancestry`). Nothing that exists is changed or removed:
+every timeline keeps its latest position and its checkpoints for good.
 """
 
 from __future__ import annotations
@@ -55,14 +64,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.models.story import FrameZero
 from src.story.viewer import ViewerMemory
-from src.story.world import ROOT_TIMELINE, Era, EventRecord, WorldModel
+from src.story.world import ROOT_TIMELINE, Era, EventRecord, Fork, WorldModel
 from src.util.durable import append_line, read_jsonl, replace, sync_dir, write_synced
 from src.util.media import last_frame
 
 logger = logging.getLogger(__name__)
 
-FORMAT = 1
+FORMAT = 2   # 2: timelines may branch; 1 is read as it is
 Kind = Literal["video", "text"]
+ORIGIN = "origin"   # the frame zero, as a checkpoint: a timeline that starts over
 # Recent moments kept for Then to name a turning point among, at most:
 # about ten in the usual run of things (the clips since Then last
 # summarised); more only while its runs keep failing.
@@ -83,11 +93,15 @@ class Manifest(BaseModel):
 
 
 class Timeline(BaseModel):
+    """The root, a timeline begun again from the frame zero (no parent), or
+    a branch from `parent`'s checkpoint at `forked_at`."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
     parent: str | None = None
     forked_at: int | None = None
+    created_at: str = ""
 
 
 class Checkpoint(BaseModel):
@@ -111,28 +125,33 @@ class Checkpoint(BaseModel):
 
 
 class Summary(BaseModel):
-    """What an adventure folder holds, read without opening it. `segment`
-    is the last clip the viewer saw (0: none yet)."""
+    """What an adventure folder holds, read without opening it: the current
+    timeline and the last clip the viewer saw in it (`segment`, 0: none
+    yet), that of every timeline, and its checkpoints ("<timeline>/<segment>")."""
 
     id: str
     kind: Kind
     timeline: str
     segment: int
+    timelines: dict[str, int] = Field(default_factory=dict)
+    checkpoints: list[str] = Field(default_factory=list)
 
 
 class Adventure:
-    """An open adventure: its origin, the world as of the last clip the
-    viewer saw, the viewer's memory and, for video, the frames the picture
-    continues from (`window`). One process opens it at a time."""
+    """An open adventure: its origin, the viewer's memory and the current
+    timeline (`enter`) as of the last clip the viewer saw there: its world
+    and, for video, the frames the picture continues from (`window`).
+    `new_branch` is a timeline begun from a checkpoint or the frame zero
+    that has no clip of its own yet. One process opens it at a time."""
 
-    def __init__(self, root: Path, manifest: Manifest, origin: FrameZero, world: WorldModel,
-                 viewer: ViewerMemory, window: Path | None) -> None:
+    def __init__(self, root: Path, manifest: Manifest, origin: FrameZero, viewer: ViewerMemory) -> None:
         self.root = root
         self.manifest = manifest
         self.origin = origin
-        self.world = world
         self.viewer = viewer
-        self.window = window
+        self.world = WorldModel()
+        self.window: Path | None = None
+        self.new_branch = False
         # Turning points that could not be kept, so each is reported once.
         self._unkept: set[tuple[str, int]] = set()
 
@@ -143,6 +162,13 @@ class Adventure:
     @property
     def timeline_dir(self) -> Path:
         return self.root / "timelines" / self.manifest.timeline
+
+    @property
+    def seed_key(self) -> str:
+        """What the render seeds derive from: the adventure, and the timeline
+        for a branch, so it does not repeat its parent's noise."""
+        timeline = self.manifest.timeline
+        return self.id if timeline == ROOT_TIMELINE else f"{self.id}/{timeline}"
 
     @classmethod
     def open(cls, root: Path | str, *, kind: Kind, frame_zero: Path | str) -> "Adventure":
@@ -166,21 +192,99 @@ class Adventure:
     @classmethod
     def _load(cls, root: Path, manifest: Manifest) -> "Adventure":
         origin = FrameZero.from_json(root / "origin" / "frame_zero.json")
-        timeline = root / "timelines" / manifest.timeline
-        head = _newest(timeline / "continuations", clean=True)
-        if head is None:
-            world, window = WorldModel.from_frame_zero(origin), None
-            world.timeline = manifest.timeline
-        else:
-            folder, world = head
-            window = folder / "window.mp4" if (folder / "window.mp4").exists() else None
-        _reconcile(timeline / "events.jsonl", world)
-        for d in (timeline / "checkpoints").glob("*.tmp"):
+        for d in (root / "timelines").glob("*.creating"):
             shutil.rmtree(d, ignore_errors=True)
-        adventure = cls(root, manifest, origin, world, ViewerMemory.load(root / "viewer.jsonl"), window)
-        # A commit cut short after its rename may not have kept its checkpoint.
-        adventure._settle(world)
+        adventure = cls(root, manifest, origin, ViewerMemory.load(root / "viewer.jsonl"))
+        adventure.enter(manifest.timeline)
         return adventure
+
+    def timelines(self) -> list[Timeline]:
+        return _timelines(self.root)
+
+    def enter(self, timeline: str) -> None:
+        """Make `timeline` the current one, as of the last clip the viewer saw
+        in it: its world, and the frames the picture continues from. Entering
+        the current one again reloads it from disk, so nothing a film prepared
+        beyond the screen carries over."""
+        if timeline not in {t.id for t in self.timelines()}:
+            raise AdventureError(f"there is no timeline {timeline!r}")
+        folder = self.root / "timelines" / timeline
+        meta = _timeline(folder)
+        head = _newest(folder / "continuations", clean=True)
+        if head is None:
+            world, window = WorldModel.from_frame_zero(self.origin), None
+            world.timeline = timeline
+        else:
+            cont, world = head
+            window = cont / "window.mp4" if (cont / "window.mp4").exists() else None
+        _reconcile(folder / "events.jsonl", world, meta.forked_at or 0)
+        for d in (folder / "checkpoints").glob("*.tmp"):
+            shutil.rmtree(d, ignore_errors=True)
+        if timeline != self.manifest.timeline:
+            self.manifest.timeline = timeline
+            replace(self.root / "adventure.json", self.manifest.model_dump_json(indent=2).encode("utf-8"))
+        # Clip ids stay unique across the whole adventure, every timeline's.
+        world.clip_counter = max(world.clip_counter, self._clip_counter())
+        self.world, self.window = world, window
+        self.new_branch = timeline != ROOT_TIMELINE and not _played(folder)
+        # A commit cut short after its rename may not have kept its checkpoint.
+        self._settle(world)
+
+    def branch(self, checkpoint: str) -> str:
+        """Begin a timeline from `checkpoint` ("<timeline>/<segment>", or
+        ORIGIN to start over from the frame zero), enter it and return its
+        id. A timeline nobody has played yet that begins at the same moment
+        is entered instead of making another. Nothing that exists changes:
+        the new one is built under `<id>.creating` and renamed into place,
+        its first continuation that moment, its world told where it came from."""
+        if checkpoint == ORIGIN:
+            parent, at, source = None, None, None
+        else:
+            parent, _, seg = checkpoint.partition("/")
+            if parent not in {t.id for t in self.timelines()} or not seg.isdigit():
+                raise AdventureError(f"there is no checkpoint {checkpoint!r}")
+            at = int(seg)
+            source = self.root / "timelines" / parent / "checkpoints" / f"{at:06d}"
+            if not (source / "checkpoint.json").exists():
+                raise AdventureError(f"there is no checkpoint {checkpoint!r}")
+        for t in self.timelines():
+            if t.parent == parent and t.forked_at == at and not _played(self.root / "timelines" / t.id):
+                self.enter(t.id)
+                return t.id
+        if source is None:
+            world, at_segment = WorldModel.from_frame_zero(self.origin), 0
+        else:
+            world, at_segment = WorldModel.model_validate_json((source / "world.json").read_bytes()), at
+            world.ancestry = [*world.ancestry, Fork(timeline=parent, at=at)]
+        tid = uuid.uuid4().hex[:8]
+        world.timeline = tid
+        building = self.root / "timelines" / f"{tid}.creating"
+        cont = building / "continuations" / f"{at_segment:06d}"
+        cont.mkdir(parents=True)
+        write_synced(cont / "world.json", world.model_dump_json().encode("utf-8"))
+        if source is not None and (source / "window.mp4").exists():
+            write_synced(cont / "window.mp4", (source / "window.mp4").read_bytes())
+        sync_dir(cont)
+        sync_dir(cont.parent)
+        meta = Timeline(id=tid, parent=parent, forked_at=at,
+                        created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        write_synced(building / "timeline.json", meta.model_dump_json(indent=2).encode("utf-8"))
+        sync_dir(building)
+        building.rename(building.with_name(tid))
+        sync_dir(building.parent)
+        self.manifest.format = FORMAT
+        self.enter(tid)
+        logger.info("A new timeline %s begins from %s", tid, checkpoint)
+        return tid
+
+    def _clip_counter(self) -> int:
+        """The highest clip id any timeline has saved."""
+        top = 0
+        for t in self.timelines():
+            head = _newest(self.root / "timelines" / t.id / "continuations", clean=False)
+            if head is not None:
+                top = max(top, head[1].clip_counter)
+        return max(top, self.world.clip_counter)
 
     def commit(self, segment: int, world_json: str, event_json: str, window: Path | None) -> None:
         """Save the adventure as of the clip of `segment`, the newest the
@@ -296,16 +400,25 @@ def describe(root: Path | str) -> Summary | None:
     if not (root / "adventure.json").exists():
         return None
     manifest = _manifest(root)
-    head = _newest(root / "timelines" / manifest.timeline / "continuations", clean=False)
-    segment = head[1].events[-1].segment if head is not None and head[1].events else 0
-    return Summary(id=manifest.id, kind=manifest.kind, timeline=manifest.timeline, segment=segment)
+    timelines: dict[str, int] = {}
+    checkpoints: list[str] = []
+    for t in _timelines(root):
+        folder = root / "timelines" / t.id
+        head = _newest(folder / "continuations", clean=False)
+        timelines[t.id] = head[1].events[-1].segment if head is not None and head[1].events else 0
+        if (folder / "checkpoints").exists():
+            checkpoints += [f"{t.id}/{int(d.name)}" for d in sorted((folder / "checkpoints").iterdir())
+                            if d.is_dir() and d.name.isdigit()]
+    return Summary(id=manifest.id, kind=manifest.kind, timeline=manifest.timeline,
+                   segment=timelines.get(manifest.timeline, 0), timelines=timelines, checkpoints=checkpoints)
 
 
 def adopt(incoming: Path | str, root: Path | str) -> str:
     """Make `incoming`, a copy of the adventure brought back from another
     machine (the GPU box), the adventure in `root`, if it is the same
-    adventure and not behind it. It must sit next to `root`, so the swap is
-    two renames on one disk. The adventure it replaces is kept as
+    adventure and not behind it: it holds every timeline and checkpoint of
+    `root`, none behind. It must sit next to `root`, so the swap is two
+    renames on one disk. The adventure it replaces is kept as
     `<root>.previous` until the next one. Returns what changed."""
     incoming, root = Path(incoming), Path(root)
     new = describe(incoming)
@@ -315,18 +428,27 @@ def adopt(incoming: Path | str, root: Path | str) -> str:
     if old is not None:
         if new.id != old.id:
             raise AdventureError(f"{incoming} is a different adventure from yours; yours was kept")
-        if new.timeline == old.timeline and new.segment < old.segment:
-            raise AdventureError(f"the copy is behind yours (segment {new.segment}, yours {old.segment}); yours was kept")
+        behind = [f"{t} at {new.timelines[t]} (yours {seg})" if t in new.timelines else f"{t} missing"
+                  for t, seg in old.timelines.items() if new.timelines.get(t, -1) < seg]
+        if behind:
+            raise AdventureError(f"the copy is behind yours ({'; '.join(behind)}); yours was kept")
+        lost = sorted(set(old.checkpoints) - set(new.checkpoints))
+        if lost:
+            raise AdventureError(f"the copy lacks {len(lost)} of your checkpoints ({', '.join(lost[:3])}); "
+                                 "yours was kept")
         if _held(root / ".lock"):
             raise AdventureError("your adventure is open in FFF on this computer; close it first")
     (incoming / ".lock").unlink(missing_ok=True)
+    _unshare(incoming)
     previous = root.with_name(root.name + ".previous")
     shutil.rmtree(previous, ignore_errors=True)
     if root.exists():
         root.rename(previous)
     incoming.rename(root)
     sync_dir(root.parent)
-    return f"adventure updated to segment {new.segment}" + (f" (was {old.segment})" if old is not None else "")
+    return (f"adventure updated: {new.timeline} at segment {new.segment}"
+            + (f" (was {old.segment})" if old is not None and old.timeline == new.timeline else "")
+            + (f", {len(new.timelines)} timelines" if len(new.timelines) > 1 else ""))
 
 
 # ── On disk ─────────────────────────────────────────────────────────
@@ -370,6 +492,16 @@ def _create(root: Path, *, kind: Kind, frame_zero: Path | str) -> None:
     logger.info("A new adventure begins in %s", root)
 
 
+def _unshare(root: Path) -> None:
+    """Give the logs that grow in place a file of their own. A copy brought
+    home shares the files it did not change with the adventure it replaces
+    (rsync --link-dest), which is kept as `.previous` and must not grow
+    with it; every other file is only ever replaced whole."""
+    for path in [root / "viewer.jsonl", *(root / "timelines").glob("*/events.jsonl")]:
+        if path.exists() and path.stat().st_nlink > 1:
+            replace(path, path.read_bytes())
+
+
 def _finish_adoption(root: Path) -> None:
     """An adoption cut short between its two renames leaves the adventure
     only as `<root>.previous`: put it back rather than begin a new one."""
@@ -379,6 +511,29 @@ def _finish_adoption(root: Path) -> None:
             root.rmdir()
         previous.rename(root)
         logger.warning("Restored the adventure in %s from %s (a replacement was cut short)", root, previous)
+
+
+def _timeline(folder: Path) -> Timeline:
+    try:
+        return Timeline.model_validate_json((folder / "timeline.json").read_bytes())
+    except (OSError, ValidationError) as exc:
+        raise AdventureError(f"there is no readable timeline in {folder}: {exc}") from None
+
+
+def _timelines(root: Path) -> list[Timeline]:
+    """Every timeline of the adventure in `root`, the root first, then in
+    the order they began."""
+    found = []
+    for d in (root / "timelines").iterdir() if (root / "timelines").exists() else []:
+        if d.is_dir() and "." not in d.name and (d / "timeline.json").exists():
+            found.append(_timeline(d))
+    return sorted(found, key=lambda t: (t.id != ROOT_TIMELINE, t.created_at, t.id))
+
+
+def _played(folder: Path) -> bool:
+    """Whether the timeline in `folder` has a clip of its own."""
+    path = folder / "events.jsonl"
+    return path.exists() and any(line.strip() for line in path.read_bytes().splitlines())
 
 
 def _newest(conts: Path, *, clean: bool) -> tuple[Path, WorldModel] | None:
@@ -401,11 +556,12 @@ def _newest(conts: Path, *, clean: bool) -> tuple[Path, WorldModel] | None:
     return None
 
 
-def _reconcile(path: Path, world: WorldModel) -> None:
+def _reconcile(path: Path, world: WorldModel, forked_at: int) -> None:
     """Make the event log agree with the world it resumes from: drop lines
     that do not parse or lie beyond the world's last clip (an older
     continuation was used), and add the clips the world has that the log
-    lacks (a commit cut short after its rename)."""
+    lacks (a commit cut short after its rename). A branch's log holds only
+    its own clips, after `forked_at`: those before are its parent's."""
     head = world.events[-1].segment if world.events else 0
     on_disk = [line for line in path.read_bytes().splitlines() if line.strip()] if path.exists() else []
     kept: list[EventRecord] = []
@@ -419,7 +575,7 @@ def _reconcile(path: Path, world: WorldModel) -> None:
     if len(kept) != len(on_disk):
         logger.warning("The event log in %s disagreed with the last saved clip; repaired", path.parent)
         replace(path, "".join(e.model_dump_json() + "\n" for e in kept).encode("utf-8"))
-    last = kept[-1].segment if kept else 0
+    last = kept[-1].segment if kept else forked_at
     for event in world.events:
         if event.segment > last:
             append_line(path, event.model_dump_json())

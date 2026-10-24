@@ -210,13 +210,13 @@ def _in_play(world: WorldModel, recall: list[Entity], text: str = "") -> set[str
 
 def _where(world: WorldModel, timeline: str, segment: int) -> str:
     where = f"segment {segment}" if segment else "before the first clip"
-    return where if timeline == world.timeline else f"{where} of another timeline (`{timeline}`)"
+    return where if world.in_history(timeline, segment) else f"{where} of another timeline (`{timeline}`)"
 
 
 def _evidence(world: WorldModel, lines: dict[int, Said], grounds: list[int], *, ids: bool) -> str:
     """What a reading rests on, as counted from the lines it cites."""
     cited = [lines[g] for g in grounds if g in lines]
-    here = sorted(s.segment for s in cited if s.timeline == world.timeline)
+    here = sorted(s.segment for s in cited if world.in_history(s.timeline, s.segment))
     bits = [f"{len(cited)} line{'s' if len(cited) != 1 else ''}"]
     if ids:
         bits[0] += ": " + ", ".join(f"#{s.id}" for s in cited)
@@ -244,7 +244,7 @@ def _marks(world: WorldModel, viewer: ViewerMemory, play: set[str], cap: int, *,
            this_timeline: bool) -> tuple[list[str], int]:
     """The marks that touch the moment, and the most recent ones, oldest
     first; and how many others are kept but not shown."""
-    marks = [m for m in viewer.marks() if m.timeline == world.timeline or not this_timeline]
+    marks = [m for m in viewer.marks() if world.in_history(m.timeline, m.segment) or not this_timeline]
     chosen = {m.id for m in marks if set(m.entities) & play} | {m.id for m in marks[-RECENT_MARKS:]}
     shown = [m for m in marks if m.id in chosen][-cap:]
     out = [f"- {m.mark} ({_where(world, m.timeline, m.segment)}"
@@ -403,7 +403,7 @@ def format_turning_points(world: WorldModel, kept_from: int | None) -> str:
     those Then reads in full whose moment the adventure still keeps."""
     out = [f'- "{e.name}" at segment {e.turned_at}' for e in world.eras]
     out = ["So far:", *out] if out else ["None so far."]
-    first = max(kept_from or 1, world.last_compacted + 1)
+    first = max(kept_from or 1, world.last_compacted + 1, world.forked_at + 1)
     if first <= world.segment:
         out.append(f"A new one can be named at segments {first}-{world.segment}: the clips whose moment "
                    "is still kept for the viewer to return to.")

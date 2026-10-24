@@ -395,9 +395,9 @@ def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int,
     name = " ".join(era.name.split()) if era is not None else ""
     if era is not None and name:
         turned = era.turned_at
-        if not 1 <= turned <= at_segment:
-            notes.append(f"era {name!r} not recognised: segment {turned} is not among the clips Then read "
-                         f"(1-{at_segment})")
+        if not world.forked_at < turned <= at_segment:
+            notes.append(f"era {name!r} not recognised: segment {turned} is not among this timeline's clips "
+                         f"Then read ({world.forked_at + 1}-{at_segment})")
         elif any(e.timeline == world.timeline and e.turned_at == turned for e in world.eras):
             notes.append(f"era {name!r} not recognised: segment {turned} is already a turning point")
         else:

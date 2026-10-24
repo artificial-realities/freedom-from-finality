@@ -2,10 +2,11 @@
 the story, and Then's understanding of them.
 
 It belongs to the person, not to a timeline. The world model is one
-timeline, which a checkpoint or a branch may rewind or fork; this memory
-is never rewound or copied. Every record carries the timeline and the
-segment it happened at, so a view for one timeline can tell its own
-history from another's. Nothing is edited or removed: the memory is
+timeline, which a branch forks from a checkpoint; this memory is never
+rewound or copied. Every record carries the timeline and the segment it
+happened at, so a view for one timeline can tell its own past (its own,
+and its ancestors' before it branched: `WorldModel.in_history`) from
+another timeline's. Nothing is edited or removed: the memory is
 append-only, saved one record per line to `viewer.jsonl`, each flushed
 to disk before the next, so a crash costs at most the record being
 written, and that only damages its own line.

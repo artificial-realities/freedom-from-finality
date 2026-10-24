@@ -98,14 +98,23 @@ class NowEngine:
         self._last_beat: tuple[str, int, int] | None = None
         self._pending_note: str = ""
         self._reseed_note: str = ""
+        self._branch_note: str = ""
         self._last_spawn = self.world.last_then
         self._resume()
 
     def _resume(self) -> None:
         """Pick up where the viewer left off: the picture ends on the last
         clip they saw, and lines they typed after the story last answered
-        them are owed."""
+        them are owed. In a new branch Now hears where the viewer came
+        back to."""
         world = self.world
+        if self.adventure.new_branch:
+            self._branch_note = (
+                "The viewer has come back to this moment from later in the story, to go on from here another "
+                "way: this is a new timeline. Whatever happened after this moment in another timeline did not "
+                "happen here. " if world.events else
+                "The viewer has begun the story again from its first frame, in a new timeline. They have been "
+                "here before, but nothing that happened in another timeline happened here. ")
         if not world.events:
             return
         ev = world.events[-1]
@@ -172,7 +181,7 @@ class NowEngine:
             beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
         )
         now_s = time.monotonic() - called
-        self._reseed_note = ""
+        self._reseed_note = self._branch_note = ""
         notes.extend(dnotes)
         fallback = beat is None
         self.last_plan_fallback = fallback and bool(text)
@@ -257,7 +266,7 @@ class NowEngine:
         return f"The picture is still the first frame: {self._scene()}."
 
     def _beat_status(self) -> str:
-        status = self._reseed_note + self._beat_status_plain()
+        status = self._branch_note + self._reseed_note + self._beat_status_plain()
         world = self.world
         if world is not None and world.shot:
             status += f" The picture is in this shot: {world.shot}."

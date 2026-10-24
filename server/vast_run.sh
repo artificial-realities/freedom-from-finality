@@ -55,7 +55,11 @@ pull_adventure() {
   [ "$code" = 1 ] && return 0
   [ "$code" = 0 ] || { echo "the box cannot be reached; your adventure was not brought home" >&2; return "$code"; }
   rm -rf "$ADVENTURE.incoming"
-  box_rsync "root@$(cat "$STATE/host"):/root/film/$ADVENTURE/" "$ADVENTURE.incoming/"
+  # Files yours already has are linked from it, not sent again: only what
+  # changed crosses the network, however many checkpoints the adventure keeps.
+  local link=()
+  [ -d "$ADVENTURE" ] && link=(--link-dest "$PWD/$ADVENTURE")
+  box_rsync ${link[@]+"${link[@]}"} "root@$(cat "$STATE/host"):/root/film/$ADVENTURE/" "$ADVENTURE.incoming/"
   "$PY" main.py adopt "$ADVENTURE.incoming" --adventure "$ADVENTURE"
 }
 # Your adventure to the box, so the film there resumes it (it begins a new

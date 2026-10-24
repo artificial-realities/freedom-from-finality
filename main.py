@@ -115,7 +115,9 @@ def cmd_check(args: argparse.Namespace) -> int:
         found = [Finding("error", f"{root} is a {summary.kind} adventure; {args.config} plays {kind}")]
     else:
         found = [Finding("ok", f"adventure in {root}: resumes after segment {summary.segment}"
-                               + ("" if summary.segment else " (nothing played yet)"))]
+                               + ("" if summary.segment else " (nothing played yet)")
+                               + (f"; {len(summary.timelines)} timelines" if len(summary.timelines) > 1 else "")
+                               + (f", {len(summary.checkpoints)} checkpoints" if summary.checkpoints else ""))]
     findings = found + check_setup(config, story, probe_server=True)
     for finding in findings:
         print(f"  {finding.level:<8}{finding.message}")
