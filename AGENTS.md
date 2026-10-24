@@ -1,6 +1,6 @@
 # AGENTS.md: working on Untitled Project
 
-Project facts and rules for coding agents (and humans). How the story works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), why it is built that way in [docs/decisions.md](docs/decisions.md), and the goal in [docs/vision.md](docs/vision.md).
+Project facts and rules for coding agents (and humans). How the story works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and why it is built that way in [docs/decisions.md](docs/decisions.md).
 
 ## What this is
 
@@ -29,7 +29,7 @@ src/
   util/                    # durable writes, media probe, prompt loader, transcript, timing log
 configs/                   # text.yaml · video.yaml
 frame_zero.json            # the first frame a new adventure begins from (read only then): scene, character, location, image
-docs/                      # ARCHITECTURE.md (how) · decisions.md (why) · vision.md (the goal)
+docs/                      # ARCHITECTURE.md (how) · decisions.md (why)
 server/                    # the LTX-2.5 server for the GPU box, and vast_run.sh to rent one; see server/README.md
 adventure/                 # the viewer's adventure (git-ignored, personal): see src/adventure.py
 logs/                      # technical run output (git-ignored): transcripts, sessions/<id>/, test-adventure/

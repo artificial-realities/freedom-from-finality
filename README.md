@@ -47,7 +47,7 @@ The film itself is not kept: each clip is deleted once it has played, and only t
 
 ## How it works
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence, and [docs/vision.md](docs/vision.md) what it is reaching for. Every adventure begins from the first frame in [frame_zero.json](frame_zero.json), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, and [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence. Every adventure begins from the first frame in [frame_zero.json](frame_zero.json), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
 
 `pip install -r requirements-dev.txt`, then `ruff check .`. There is no test suite, by choice. Issues and pull requests are welcome.
 
