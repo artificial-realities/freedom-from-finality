@@ -4,7 +4,7 @@
     "name": "Figure",
     "look": "a simple black stick figure with a round head",
     "personality": "Curious about the world, with a personality shaped by what it experiences.",
-    "state": "standing still in the middle of the frame"
+    "state": "standing left of centre, low in the frame, one arm stretched toward frame right"
   },
   "location": {
     "name": "The White",
