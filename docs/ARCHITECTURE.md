@@ -1,6 +1,6 @@
 # Architecture
 
-Untitled Project generates an infinite story as a sequence of 6-second clips while a viewer watches and steers. Why it is built this way, with the evidence, is in [decisions.md](decisions.md).
+Freedom from Finality generates an infinite story as a sequence of 6-second clips while a viewer watches and steers. Why it is built this way, with the evidence, is in [decisions.md](decisions.md).
 
 ## In one paragraph
 

@@ -1,4 +1,4 @@
-# Tool configuration only. Untitled Project runs from a checkout
+# Tool configuration only. Freedom from Finality runs from a checkout
 # (`python main.py`) and is not packaged for installation.
 
 [tool.ruff]

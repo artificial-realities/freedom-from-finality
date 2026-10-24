@@ -49,7 +49,7 @@ def setup_logging(verbose: bool) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Untitled Project: an interactive video generation system")
+    parser = argparse.ArgumentParser(description="Freedom from Finality: an interactive video generation system")
     sub = parser.add_subparsers(dest="command", required=True)
 
     play = sub.add_parser("play", help="Play your adventure in the browser, from where you left it")

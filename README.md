@@ -1,4 +1,4 @@
-# Untitled Project
+# Freedom from Finality
 
 An infinite, continuously generated story that plays in your browser while you type suggestions into it.
 
@@ -22,8 +22,8 @@ A stick figure stands alone in an empty white world. Two LLM roles — **Now** a
 You need Python 3.11+, an [OpenAI API key](https://platform.openai.com/api-keys), ffmpeg, and the LTX-2.5 server on an NVIDIA GPU with 80 GB (an H100 has cost about $3 an hour to rent) with a Hugging Face token for the gated weights. [server/README.md](server/README.md) has the details.
 
 ```bash
-git clone https://github.com/artificial-realities/untitled-project.git
-cd untitled-project
+git clone https://github.com/artificial-realities/freedom-from-finality.git
+cd freedom-from-finality
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env              # then add your keys to .env
@@ -51,8 +51,12 @@ The film itself is not kept: each clip is deleted once it has played, and only t
 
 `pip install -r requirements-dev.txt`, then `ruff check .`. There is no test suite, by choice. Issues and pull requests are welcome.
 
+## The name
+
+*Freedom from Finality* (FFF) comes from a sentence in Myron W. Krueger's book *Artificial Reality*: "The freedom from finality allows a piece to grow, allows the computer to learn." Here it means a story with no ending, which keeps growing and keeps what it learns about the person watching.
+
 ## License
 
-The code is [MIT](LICENSE). An [Artificial Realities](https://github.com/artificial-realities) project by Simen Bihaug-Frøyland ([@sbfroy](https://github.com/sbfroy)); *Untitled Project* is a working title.
+The code is [MIT](LICENSE). An [Artificial Realities](https://github.com/artificial-realities) project by Simen Bihaug-Frøyland ([@sbfroy](https://github.com/sbfroy)).
 
 The LTX-2.5 weights by [Lightricks](https://huggingface.co/Lightricks) are not part of this repository: they are downloaded from Hugging Face under the LTX-2 Community License Agreement, which has its own conditions.

@@ -1,4 +1,4 @@
-# AGENTS.md: working on Untitled Project
+# AGENTS.md: working on Freedom from Finality
 
 Project facts and rules for coding agents (and humans). How the story works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and why it is built that way in [docs/decisions.md](docs/decisions.md).
 
