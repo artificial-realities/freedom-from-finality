@@ -17,7 +17,7 @@ RGB-to-YUV conversion and the x264 encode.
   (`audio_ceiling.py`).
 
 Imported by `ltx2_server.py`; numpy only at import, torch only when a
-tensor is passed, so the tests run without torch.
+tensor is passed.
 """
 
 from __future__ import annotations

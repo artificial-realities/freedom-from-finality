@@ -21,12 +21,11 @@ src/
   state/story_state.py     # StoryState: the runner-facing surface
   models/                  # config (Config, every field commented), story (FrameZero), responses
   i2v/                     # the renderer boundary, the LTX-2.5 HTTP client, the clip shape
-  llm/                     # OpenAI backend, scripted mock backend for the tests
+  llm/                     # the OpenAI backend
   playback/player.py       # Playable + Player: the loop's boundary to the page
   web/                     # WebPlayer (aiohttp: SSE, /input, clips) + player.html
   preflight.py             # setup checks (`main.py check`)
   util/                    # media probe, prompt loader, transcript, timing log
-tests/                     # pytest, offline: test_story, test_engine, test_render, test_web, test_setup
 configs/                   # text.yaml · video.yaml
 frame_zero.json            # the first frame every adventure starts from: scene, character, location, reference image
 docs/                      # ARCHITECTURE.md (how) · decisions.md (why) · vision.md (the goal)
@@ -38,8 +37,7 @@ logs/                      # run output (git-ignored): transcripts, sessions/<id
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt                    # runtime + pytest + ruff
-python -m pytest                                       # offline suite (mock LLM, no network beyond loopback, no key)
+pip install -r requirements-dev.txt                    # runtime + ruff
 ruff check .                                           # lint (rules in pyproject.toml)
 python main.py check                                   # setup check, no paid calls; exit 1 names what is missing
 python main.py check --config configs/video.yaml       # also probes the LTX-2.5 server's /health (free)
@@ -61,12 +59,12 @@ python main.py play --config configs/video.yaml        # the film as video (need
 
 - **Never run `python main.py play` or start a film in the browser without the human's explicit permission for that run.** Each beat is a Now call and each viewer line another, about $0.50 per hour of film.
 - **Never run `server/vast_run.sh up` (or anything that rents, starts or restarts a GPU) without explicit approval.** A rented GPU bills by the hour until `server/vast_run.sh down`; after any GPU work, confirm with `server/vast_run.sh status` that nothing is left running.
-- Tests, CI and `check` stay offline and free. The suite's `offline` fixture fails any connection beyond loopback and clears keys from the environment. Fake the models the way the tests do: the mock LLM (`llm_backend: "mock"`), `Clips` in `tests/test_engine.py` for rendering, `_Health` in `tests/test_render.py` for the server, `_serve` in `tests/test_setup.py` for a local HTTP stand-in.
+- CI and `check` stay offline and free.
 
 ## Verifying changes
 
-1. `ruff check .` and `python -m pytest` pass.
-2. Engine, prompt, schema or compiler changes: the mock backend runs the whole loop offline. Whether the real models write a better film can only be judged in a paid run: say so.
+1. `ruff check .` passes.
+2. Engine, prompt, schema or compiler changes: nothing runs the loop offline, so they are seen working only in a paid run: say so.
 3. Server changes: `python -m py_compile server/*.py` and `bash -n server/*.sh`; anything beyond that needs a GPU, so report it as unverified.
 
 ## Conventions
@@ -79,6 +77,7 @@ python main.py play --config configs/video.yaml        # the film as video (need
 - **Structured outputs are strict**: keep `BeatPlan` and `ThenUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
 - **Prompts, schemas, compiler and engine are story-agnostic.** The opening scene lives in `frame_zero.json` and becomes ordinary world state; nothing in it is a standing rule. What holds in every adventure is the content policy (`src/prompts/policy.md`).
 - **Facts, not thresholds, for story quality.** No code judges pacing, loops or whether the film is moving; give the roles what they need to judge it.
+- **No test suite, by choice.** The project changes too fast for tests to pay their upkeep; `ruff check .` is the gate. Don't add tests or test-only code paths unless the owner asks.
 - **A product, not a research harness.** Experiments, benchmarks and evaluation tooling stay out of the repository; what one decides goes into `docs/decisions.md` in a few lines with its numbers. Comments say why in plain words, without tracker IDs or dates.
 - **Safe by default.** The player and the LTX-2.5 server listen on `127.0.0.1` and have no login; never change that default or document public hosting as safe. The app writes only under `--log-dir`; a value from a request never becomes a path. No telemetry or third-party calls.
 - **One clip shape, one continuous picture.** `clip_seconds` becomes the run's one shape (`src/i2v/shape.py`), which every consumer reads and the server must have warmed. Only a film's first clip is seeded from the reference image; never re-seed mid-film (it resets costume, props and position).
@@ -86,7 +85,7 @@ python main.py play --config configs/video.yaml        # the film as video (need
 ## Definition of done
 
 - A focused diff, with no unrelated reformatting.
-- `ruff check .` and `python -m pytest` pass, with tests for new behaviour that could break silently.
+- `ruff check .` passes.
 - No secrets in code, logs, test fixtures or commit messages, and no paid calls or GPU rentals unless the human authorised them.
 - Docs updated when behaviour, configuration or setup changes: README.md, docs/, `.env.example`, `server/README.md` and this file.
 - State plainly what was verified and what wasn't (for example "suite and check pass; not run on a GPU; no paid film").

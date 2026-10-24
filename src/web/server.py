@@ -40,8 +40,8 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 class WebPlayer(Player):
-    def __init__(self, *, host: str = "127.0.0.1", port: int = 8765, time_scale: float = 1.0) -> None:
-        super().__init__(time_scale=time_scale)
+    def __init__(self, *, host: str = "127.0.0.1", port: int = 8765) -> None:
+        super().__init__()
         self.host = host
         self.port = port
         self.queued: list[Playable] = []

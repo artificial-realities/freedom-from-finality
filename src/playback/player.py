@@ -4,8 +4,7 @@ The producer turns each segment into a `Playable`; a `Player` shows it and
 collects what the viewer types while it plays. The server is the clock:
 `play` returns when the item's time on air is up, so the producer paces
 itself against real playback whether anyone is watching or not. The web
-player (`src.web.WebPlayer`) is the one surface; the tests drive the loop
-with their own.
+player (`src.web.WebPlayer`) is the one surface.
 """
 
 from __future__ import annotations
@@ -37,9 +36,7 @@ class Playable(BaseModel):
 class Player(ABC):
     """What the live loop needs from a viewer-facing surface."""
 
-    def __init__(self, *, time_scale: float = 1.0) -> None:
-        # >1 shortens every wait; only tests use it.
-        self.time_scale = max(time_scale, 1e-6)
+    def __init__(self) -> None:
         self._inputs: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
         self._arrived = asyncio.Event()   # set while a line is waiting
         self._line_no = 0
@@ -99,4 +96,4 @@ class Player(ABC):
             self.on_line(self._line_no, text.strip())
 
     async def _hold(self, seconds: float) -> None:
-        await asyncio.sleep(max(0.0, seconds) / self.time_scale)
+        await asyncio.sleep(max(0.0, seconds))

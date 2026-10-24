@@ -51,7 +51,7 @@ def _start_timing(config: Config, story: FrameZero, session_id: str, session_dir
     revision, dirty = git_revision()
     timing.write(
         "session_start", session=session_id, config=config.name, first_frame=story.scene,
-        revision=revision, dirty=dirty, llm_backend=config.llm_backend,
+        revision=revision, dirty=dirty,
         now_model=config.now_model,
         now_reasoning_effort=config.now_reasoning_effort or None,
         video=config.video_enabled,
@@ -244,7 +244,7 @@ async def run_live(
     timing = _start_timing(
         config, story, session_id, session_dir, shape=shape,
         startup_clips=config.startup_clips, queue_size=queue_size,
-        buffer_seconds=config.buffer_seconds, jit_margin=JIT_MARGIN_S, time_scale=player.time_scale,
+        buffer_seconds=config.buffer_seconds, jit_margin=JIT_MARGIN_S,
     )
     _check_reference(i2v, story.reference_image, timing)
     _check_shape(i2v, shape, timing)
@@ -258,8 +258,7 @@ async def run_live(
     played: list[Playable] = []
     # The player's clock as the producer sees it: which clip is on air,
     # when it started (monotonic) and how long it holds, plus the rendered
-    # clips waiting behind it. Durations are in real seconds (story seconds
-    # over the player's time scale).
+    # clips waiting behind it.
     air: dict = {"turn": None, "start": None, "hold": 0.0}
     queued_holds: list[float] = []
     # Viewer lines as the timing log follows them, by the player's line id:
@@ -276,7 +275,7 @@ async def run_live(
     player.on_line = _on_line
 
     def _hold_of(item: Playable) -> float:
-        return float(item.duration) / player.time_scale
+        return float(item.duration)
 
     # A running average of the measured render time, for the just-in-time
     # schedule. None until the first measurement.
@@ -608,7 +607,7 @@ async def run_live(
                                 parent_clip_id=state.current_parent_clip_id if state.current_clip_id else None,
                             )
                         )
-                        _prev_hold = shape.delivered_seconds / player.time_scale
+                        _prev_hold = shape.delivered_seconds
 
                 _commit_history(state)
                 _log_story_turn(story_logger, state)

@@ -30,8 +30,8 @@ REPO = Path(__file__).resolve().parents[2]
 
 class TimingLog:
     def __init__(self, path: Path | str | None) -> None:
-        """`path` None gives a log that records nothing (tests, callers
-        that were not handed one)."""
+        """`path` None gives a log that records nothing (callers that
+        were not handed one)."""
         self.path = Path(path) if path is not None else None
         self._t0 = time.monotonic()
         self._fh: IO[str] | None = None

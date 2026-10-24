@@ -30,7 +30,7 @@ from pathlib import Path
 from src.agents import now as now_agent
 from src.agents import then as then_agent
 from src.i2v.shape import ClipShape
-from src.llm import build_backend
+from src.llm import OpenAIBackend
 from src.models.config import Config
 from src.models.responses import Beat, Shot
 from src.models.story import FrameZero
@@ -64,10 +64,8 @@ class NowEngine:
         self.timing = timing or TimingLog(None)
         self.world: WorldModel | None = None
         self.story: FrameZero | None = None
-        self.llm_now = build_backend(config.llm_backend, config.now_model,
-                                     reasoning_effort=config.now_reasoning_effort)
-        self.llm_then = build_backend(config.llm_backend, config.then_model,
-                                      reasoning_effort=config.then_reasoning_effort)
+        self.llm_now = OpenAIBackend(model=config.now_model, reasoning_effort=config.now_reasoning_effort)
+        self.llm_then = OpenAIBackend(model=config.then_model, reasoning_effort=config.then_reasoning_effort)
         self._then_task: asyncio.Task | None = None
         self._then_meta: tuple[int, str] | None = None   # (at_segment, reason)
         self._then_notes: list[str] = []

@@ -278,15 +278,3 @@ class WorldModel(BaseModel):
                     for ev in new:
                         f.write(ev.model_dump_json() + "\n")
                 self._saved_events = len(self.events)
-
-    @classmethod
-    def load(cls, directory: Path | str) -> "WorldModel":
-        directory = Path(directory)
-        world = cls.model_validate_json((directory / "world.json").read_text(encoding="utf-8"))
-        events_path = directory / "events.jsonl"
-        if events_path.exists():
-            for line in events_path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    world.events.append(EventRecord.model_validate_json(line))
-        world._saved_events = len(world.events)
-        return world

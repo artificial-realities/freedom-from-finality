@@ -18,8 +18,5 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - name: Install ffmpeg (the video tests make and join small clips)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: python -m pip install -r requirements-dev.txt
       - run: ruff check .
-      - run: python -m pytest

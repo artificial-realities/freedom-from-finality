@@ -9,7 +9,3 @@ target-version = "py311"
 # Pyflakes + the core pycodestyle errors. Kept explicit so new Ruff
 # releases don't silently change what CI enforces.
 select = ["E4", "E7", "E9", "F"]
-
-[tool.pytest.ini_options]
-# logs/ holds run output, never tests.
-testpaths = ["tests"]

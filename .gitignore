@@ -8,7 +8,6 @@ build/
 dist/
 *.egg-info/
 *.egg
-.pytest_cache/
 .mypy_cache/
 .ruff_cache/
 

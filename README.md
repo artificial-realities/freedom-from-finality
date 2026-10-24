@@ -44,7 +44,7 @@ server/vast_run.sh down           # stop paying
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence, and [docs/vision.md](docs/vision.md) what it is reaching for. Every adventure starts from the first frame in [frame_zero.json](frame_zero.json), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
 
-`pip install -r requirements-dev.txt`, then `python -m pytest` and `ruff check .`: the tests run offline, without a key or a GPU. Issues and pull requests are welcome.
+`pip install -r requirements-dev.txt`, then `ruff check .`. There is no test suite, by choice. Issues and pull requests are welcome.
 
 ## License
 

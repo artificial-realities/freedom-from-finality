@@ -60,13 +60,6 @@ def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) 
 
 
 def _check_llm(config: Config, add) -> None:
-    backend = config.llm_backend.lower()
-    if backend == "mock":
-        add("ok", "mock LLM: scripted beats, no API calls")
-        return
-    if backend != "openai":
-        add("error", f"unknown llm_backend {config.llm_backend!r} (use \"openai\" or \"mock\")")
-        return
     if not (config.now_model and config.then_model):
         add("error", "now_model and then_model must both be set in the config")
     if os.getenv("OPENAI_API_KEY", "").strip():

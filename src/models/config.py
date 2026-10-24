@@ -18,7 +18,6 @@ class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = "film"
-    llm_backend: str = "openai"
 
     # ── The two roles ──────────────────────────────────────────────
     now_model: str = ""
