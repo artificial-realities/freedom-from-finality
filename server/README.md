@@ -17,7 +17,7 @@ Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL, and H200 NVL), torc
 
 ```bash
 server/vast_run.sh up        # rent and start; ready in 5-20 min (weights download, then the warm-up)
-server/vast_run.sh run       # your adventure on the box; open http://127.0.0.1:8765/ (Ctrl+C stops it)
+server/vast_run.sh run       # your adventure on the box: open its story map at http://127.0.0.1:8765/ (Ctrl+C ends it)
 server/vast_run.sh pull      # bring your adventure home, and the run's transcript and timing log → logs/box/
 server/vast_run.sh down      # always: renting bills by the hour until this
 server/vast_run.sh status    # what is rented, and the server's /health
@@ -37,7 +37,7 @@ python main.py check --config configs/video.yaml       # reachable, ready, the c
 python main.py play --config configs/video.yaml
 ```
 
-Open the player through a tunnel from your computer: `ssh -N -L 8765:localhost:8765 <user>@<gpu-host>`. The server listens on `127.0.0.1` (`LTX2_HOST`, `LTX2_PORT`) and has no authentication: reach it through ssh or from the same machine.
+Open the story map through a tunnel from your computer: `ssh -N -L 8765:localhost:8765 <user>@<gpu-host>`. The server listens on `127.0.0.1` (`LTX2_HOST`, `LTX2_PORT`) and has no authentication: reach it through ssh or from the same machine.
 
 ## Notes
 

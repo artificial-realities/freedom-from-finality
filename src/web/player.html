@@ -22,7 +22,11 @@
   .spinner { position: absolute; right: 14px; bottom: 14px; width: 18px; height: 18px; border: 2px solid rgba(255, 255, 255, .25); border-top-color: #fff; border-radius: 50%; animation: spin .9s linear infinite; }
   .spinner[hidden] { display: none; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  input { box-sizing: border-box; width: 100%; padding: 10px 12px; font: inherit; color: #eee; background: #111; border: 1px solid #333; border-radius: 6px; outline: none; }
+  form { display: flex; gap: 8px; }
+  input { box-sizing: border-box; flex: 1; min-width: 0; padding: 10px 12px; font: inherit; color: #eee; background: #111; border: 1px solid #333; border-radius: 6px; outline: none; }
+  .map { flex: none; padding: 0 14px; font: inherit; color: #bbb; background: #111; border: 1px solid #333; border-radius: 6px; cursor: pointer; }
+  .map:hover { color: #eee; border-color: #666; }
+  .map[hidden] { display: none; }
   input:focus { border-color: #666; }
   input:disabled { opacity: .5; }
 </style>
@@ -37,7 +41,7 @@
     <div class="spinner" id="spinner" hidden></div>
     <div class="start" id="start"><button type="button" aria-label="Play">▶</button></div>
   </div>
-  <form id="form"><input id="input" type="text" autocomplete="off" maxlength="400" placeholder="Suggest something…" aria-label="Suggest something"></form>
+  <form id="form"><button class="map" id="map" type="button" hidden title="Stop the film and go back to your story map">Map</button><input id="input" type="text" autocomplete="off" maxlength="400" placeholder="Suggest something…" aria-label="Suggest something"></form>
 </main>
 
 <script>
@@ -200,7 +204,12 @@
     requestAnimationFrame(tick);
   }
 
+  // With a story map the session goes back to it when the film ends.
+  let hasMap = false;
+  const toMap = () => location.replace('/');
+
   function finish() {
+    if (hasMap) { toMap(); return; }
     ended = true;
     const input = $('input');
     input.disabled = true; input.value = ''; input.placeholder = 'The film has ended.';
@@ -211,11 +220,15 @@
   const es = new EventSource('/events');
   es.addEventListener('hello', e => {
     const s = JSON.parse(e.data);
+    hasMap = s.status && s.status.state !== 'film';
+    $('map').hidden = !hasMap;
+    if (hasMap && s.status.state === 'map') { toMap(); return; }
     skew = Date.now() / 1000 - s.server_time;
     s.queued.forEach(prefetch);
     if (s.now) show(s.now);
     if (s.ended) finish();
   });
+  es.addEventListener('status', e => { if (hasMap && JSON.parse(e.data).state === 'map') toMap(); });
   es.addEventListener('queued', e => prefetch(JSON.parse(e.data)));
   es.addEventListener('playing', e => show(JSON.parse(e.data)));
   es.addEventListener('ended', () => { finish(); es.close(); });
@@ -234,6 +247,13 @@
       console.warn('input not sent:', e);
       if (!input.value) input.value = text;   // give the line back to try again
     }
+  });
+
+  $('map').addEventListener('click', async () => {
+    $('map').disabled = true;
+    try {
+      await fetch('/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    } catch (e) { toMap(); }
   });
 
   $('start').addEventListener('click', () => {

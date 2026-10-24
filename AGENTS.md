@@ -11,8 +11,11 @@ Each viewer has one adventure, which never ends: it begins once from the frame z
 ## Repository map
 
 ```
-main.py                    # check | play | adopt; --config, --adventure, --story, --segments, --log-dir, --host, --port
+main.py                    # check | play (the story map, then films) | adopt; --config, --adventure, --story,
+                           # --segments, --log-dir, --host, --port
 src/
+  app.py                   # the session: the story map first, a film from where the viewer chooses, the map again
+  story_map.py             # the map's data, read from the adventure each time
   adventure.py             # the adventure on disk: begin, resume, commit as of each aired clip, checkpoints,
                            # branches, crash recovery, adopt
   runner.py                # run_live: the story loop (just-in-time render, viewer interrupts, commit on air)
@@ -25,7 +28,7 @@ src/
   i2v/                     # the renderer boundary, the LTX-2.5 HTTP client, the clip shape
   llm/                     # the OpenAI backend
   playback/player.py       # Playable + Player: the loop's boundary to the page
-  web/                     # WebPlayer (aiohttp: SSE, /input, clips) + player.html
+  web/                     # WebPlayer (aiohttp: SSE, map, choices, /input, clips) + map.html, player.html
   preflight.py             # setup checks (`main.py check`)
   util/                    # durable writes, media probe, prompt loader, transcript, timing log
 configs/                   # text.yaml · video.yaml
@@ -47,11 +50,12 @@ python main.py check                                   # setup and adventure che
 python main.py check --config configs/text.yaml        # the same without a server (the test adventure)
 
 # Paid: these call OpenAI (see the rules below)
-python main.py play                                    # the viewer's adventure, as video at http://127.0.0.1:8765/
+python main.py play                                    # the viewer's story map at http://127.0.0.1:8765/; a film
+                                                       # (video) starts when a point on it is chosen
 python main.py play --config configs/text.yaml         # testing: the story as text, in logs/test-adventure
 ```
 
-`--segments N` bounds a run; Ctrl+C stops it. Python 3.11+. There is no formatter or type checker; don't reformat files you aren't changing.
+`--segments N` bounds each film; the Map button ends one, Ctrl+C the session. Python 3.11+. There is no formatter or type checker; don't reformat files you aren't changing.
 
 ## Secrets and configuration
 
@@ -61,7 +65,7 @@ python main.py play --config configs/text.yaml         # testing: the story as t
 
 ## Paid calls and rented GPUs: rules
 
-- **Never run `python main.py play` or start a film in the browser without the human's explicit permission for that run.** Each beat is a Now call and each viewer line another, about $0.50 per hour of film.
+- **Never start a film (from the story map or a script) without the human's explicit permission for that run.** Serving the map costs nothing; a film does. Each beat is a Now call and each viewer line another, about $0.50 per hour of film.
 - **Never run `server/vast_run.sh up` (or anything that rents, starts or restarts a GPU) without explicit approval.** A rented GPU bills by the hour until `server/vast_run.sh down`; after any GPU work, confirm with `server/vast_run.sh status` that nothing is left running.
 - CI and `check` stay offline and free.
 

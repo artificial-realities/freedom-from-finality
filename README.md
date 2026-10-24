@@ -33,15 +33,15 @@ With a [Vast.ai](https://vast.ai) key it is three commands:
 
 ```bash
 server/vast_run.sh up             # rent an H100, start the server (5-20 min the first time)
-server/vast_run.sh run            # play your adventure on it; open http://127.0.0.1:8765/
+server/vast_run.sh run            # your story map on it: open http://127.0.0.1:8765/
 server/vast_run.sh down           # bring your adventure home and stop paying
 ```
 
-On a machine with its own GPU, start the server there and run `python main.py play`. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: every line typed into it is billed to your OpenAI key.
+On a machine with its own GPU, start the server there and run `python main.py play`, then open http://127.0.0.1:8765/. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: every line typed into it is billed to your OpenAI key.
 
 ## Your adventure
 
-There is one adventure, and it never ends. The first `play` begins it from the first frame; every `play` after that resumes it from the last moment you saw, with its world, its characters, everything that has happened and what the story has learned about you. It lives in the `adventure/` folder on your computer (never in git): copy the folder to back it up or move it to another computer. When the film runs on a rented GPU, `server/vast_run.sh` copies it there before the film and brings it home every minute and when the film stops.
+There is one adventure, and it never ends. Every session opens on its story map, with nothing rendering until you choose where the story goes on. The first time, the map holds only the first frame, and the adventure begins there. After that the map shows the journey so far: the moments where the story turned (story checkpoints, recognised by Then), each timeline and where it stands now. Continue a timeline from the last moment you saw, with its world, its characters, everything that has happened and what the story has learned about you; or go back to a checkpoint, or to the first frame, and take the story another way in a new timeline. Nothing is lost: every timeline stays on the map and can be continued. The film has a Map button that brings you back. It lives in the `adventure/` folder on your computer (never in git): copy the folder to back it up or move it to another computer. When the film runs on a rented GPU, `server/vast_run.sh` copies it there before the session and brings it home every minute and when the session ends.
 
 The film itself is not kept: each clip is deleted once it has played, and only the few frames the next clip continues from are saved. Nothing is ever replayed; the story only goes on. `logs/` holds technical records of each run (transcripts, timing, the models' raw outputs), none of which the adventure needs.
 

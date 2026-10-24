@@ -41,7 +41,9 @@ viewer input ─▶ Engine (deterministic, asyncio)
 | Context | `src/story/context.py` | Every prompt section, so the prompt budget is decided in one place |
 | Compiler | `src/story/compiler.py` | One clip → LTX-2.5 prompt text; the only code that knows the video model's dialect |
 | Renderer | `src/i2v/ltxv.py`, `server/ltx2_server.py` | The HTTP client and the resident LTX-2.5 server |
-| Player | `src/web/` | The page and its server: the story, and a box to type into |
+| App | `src/app.py` | The session: the story map first, then a film from where the viewer chooses, then the map again |
+| Story map | `src/story_map.py` | The adventure as the map shows it, read from disk each time: origin, timelines, checkpoints, landmarks, stretches, places |
+| Player | `src/web/` | The pages and their server: the story map, the film, and a box to type into |
 
 ## A beat, then its clips
 
@@ -65,7 +67,7 @@ All of it is kept, little of it is sent. Now reads Then's understanding with eac
 
 ## The adventure
 
-Each viewer has one adventure, and it never ends: the first `play` begins it from the frame zero, every later one resumes it. It is one portable folder (`adventure/` by default, git-ignored) that a copy backs up or moves to another computer:
+Each viewer has one adventure, and it never ends: it begins once from the frame zero, and every session resumes it from where the viewer chooses on its story map (below). It is one portable folder (`adventure/` by default, git-ignored) that a copy backs up or moves to another computer:
 
 ```
 adventure.json            format, id, kind (video; text only for a test adventure), current timeline
@@ -95,6 +97,12 @@ timelines/<id>/           root, and every branch
 **Recovery and story checkpoints.** The newest continuation is the latest position, kept to recover from. The ones before it are kept only until Then has had its chance to name a turning point among them, that is the clips since it last summarised, which it reads in full (about ten; at most 60 while its runs keep failing). Then is shown the turning points so far and the segments a new one can be named at, and names one only when the story has turned: the world, a character, a relationship or the story's direction changed for good, so that a new era begins; no code judges it. Its `turned_at` must be a clip it read, and the clip it read there is recorded. When a saved world holds a turning point without a checkpoint, the adventure copies that moment out of the recent ones into `checkpoints/`, with the clip's last frame as a still, before older moments are let go; a crash in between finishes the job on the next open. A turning point at a moment no longer kept, or at a clip that is not the one that aired (it failed to render and was replanned), stays an era without a checkpoint, a landmark that cannot be returned to; it is never moved to a nearby clip.
 
 **Branches.** Going back to a checkpoint begins a new timeline from that moment: its first continuation is the checkpoint (the world, told the timeline it grew from and where, `ancestry`, and the frames the picture continues from), so the picture and the story go on from exactly there, in a fresh renderer session. Its event log holds only its own clips, after the fork; what came before is its parent's. The frame zero is a checkpoint too: starting over begins a timeline from the first frame (seeded from the reference image, with Then's opening run), which inherits nothing but the viewer. Nothing that exists is changed or removed: every timeline keeps its latest position and its checkpoints. A new timeline is built under `<id>.creating` and renamed into place; one nobody has played yet that begins at the same moment is entered instead of making another. Now is told on the branch's first beat that the viewer came back to this moment; the clip ids stay unique across the adventure and the render seeds differ per timeline. A turning point in a branch must be one of its own clips.
+
+## The story map
+
+Every session opens on the story map (`/`): `python main.py play` opens the adventure and serves it, and nothing renders and no model is called until the viewer chooses where the story goes on. From the map they can continue any timeline from its latest position, go back to a story checkpoint (a new timeline from that moment) or to the frame zero (a new timeline from the first frame; the first time, the adventure itself begins there). The film then plays on `/film`, which has a Map button: it ends the film, saved as of the clip on air, and the map comes back up to date. A film that cannot start (no OpenAI key, the renderer not reachable or not warm) sends the viewer back to the map with the reason; the map needs neither. Ctrl+C ends the session the same way.
+
+The map's data (`src/story_map.py`, `/map.json`) is read from the adventure each time and never stored: the origin; every timeline with the point it began from, its own clip count, checkpoints, the turning points it could not keep (landmarks), the stretches of its story as Then summarised them and the places the picture passed through; and each timeline's latest position. Stills come from the checkpoints, the origin's image, and for a latest position the last of its saved frames. Every id a page sends is looked up among the adventure's own timelines and checkpoints, never used as a path, and every POST is JSON only. The page draws the data as a simple branching timeline; an illustrated map can draw the same data later, with illustrations kept apart from the checkpoints they are made from.
 
 ## Who decides what
 

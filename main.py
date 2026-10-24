@@ -1,8 +1,8 @@
 """Entry point.
 
     python main.py check                       # the setup and the adventure, without paid calls
-    python main.py play                        # your adventure, in the browser: it begins from the
-                                               # frame zero the first time and resumes ever after
+    python main.py play                        # your story map in the browser: from it, continue a
+                                               # timeline, go back to a checkpoint or begin
     python main.py adopt adventure.incoming    # take back a copy of the adventure (from the GPU box)
 
 `--config configs/text.yaml` is a testing tool, not for viewers: the story as
@@ -21,13 +21,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src.adventure import Adventure, AdventureError, adopt, describe
-from src.i2v.ltxv import ReferenceRefused
-from src.i2v.shape import RendererNotReady
+from src.app import App
 from src.models.config import Config
 from src.models.story import FrameZero
 from src.preflight import Finding, check_setup
-from src.runner import run_live
-from src.web import WebPlayer
 
 DEFAULT_CONFIG = Path("configs/video.yaml")
 DEFAULT_STORY = Path(".")
@@ -52,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Freedom from Finality: an interactive video generation system")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    play = sub.add_parser("play", help="Play your adventure in the browser, from where you left it")
+    play = sub.add_parser("play", help="Open your story map in the browser, and play on from where you choose")
     play.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     play.add_argument("--adventure", type=Path, default=None, help=ADVENTURE_HELP)
     play.add_argument("--story", type=Path, default=DEFAULT_STORY, help=STORY_HELP)
@@ -60,7 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument("--host", default="127.0.0.1",
                       help="Player bind address (default 127.0.0.1: this computer only; the player has no login)")
     play.add_argument("--port", type=int, default=8765, help="Player port (0 = any free port)")
-    play.add_argument("--segments", type=int, default=None, help="Stop after this many clips (default: Ctrl+C)")
+    play.add_argument("--segments", type=int, default=None,
+                      help="End each film after this many clips (default: when you go back to the map)")
     play.add_argument("-v", "--verbose", action="store_true")
 
     check = sub.add_parser("check", help="Check the setup and the adventure without paid calls")
@@ -135,17 +133,14 @@ async def cmd_play(args: argparse.Namespace) -> int:
         print(f"Cannot open the adventure in {root}: {exc}", file=sys.stderr)
         return 1
     try:
+        # The map needs none of this; a film does, and is refused without it.
         errors = [f.message for f in check_setup(config, adventure.origin, probe_server=False) if f.level == "error"]
         if errors:
-            print("Cannot start the film:", *(f"  - {e}" for e in errors), sep="\n", file=sys.stderr)
+            print("The map opens, but no film can play until this is fixed:", *(f"  - {e}" for e in errors),
+                  sep="\n", file=sys.stderr)
             print(f"`python main.py check --config {args.config}` checks the whole setup.", file=sys.stderr)
-            return 1
-        await run_live(config=config, adventure=adventure, log_dir=args.log_dir,
-                       player=WebPlayer(host=args.host, port=args.port), max_segments=args.segments)
-    except (RendererNotReady, ReferenceRefused) as exc:
-        # The renderer refused the run before anything rendered.
-        print(f"Cannot start the film: {exc}", file=sys.stderr)
-        return 1
+        await App(config=config, adventure=adventure, log_dir=args.log_dir, host=args.host, port=args.port,
+                  max_segments=args.segments).run()
     finally:
         adventure.close()
     return 0
@@ -169,7 +164,10 @@ def main() -> None:
         sys.exit(cmd_check(args))
     if args.command == "adopt":
         sys.exit(cmd_adopt(args))
-    sys.exit(asyncio.run(cmd_play(args)))
+    try:
+        sys.exit(asyncio.run(cmd_play(args)))
+    except KeyboardInterrupt:
+        print("\nThe session ended; your adventure is saved as of the last clip you saw.")
 
 
 if __name__ == "__main__":

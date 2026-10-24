@@ -685,7 +685,7 @@ async def run_live(
     try:
         await asyncio.gather(producer_task, consumer_task)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        print("\n(quit)")
+        print("\n(the film stopped)")
     finally:
         stop_event.set()
         for task in (producer_task, consumer_task):

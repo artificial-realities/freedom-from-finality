@@ -201,6 +201,41 @@ class Adventure:
     def timelines(self) -> list[Timeline]:
         return _timelines(self.root)
 
+    # ── Read, for the story map (nothing is changed) ───────────────────
+
+    def head(self, timeline: str) -> tuple[Path, WorldModel] | None:
+        """The latest position of `timeline`: its newest continuation and
+        the world in it (None: it has none yet)."""
+        return _newest(self.root / "timelines" / timeline / "continuations", clean=False)
+
+    def events(self, timeline: str) -> list[EventRecord]:
+        """Every clip the viewer saw in `timeline` after it began."""
+        out = []
+        for raw in read_jsonl(self.root / "timelines" / timeline / "events.jsonl"):
+            try:
+                out.append(EventRecord.model_validate(raw))
+            except ValidationError:
+                continue
+        return out
+
+    def checkpoints(self, timeline: str) -> list[tuple[Path, Checkpoint]]:
+        """The story checkpoints of `timeline`, in story order, with their folders."""
+        folder = self.root / "timelines" / timeline / "checkpoints"
+        out = []
+        for d in sorted(folder.iterdir()) if folder.exists() else []:
+            if d.is_dir() and d.name.isdigit():
+                try:
+                    out.append((d, Checkpoint.model_validate_json((d / "checkpoint.json").read_bytes())))
+                except (OSError, ValidationError):
+                    continue
+        return out
+
+    def origin_image(self) -> Path | None:
+        """The image the frame zero shows, as it was copied into the adventure."""
+        name = self.origin.reference_image
+        path = self.root / "origin" / Path(name).name if name else None
+        return path if path is not None and path.exists() else None
+
     def enter(self, timeline: str) -> None:
         """Make `timeline` the current one, as of the last clip the viewer saw
         in it: its world, and the frames the picture continues from. Entering

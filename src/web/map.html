@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your story map</title>
+<style>
+  :root { color-scheme: dark; --bg: #000; --fg: #eee; --dim: #999; --line: #333; --card: #0d0d0d; --accent: #e8c26a; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 20px; }
+  .notice { border: 1px solid #6b4b1f; background: #1e1508; padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; }
+  .notice[hidden], .playing[hidden] { display: none; }
+  .playing { border: 1px solid var(--line); padding: 10px 12px; border-radius: 6px; margin-bottom: 16px; }
+  .playing a { color: var(--accent); }
+  section { margin-bottom: 28px; }
+  h2 { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
+  .meta { color: var(--dim); font-size: 14px; margin: 0 0 10px; }
+  .points { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .point { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+  .point.head { border-color: #555; }
+  .point img, .point .blank { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #111; }
+  .point .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .point .name { font-weight: 600; }
+  .point .when { color: var(--dim); font-size: 13px; }
+  .point .text { font-size: 14px; color: #ccc; }
+  .landmark { color: var(--dim); font-size: 14px; margin: 8px 0 0; }
+  button { margin-top: auto; align-self: flex-start; padding: 7px 12px; font: inherit; font-size: 14px; color: var(--fg); background: #1a1a1a; border: 1px solid #444; border-radius: 6px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Your story map</h1>
+  <p class="sub" id="sub">Everything your adventure has been, and every way it can go on.</p>
+  <div class="notice" id="notice" hidden></div>
+  <div class="playing" id="playing" hidden>Your story is playing. <a href="/film">Watch it</a></div>
+  <div id="map"></div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let data = null, status = { state: 'map', notice: '' };
+
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const when = seg => {
+    if (!seg) return 'the first frame';
+    const min = Math.round(seg * data.clip_seconds / 60);
+    const t = min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+    return `segment ${seg} · ${t} into the story`;
+  };
+  const points = () => Object.fromEntries([data.origin, ...data.points].map(p => [p.id, p]));
+
+  function title(line) {
+    if (line.id === 'root') return 'The first timeline';
+    if (!line.parent) return 'Begun again from the first frame';
+    const p = points()[line.begins];
+    return `Branch from “${p ? p.name : line.begins}”`;
+  }
+
+  function card(p, { head, action, label }) {
+    const c = el('div', 'point' + (head ? ' head' : ''));
+    if (p.still) { const img = el('img'); img.src = p.still + (head ? `?s=${p.segment}` : ''); img.alt = ''; c.appendChild(img); }
+    else c.appendChild(el('div', 'blank'));
+    const b = el('div', 'body');
+    if (p.name) b.appendChild(el('div', 'name', p.name));
+    b.appendChild(el('div', 'when', when(p.segment) + (p.place ? ` · ${p.place}` : '')));
+    const text = p.chronicle || p.picture;
+    if (text) b.appendChild(el('div', 'text', text));
+    if (p.on_screen && p.on_screen.length) b.appendChild(el('div', 'when', p.on_screen.join(', ')));
+    if (action) {
+      const btn = el('button', '', label);
+      btn.disabled = status.state !== 'map';
+      btn.addEventListener('click', () => go(action, btn));
+      b.appendChild(btn);
+    }
+    c.appendChild(b);
+    return c;
+  }
+
+  function render() {
+    const box = $('map');
+    box.replaceChildren();
+    $('playing').hidden = status.state === 'map';
+    $('notice').hidden = !status.notice;
+    $('notice').textContent = status.notice || '';
+    if (!data) return;
+    const root = data.timelines.find(t => t.id === 'root');
+    const fresh = root && root.clips === 0 && data.timelines.length === 1;
+
+    const origin = el('section');
+    origin.appendChild(el('h2', '', 'Frame zero'));
+    origin.appendChild(el('p', 'meta', fresh ? 'Where your adventure begins.' : 'Where every adventure began. Start over from here in a new timeline; nothing is lost.'));
+    const og = el('div', 'points');
+    og.appendChild(card({ ...data.origin, name: '' }, fresh
+      ? { action: ['continue', { timeline: 'root' }], label: 'Begin' }
+      : { action: ['branch', { checkpoint: 'origin' }], label: 'Start over from here' }));
+    origin.appendChild(og);
+    box.appendChild(origin);
+    if (fresh) return;
+
+    const byId = points();
+    for (const line of data.timelines) {
+      const s = el('section');
+      s.appendChild(el('h2', '', title(line) + (line.id === data.current ? ' · last played' : '')));
+      s.appendChild(el('p', 'meta', line.clips ? `${line.clips} clips of its own` : 'not played yet'));
+      const grid = el('div', 'points');
+      for (const id of line.checkpoints) {
+        grid.appendChild(card(byId[id], { action: ['branch', { checkpoint: id }], label: 'Take another way from here' }));
+      }
+      grid.appendChild(card({ ...line.head, name: 'Where it stands' }, {
+        head: true, action: ['continue', { timeline: line.id }], label: line.clips ? 'Continue' : 'Begin',
+      }));
+      s.appendChild(grid);
+      for (const m of line.landmarks) {
+        s.appendChild(el('p', 'landmark', `Turning point “${m.name}” at ${when(m.segment)}: that moment was not kept.`));
+      }
+      box.appendChild(s);
+    }
+  }
+
+  async function go([how, body], btn) {
+    btn.disabled = true;
+    try {
+      const r = await fetch('/' + how, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+      location.href = '/film';
+    } catch (e) {
+      status.notice = String(e.message || e);
+      render();
+    }
+  }
+
+  async function load() {
+    try {
+      const r = await fetch('/map.json', { cache: 'no-store' });
+      data = await r.json();
+    } catch (e) { status.notice = 'The map could not be read.'; }
+    render();
+  }
+
+  const es = new EventSource('/events');
+  es.addEventListener('hello', e => { status = JSON.parse(e.data).status || status; load(); });
+  es.addEventListener('status', e => { status = JSON.parse(e.data); load(); });
+})();
+</script>
+</body>
+</html>

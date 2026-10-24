@@ -4,7 +4,7 @@
 #
 #   server/vast_run.sh up [OFFER_ID]               rent (the cheapest matching H100 unless given), install,
 #                                                  start the server, open the tunnel, wait until it is ready
-#   server/vast_run.sh run [config] [args...]      your adventure ON the box; the player comes back on localhost:8765
+#   server/vast_run.sh run [config] [args...]      your adventure ON the box; its story map comes back on localhost:8765
 #   server/vast_run.sh pull [local_dir]            bring your adventure home, and fetch the run's logs
 #   server/vast_run.sh restart                     restart the server on the same box and wait until it is ready
 #   server/vast_run.sh status                      instance state and server health
@@ -127,7 +127,7 @@ run() {
   # The film runs on the GPU box next to the server, so no clip crosses the
   # internet (an MP4 through the tunnel cost 1.5-4.6 s per clip). The working
   # tree goes over with git archive (tracked files, committed or not), the
-  # OpenAI key from .env, and the player comes back through ssh on localhost:8765.
+  # OpenAI key from .env, and the story map comes back through ssh on localhost:8765.
   # Extra arguments reach main.py (e.g. --segments 8). Ctrl+C stops the film.
   local config=${1:-$CONFIG}; shift $(( $# > 0 ? 1 : 0 ))
   local tree; tree=$(git stash create); git archive --format=tar "${tree:-HEAD}" | ssh_cmd "mkdir -p /root/film && tar -x -C /root/film"
@@ -142,7 +142,7 @@ run() {
   ( while sleep 60; do pull_adventure >/dev/null 2>&1 || true; done ) &
   local syncer=$!
   trap 'kill '"$syncer"' 2>/dev/null; wait '"$syncer"' 2>/dev/null; pull_adventure && echo "your adventure is home"' EXIT
-  echo "the film runs on the box: open http://127.0.0.1:8765/  (Ctrl+C stops it; fetch its logs with: $0 pull)"
+  echo "your adventure runs on the box: open its story map at http://127.0.0.1:8765/  (Ctrl+C ends the session; fetch its logs with: $0 pull)"
   ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -L 8765:localhost:8765 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" \
     "cd /root/film && python main.py play --config $config $*"
 }
