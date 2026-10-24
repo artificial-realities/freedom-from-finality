@@ -342,13 +342,19 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     return r
 
 
-def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int) -> list[str]:
+def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int,
+               seen: dict[int, int] | None = None) -> list[str]:
     """Land a Then update: summaries, the rewritten notebook, and eras.
     Each portrait also lands on its character, so who a character is
     survives the notebook dropping it. An empty personality keeps the one
     the character has; a new one replaces it only with a `because` (what
     in the story changed it), so a core change is a recorded development,
-    never a rewording. A first personality needs none."""
+    never a rewording. A first personality needs none.
+
+    An era is a turning point at one of the clips Then read: `seen` maps
+    each segment in its snapshot to the clip it held, so the adventure
+    can tell later whether that very clip is the one that aired. One
+    turning point per moment of a timeline."""
     notes: list[str] = []
 
     text = update.scene_summary.strip()
@@ -385,13 +391,21 @@ def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int) -> lis
         ent.lately = " ".join(portrait.lately.split())
         ent.lately_at = at_segment
 
-    if update.era is not None:
-        world.eras.append(Era(
-            name=update.era.name,
-            turned_at=update.era.turned_at,
-            chronicle=update.era.chronicle,
-        ))
-        notes.append(f"era recognised: {update.era.name} (turned at segment {update.era.turned_at})")
+    era = update.era
+    name = " ".join(era.name.split()) if era is not None else ""
+    if era is not None and name:
+        turned = era.turned_at
+        if not 1 <= turned <= at_segment:
+            notes.append(f"era {name!r} not recognised: segment {turned} is not among the clips Then read "
+                         f"(1-{at_segment})")
+        elif any(e.timeline == world.timeline and e.turned_at == turned for e in world.eras):
+            notes.append(f"era {name!r} not recognised: segment {turned} is already a turning point")
+        else:
+            world.eras.append(Era(
+                name=name, turned_at=turned, chronicle=" ".join(era.chronicle.split()),
+                timeline=world.timeline, clip_id=(seen or {}).get(turned, 0), recognised_at=at_segment,
+            ))
+            notes.append(f"era recognised: {name} (turned at segment {turned})")
 
     world.then_runs += 1
     world.last_then = at_segment

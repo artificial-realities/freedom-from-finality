@@ -72,7 +72,7 @@ One JSON object:
   - `lately`: what they seem to lean toward now, one or two sentences.
   - `unknown`: what you cannot tell about them, one or two sentences.
 - `marks`: only marks not recorded yet, each with `mark` (what came from them, one sentence) and `said` (the ids of the lines it came from); empty when there is nothing new.
-- `era`: an era recognised now, or null. When set: `name` (a few words), `turned_at` (the segment where the turning point was), and `chronicle` (a paragraph on what defined it). Only when the world has genuinely transformed enough that a new phase has begun.
+- `era`: a turning point, or null; most runs have none. Name one when the story has turned: the world, a character, a relationship or the story's direction has changed for good, so that what follows is a new stretch of the story. When set: `turned_at` (the segment of the clip it turned on, one the Turning points section allows), `name` (a few words for the era it opens) and `chronicle` (a paragraph on what has defined it so far). The viewer's story map marks it, and they can come back to that moment to take the story another way.
 - `rationale`: a few sentences on what you noticed and why you made the choices you did.
 
 Return JSON only. No prose outside the object, no code fences.

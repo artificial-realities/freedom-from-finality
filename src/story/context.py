@@ -398,6 +398,20 @@ def format_recent(world: WorldModel, count: int) -> str:
     return "\n\n".join(lines)
 
 
+def format_turning_points(world: WorldModel, kept_from: int | None) -> str:
+    """The turning points so far, and the clips a new one can be named at:
+    those Then reads in full whose moment the adventure still keeps."""
+    out = [f'- "{e.name}" at segment {e.turned_at}' for e in world.eras]
+    out = ["So far:", *out] if out else ["None so far."]
+    first = max(kept_from or 1, world.last_compacted + 1)
+    if first <= world.segment:
+        out.append(f"A new one can be named at segments {first}-{world.segment}: the clips whose moment "
+                   "is still kept for the viewer to return to.")
+    else:
+        out.append("No clip can be named yet.")
+    return "\n".join(out)
+
+
 def format_events(world: WorldModel, since: int) -> str:
     events = world.events_since(since)
     if not events:

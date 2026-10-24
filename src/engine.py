@@ -13,8 +13,9 @@
   the clip that caused it. At most one is in flight and runs are at
   least `then_min_gap` segments apart. Its update lands at the start of
   the first plan that finds it finished; nothing ever waits for it.
-  Compresses the event log, rewrites the notebook, and rewrites its
-  understanding of the viewer.
+  Compresses the event log, rewrites the notebook, rewrites its
+  understanding of the viewer, and may name a turning point, which the
+  adventure keeps as a story checkpoint.
 
 Code owns the rest: the typed `WorldModel`, validation and apply, the
 prompt compiler, the viewer's memory (each line as it arrives, and what
@@ -79,7 +80,8 @@ class NowEngine:
         # dropped if it never airs.
         self._on_air: dict[int, tuple[str, str, list[Answer | DirectionEnd]]] = {}
         self._then_task: asyncio.Task | None = None
-        self._then_meta: tuple[int, str, int] | None = None   # (at_segment, reason, records read)
+        # (at_segment, reason, records read, the clip of each segment it read)
+        self._then_meta: tuple[int, str, int, dict[int, int]] | None = None
         self._then_notes: list[str] = []
         self._last_spawn: int = 0
         self.last_plan_fallback: bool = False
@@ -367,8 +369,8 @@ class NowEngine:
         self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
         self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
         self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
-        for update, at_segment in landings:
-            apply_then(self.world, update, at_segment=at_segment)
+        for update, at_segment, seen in landings:
+            apply_then(self.world, update, at_segment=at_segment, seen=seen)
 
     def _cut_after_failure(self, snap: dict, reason: str) -> None:
         beat = self._beat
@@ -515,14 +517,17 @@ class NowEngine:
         snapshot = self.world.model_copy(deep=True)
         state_snapshot = state.model_copy(deep=True)
         upto = len(self.viewer.records)
+        seen = {e.segment: e.clip_id for e in snapshot.events}
+        kept_from = self.adventure.kept_from()
 
         async def _task():
             return await then_agent.run(
                 world=snapshot, viewer=self.viewer, upto=upto, state=state_snapshot, llm=self.llm_then,
                 config=self.config, reason=reason, mode=mode, clip_seconds=self.shape.delivered_seconds,
+                kept_from=kept_from,
             )
 
-        self._then_meta = (at_segment, reason, upto)
+        self._then_meta = (at_segment, reason, upto, seen)
         self._then_task = asyncio.create_task(_task())
         self._last_spawn = at_segment
 
@@ -535,7 +540,7 @@ class NowEngine:
             world=self.world, viewer=self.viewer, upto=upto, state=state, llm=self.llm_then,
             config=self.config, reason=reason, mode=mode, clip_seconds=self.shape.delivered_seconds,
         )
-        self._land(update, at_segment=at_segment, reason=reason, upto=upto)
+        self._land(update, at_segment=at_segment, reason=reason, upto=upto, seen={})
 
     def _hold_reason(self, seg: int) -> str | None:
         task = self._then_task
@@ -555,7 +560,7 @@ class NowEngine:
         if task is None:
             return
         seg0 = self.world.segment if self.world else 0
-        at_segment, reason, upto = meta or (seg0, "?", 0)
+        at_segment, reason, upto, seen = meta or (seg0, "?", 0, {})
         if not task.done():
             self._then_notes.append(
                 f"then ({reason}, spawned at segment {at_segment}): still running; continuing with the current notebook",
@@ -568,19 +573,20 @@ class NowEngine:
             logger.exception("Then task failed; continuing with the current notebook")
             self._then_notes.append("then: task failed; notebook unchanged")
             return
-        self._land(update, at_segment=at_segment, reason=reason, upto=upto, landed_at=seg)
+        self._land(update, at_segment=at_segment, reason=reason, upto=upto, seen=seen, landed_at=seg)
 
-    def _land(self, update, *, at_segment: int, reason: str, upto: int, landed_at: int | None = None) -> None:
+    def _land(self, update, *, at_segment: int, reason: str, upto: int, seen: dict[int, int],
+              landed_at: int | None = None) -> None:
         """Land a Then update: the world's part (re-applied if the world is
         rolled back) and the viewer's part (landed once: their memory is
-        never rolled back)."""
+        never rolled back). `seen` is the clip of each segment Then read."""
         assert self.world is not None
         if update is None:
             self._then_notes.append(f"then ({reason}): no update (parse failure)")
             return
-        landed = apply_then(self.world, update, at_segment=at_segment)
+        landed = apply_then(self.world, update, at_segment=at_segment, seen=seen)
         landed += self.viewer.land(update, self.world, at_segment=at_segment, seen=upto)
-        self._landed_since.append((update, at_segment))
+        self._landed_since.append((update, at_segment, seen))
         self._record_then(update, reason=reason, at_segment=at_segment, landed_at=landed_at)
         line = f"then ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
         if landed_at is not None and landed_at > at_segment + 1:

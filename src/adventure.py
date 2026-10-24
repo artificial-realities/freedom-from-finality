@@ -17,15 +17,27 @@ video:
             world.json    the world as of that clip
             window.mp4    the frames the renderer continues the picture
                           from (a video adventure)
+        checkpoints/<segment>/
+            checkpoint.json   the turning point: its era, where and who
+            world.json        the world as of that clip
+            window.mp4        the frames the picture continues from
+            still.png         the last of them, the picture it goes on from
 
 It is saved as of the last clip the viewer saw. When a clip goes on air
 its continuation is written under `<segment>.tmp/`, synced and renamed
-into place (the commit), its event is appended and older continuations
-are removed; what the producer prepared beyond it is never saved. Opening
-takes the newest complete continuation and makes the event log agree with
-it, so a crash anywhere costs at most the clips not yet seen. Checkpoints
-will be continuations that are kept, and a branch a new timeline that
-starts from one.
+into place (the commit) and its event is appended; what the producer
+prepared beyond it is never saved. Opening takes the newest complete
+continuation and makes the event log agree with it, so a crash anywhere
+costs at most the clips not yet seen.
+
+The newest continuation is the latest position, there to recover from.
+The ones before it are kept only until Then has had its chance to name a
+turning point among them (it reads every clip since it last summarised),
+at most RING_MAX: a turning point it names there becomes a story
+checkpoint, kept for good, which the viewer can return to. One it names
+at a moment no longer kept, or at a clip that is not the one that aired,
+stays an era without a checkpoint; it is never moved to a nearby clip.
+A branch will be a new timeline that starts from a checkpoint.
 """
 
 from __future__ import annotations
@@ -35,20 +47,26 @@ import os
 import shutil
 import socket
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from src.models.story import FrameZero
 from src.story.viewer import ViewerMemory
-from src.story.world import ROOT_TIMELINE, EventRecord, WorldModel
+from src.story.world import ROOT_TIMELINE, Era, EventRecord, WorldModel
 from src.util.durable import append_line, read_jsonl, replace, sync_dir, write_synced
+from src.util.media import last_frame
 
 logger = logging.getLogger(__name__)
 
 FORMAT = 1
 Kind = Literal["video", "text"]
+# Recent moments kept for Then to name a turning point among, at most:
+# about ten in the usual run of things (the clips since Then last
+# summarised); more only while its runs keep failing.
+RING_MAX = 60
 
 
 class AdventureError(RuntimeError):
@@ -70,6 +88,26 @@ class Timeline(BaseModel):
     id: str
     parent: str | None = None
     forked_at: int | None = None
+
+
+class Checkpoint(BaseModel):
+    """A story checkpoint: the clip of `segment` in `timeline`, where the era
+    `name` began, kept for good so the viewer can return to that moment.
+    `place`, `on_screen` and `picture` are what that clip showed, for the
+    map; the full world is next to it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    timeline: str
+    segment: int
+    clip_id: int
+    name: str
+    chronicle: str
+    recognised_at: int
+    place: str = ""
+    on_screen: list[str] = Field(default_factory=list)
+    picture: str = ""
+    created_at: str
 
 
 class Summary(BaseModel):
@@ -95,6 +133,8 @@ class Adventure:
         self.world = world
         self.viewer = viewer
         self.window = window
+        # Turning points that could not be kept, so each is reported once.
+        self._unkept: set[tuple[str, int]] = set()
 
     @property
     def id(self) -> str:
@@ -135,7 +175,12 @@ class Adventure:
             folder, world = head
             window = folder / "window.mp4" if (folder / "window.mp4").exists() else None
         _reconcile(timeline / "events.jsonl", world)
-        return cls(root, manifest, origin, world, ViewerMemory.load(root / "viewer.jsonl"), window)
+        for d in (timeline / "checkpoints").glob("*.tmp"):
+            shutil.rmtree(d, ignore_errors=True)
+        adventure = cls(root, manifest, origin, world, ViewerMemory.load(root / "viewer.jsonl"), window)
+        # A commit cut short after its rename may not have kept its checkpoint.
+        adventure._settle(world)
+        return adventure
 
     def commit(self, segment: int, world_json: str, event_json: str, window: Path | None) -> None:
         """Save the adventure as of the clip of `segment`, the newest the
@@ -156,9 +201,89 @@ class Adventure:
         sync_dir(conts)
         append_line(self.timeline_dir / "events.jsonl", event_json)
         self.window = final / "window.mp4" if (final / "window.mp4").exists() else None
-        for old in conts.iterdir():
-            if old.name.isdigit() and int(old.name) < segment:
-                shutil.rmtree(old, ignore_errors=True)
+        self._settle(WorldModel.model_validate_json(world_json))
+
+    def kept_from(self) -> int | None:
+        """The oldest clip whose moment is still kept, where a turning point
+        can be named at the earliest (None: nothing saved yet)."""
+        ring = self._ring()
+        return ring[0] if ring else None
+
+    def _ring(self) -> list[int]:
+        """The segments of the continuations kept, oldest first."""
+        conts = self.timeline_dir / "continuations"
+        if not conts.exists():
+            return []
+        return sorted(int(d.name) for d in conts.iterdir() if d.is_dir() and d.name.isdigit())
+
+    def _settle(self, world: WorldModel) -> None:
+        """After a commit of `world`: keep a checkpoint of each turning point
+        it holds in this timeline that has none yet, then let go of the
+        moments Then has had its chance to name (those up to where it last
+        summarised), keeping the newest and at most RING_MAX."""
+        for era in world.eras:
+            if era.timeline == self.manifest.timeline:
+                self._keep(era)
+        ring = self._ring()
+        if not ring:
+            return
+        keep = set([s for s in ring if s > world.last_compacted or s == ring[-1]][-RING_MAX:])
+        for seg in ring:
+            if seg not in keep:
+                shutil.rmtree(self.timeline_dir / "continuations" / f"{seg:06d}", ignore_errors=True)
+
+    def _keep(self, era: Era) -> None:
+        """Keep the moment of `era` as a story checkpoint, from the
+        continuation of its clip, if that is still kept and is the clip
+        Then read. Built under `<segment>.tmp/` and renamed into place."""
+        key = (era.timeline, era.turned_at)
+        folder = self.timeline_dir / "checkpoints" / f"{era.turned_at:06d}"
+        if folder.exists() or key in self._unkept:
+            return
+        moment = self.timeline_dir / "continuations" / f"{era.turned_at:06d}"
+        world = None
+        try:
+            world = WorldModel.model_validate_json((moment / "world.json").read_bytes())
+        except (OSError, ValidationError):
+            why = "that moment is no longer kept"
+        else:
+            ev = world.events[-1] if world.events else None
+            if not era.clip_id:
+                why = "Then did not read that clip"
+            elif ev is None or ev.segment != era.turned_at or ev.clip_id != era.clip_id:
+                why = "the clip Then read there never aired"
+            else:
+                why = ""
+        if why:
+            self._unkept.add(key)
+            logger.warning("Turning point %r at segment %d is not a checkpoint: %s",
+                           era.name, era.turned_at, why)
+            return
+        ev = world.events[-1]
+        names = [world.entities[i].name for i in ev.on_screen if i in world.entities]
+        place = world.entities.get(ev.location)
+        checkpoint = Checkpoint(
+            timeline=era.timeline, segment=era.turned_at, clip_id=era.clip_id, name=era.name,
+            chronicle=era.chronicle, recognised_at=era.recognised_at, place=place.name if place else "",
+            on_screen=names, picture=ev.narration,
+            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+        tmp = folder.with_name(folder.name + ".tmp")
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+        write_synced(tmp / "world.json", (moment / "world.json").read_bytes())
+        if (moment / "window.mp4").exists():
+            write_synced(tmp / "window.mp4", (moment / "window.mp4").read_bytes())
+            try:
+                last_frame(tmp / "window.mp4", tmp / "still.png")
+            except Exception as exc:
+                logger.warning("Checkpoint at segment %d keeps no still: %s", era.turned_at, exc)
+                (tmp / "still.png").unlink(missing_ok=True)
+        write_synced(tmp / "checkpoint.json", checkpoint.model_dump_json(indent=2).encode("utf-8"))
+        sync_dir(tmp)
+        tmp.rename(folder)
+        sync_dir(folder.parent)
+        logger.info("Checkpoint kept: %r at segment %d", era.name, era.turned_at)
 
     def close(self) -> None:
         _unlock(self.root)

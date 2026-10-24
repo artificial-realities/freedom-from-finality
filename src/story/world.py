@@ -128,9 +128,18 @@ class Intervention(BaseModel):
 
 
 class Era(BaseModel):
+    """A turning point Then recognised: the story turned on the clip of
+    `turned_at` in `timeline`, which was `clip_id` when Then read it, and
+    the era `name` begins there. `recognised_at` is the segment Then had
+    read up to. The adventure keeps that moment as a story checkpoint if
+    it still holds it, and the very clip Then read is the one that aired."""
+
     name: str
     turned_at: int
     chronicle: str
+    timeline: str = ROOT_TIMELINE
+    clip_id: int = 0
+    recognised_at: int = 0
 
 
 class Summary(BaseModel):

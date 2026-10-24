@@ -1,5 +1,5 @@
-"""Media duration probing via ffprobe: a rendered clip's real length,
-checked against its clip shape."""
+"""Media helpers on ffmpeg: a rendered clip's real length, checked against
+its clip shape, and the still a story checkpoint keeps."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import asyncio
 import logging
 import shutil
 import subprocess
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -36,3 +37,11 @@ async def probe_duration(path: str) -> float | None:
     except Exception:
         logger.exception("ffprobe failed for %s", path)
         return None
+
+
+def last_frame(video: Path | str, dest: Path | str) -> Path:
+    """The video's last frame as a lossless PNG at `dest`: for the frames a
+    continuation keeps, exactly the picture the next clip goes on from."""
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-an", "-update", "1", "-f", "image2",
+                    str(dest)], capture_output=True, check=True)
+    return Path(dest)

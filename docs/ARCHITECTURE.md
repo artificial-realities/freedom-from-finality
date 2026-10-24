@@ -4,7 +4,7 @@ Freedom from Finality generates an infinite story as a sequence of 6-second clip
 
 ## In one paragraph
 
-Two LLM roles on two clocks; everything else is deterministic code. **Now** makes one structured call per **beat** (one action or state of the story, one to four clips) and returns everything the beat needs: each clip's picture, its dialogue, the world changes that happen in it, and how the viewer's line was taken. The engine then emits the beat's clips one per segment with no LLM call in between, and asks Now again when the beat has played out, or at once when the viewer speaks. **Then** runs off the critical path: it compacts the event log into summaries, rewrites the notebook (characters, seeds, intentions) and its understanding of the viewer, notes the viewer's marks on the story, and may recognise an era, and nothing ever waits for it. Code owns the rest: the typed world model (the only source of truth), the validator that decides what Now may change, the context assembler that decides what goes into each prompt, the compiler that turns a clip into the video model's prompt, and the live loop that renders each clip just in time.
+Two LLM roles on two clocks; everything else is deterministic code. **Now** makes one structured call per **beat** (one action or state of the story, one to four clips) and returns everything the beat needs: each clip's picture, its dialogue, the world changes that happen in it, and how the viewer's line was taken. The engine then emits the beat's clips one per segment with no LLM call in between, and asks Now again when the beat has played out, or at once when the viewer speaks. **Then** runs off the critical path: it compacts the event log into summaries, rewrites the notebook (characters, seeds, intentions) and its understanding of the viewer, notes the viewer's marks on the story, and may name a turning point, which the adventure keeps as a story checkpoint; nothing ever waits for it. Code owns the rest: the typed world model (the only source of truth), the validator that decides what Now may change, the context assembler that decides what goes into each prompt, the compiler that turns a clip into the video model's prompt, and the live loop that renders each clip just in time.
 
 ```
 viewer input ─▶ Engine (deterministic, asyncio)
@@ -12,7 +12,7 @@ viewer input ─▶ Engine (deterministic, asyncio)
                      ▼                                           ▼
         Context assembler (code)                            Then (LLM, slow clock)
         notebook · characters, their looks and state        summaries · notebook rewrite
-        · recent clips · the viewer's lines                  · era recognition
+        · recent clips · the viewer's lines                  · turning points
                      │                                       
                      ▼                    ◀── lands at the next plan ──
         Now (LLM, once per beat)
@@ -74,12 +74,17 @@ viewer.jsonl              the viewer's memory
 timelines/root/
   timeline.json           parent and fork point (none: the only timeline so far)
   events.jsonl            every clip the viewer saw: the story's full history
-  continuations/<segment>/
+  continuations/<segment>/   recent moments; the newest is the latest position
     world.json            the world as of that clip
     window.mp4            the frames the next clip continues from
+  checkpoints/<segment>/     story checkpoints, kept for good
+    checkpoint.json       the turning point: its era, chronicle, place and who was there
+    world.json            the world as of that clip
+    window.mp4            the frames a branch would continue from
+    still.png             the last of them: the picture it goes on from
 ```
 
-**Saved as of the last clip the viewer saw.** When a clip goes on air its continuation is written under `<segment>.tmp/`, synced and renamed into place (the commit), its event is appended and the previous continuation removed; then the viewer-memory records of that clip are written. The world committed is the one serialised right after the clip was emitted, so it holds nothing the producer prepared later; whatever was emitted but not yet seen is never saved. Every write is durable: append-only lines are synced and each starts on a line of its own, whole files are renamed into place.
+**Saved as of the last clip the viewer saw.** When a clip goes on air its continuation is written under `<segment>.tmp/`, synced and renamed into place (the commit) and its event is appended; then the viewer-memory records of that clip are written. The world committed is the one serialised right after the clip was emitted, so it holds nothing the producer prepared later; whatever was emitted but not yet seen is never saved. Every write is durable: append-only lines are synced and each starts on a line of its own, whole files are renamed into place.
 
 **What continues the picture.** LTX-2.5 conditions each clip on exactly one thing, the previous clip's last 9 frames (8k+1 frames, two latent frames; no audio or other state carries over), so that is all a continuation keeps: the last 9 frames of the aired clip, cut losslessly into a 112-275 KB file that decodes to exactly the frames a server restart would restore from. The clip itself is deleted once the next one has replaced it on screen. A clip whose frames cannot be cut keeps the previous ones.
 
@@ -87,7 +92,7 @@ timelines/root/
 
 **On a rented GPU.** The film runs on the box; `server/vast_run.sh` copies the adventure there first, brings it home every minute and when the film stops, and before `down` destroys the box. A copy brought home replaces the viewer's only if it is the same adventure and not behind (`main.py adopt`), with the replaced one kept as `adventure.previous`; an adoption cut short is undone on the next start rather than beginning a new adventure.
 
-**Checkpoints, later.** A checkpoint will be a continuation that is kept, and a branch a new timeline that starts from one, with its own events after the fork; the viewer's memory already stamps every record with its timeline.
+**Recovery and story checkpoints.** The newest continuation is the latest position, kept to recover from. The ones before it are kept only until Then has had its chance to name a turning point among them, that is the clips since it last summarised, which it reads in full (about ten; at most 60 while its runs keep failing). Then is shown the turning points so far and the segments a new one can be named at, and names one only when the story has turned: the world, a character, a relationship or the story's direction changed for good, so that a new era begins; no code judges it. Its `turned_at` must be a clip it read, and the clip it read there is recorded. When a saved world holds a turning point without a checkpoint, the adventure copies that moment out of the recent ones into `checkpoints/`, with the clip's last frame as a still, before older moments are let go; a crash in between finishes the job on the next open. A turning point at a moment no longer kept, or at a clip that is not the one that aired (it failed to render and was replanned), stays an era without a checkpoint, a landmark that cannot be returned to; it is never moved to a nearby clip. A branch will be a new timeline that starts from a checkpoint, with its own events after the fork; the viewer's memory already stamps every record with its timeline.
 
 ## Who decides what
 
@@ -121,4 +126,4 @@ The LTX-2.5 server (`server/ltx2_server.py`) holds the distilled model resident 
 
 ## Not built yet
 
-Per-character reference images; retrieval over the event log; relationship graphs; multi-viewer input; checkpoints and branching timelines (the adventure's layout and every record already carry their timeline). One story with several locations has played on the GPU: a cut lands the new place, a walk does not.
+Per-character reference images; retrieval over the event log; relationship graphs; multi-viewer input; branching timelines from a checkpoint (the adventure's layout and every record already carry their timeline). One story with several locations has played on the GPU: a cut lands the new place, a walk does not.

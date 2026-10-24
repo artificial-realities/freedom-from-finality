@@ -16,6 +16,9 @@ Segment: {segment} (a segment is {clip_seconds} seconds of story)
 ## The viewer
 {viewer}
 
+## Turning points
+{turning}
+
 {instruction}
 
 Return a single JSON object.

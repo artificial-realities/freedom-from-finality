@@ -4,8 +4,8 @@ Runs on triggers (bootstrap or every `compaction_interval` segments)
 and does four things in one call: compresses the event log into
 summaries, rewrites the notebook (characters, seeds, intentions),
 rewrites its understanding of the viewer and notes their new marks on
-the story, and may recognise an era. Its update is applied
-deterministically at the next join.
+the story, and may name a turning point (an era), which becomes a story
+checkpoint. Its update is applied deterministically at the next join.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from src.story.context import (
     format_notebook,
     format_policy,
     format_summaries,
+    format_turning_points,
     format_viewer_then,
     format_world_now,
     recalled,
@@ -57,7 +58,8 @@ INSTRUCTIONS = {
         "story is following and who else is pulling at it; what is alive, "
         "which seeds remain or are new, and where the story might go. Then "
         "rewrite your understanding of the viewer from their lines, and record "
-        "any new mark they have put on the story. Notice if an era has ended."
+        "any new mark they have put on the story. Notice whether the story has "
+        "turned since its last turning point."
     ),
 }
 
@@ -73,9 +75,12 @@ async def run(
     reason: str,
     mode: str,
     clip_seconds: float,
+    kept_from: int | None = None,
 ) -> ThenUpdate | None:
     """`viewer` is the viewer's memory and `upto` how many of its records
-    this run reads (what came after is for the next)."""
+    this run reads (what came after is for the next). `kept_from` is the
+    oldest clip whose moment the adventure still keeps, so a turning point
+    can be named there or later (None: nothing kept yet)."""
     system_prompt = load_prompt(SYSTEM_PATH, policy=format_policy())
     scene = " ".join(state.story.scene.split()).rstrip(".")
     recall = recalled(world, recent=config.recent_clips, viewer=viewer)
@@ -89,6 +94,7 @@ async def run(
         events=format_events(world, world.last_compacted),
         world_now=format_world_now(world, recall),
         viewer=format_viewer_then(world, viewer, upto=upto, recall=recall),
+        turning=format_turning_points(world, kept_from),
         instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["compact"]).format(scene=scene),
     )
     parsed = await call_llm_structured(
