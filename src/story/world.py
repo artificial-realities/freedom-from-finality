@@ -3,8 +3,8 @@
 Everything the story has established lives here: entities (characters,
 props, locations) with what code needs in structure (kind, presence,
 location, whether they are gone) and their state in one line of prose,
-viewer interventions with their disposition, Echo's notebook, an
-append-only event log (one record per clip), and the summaries Echo
+viewer interventions with their disposition, Then's notebook, an
+append-only event log (one record per clip), and the summaries Then
 compacts the log into.
 
 Only validated deltas mutate it (see `validator.py`). It is persisted
@@ -130,8 +130,8 @@ class WorldModel(BaseModel):
 
     beats: int = 0
     last_compacted: int = 0
-    last_echo: int = 0
-    echo_runs: int = 0
+    last_then: int = 0
+    then_runs: int = 0
     viewer_momentum: str = ""
     viewer_momentum_segment: int = 0
     shot: str = ""
@@ -147,7 +147,8 @@ class WorldModel(BaseModel):
         """A fresh world from a frame zero."""
         ref = frame_zero.picture.reference
         world = cls(
-            title=frame_zero.name, newcomers=frame_zero.newcomers.strip(),
+            title=frame_zero.name,
+            newcomers="Anyone the story needs.",
             cuts=frame_zero.picture.cuts, cutting=frame_zero.picture.cutting.strip(),
         )
         place_ids: dict[str, str] = {}
@@ -171,23 +172,14 @@ class WorldModel(BaseModel):
                 loc = ""
             world.entities[cid] = Entity(
                 id=cid, name=ch.name, kind="character",
-                description=ch.who, look=ch.look, look_short=ch.look_short,
-                voice=ch.voice, wants=ch.wants, nature=ch.nature,
+                look=ch.look, look_short=ch.look_short,
+                voice=ch.voice,
                 state=ch.state, present=ch.present,
                 location=loc,
             )
         if ref is not None and ref.shows:
             world.opening_picture = [e.id for e in world.by_kind("character") if names(ref.shows, e.name)]
         return world
-
-    # Aliases for backward compatibility during migration.
-    @classmethod
-    def from_genesis(cls, fz: FrameZero) -> "WorldModel":
-        return cls.from_frame_zero(fz)
-
-    @classmethod
-    def from_story(cls, fz: FrameZero) -> "WorldModel":
-        return cls.from_frame_zero(fz)
 
     @property
     def cast_locked(self) -> bool:

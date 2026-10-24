@@ -3,7 +3,7 @@ reading the film back.
 
 Per turn: the beat, the compiled shot, the dialogue and the world. The
 models' raw outputs are in the session directory (`plans.jsonl`,
-`showrunner.jsonl`).
+`then.jsonl`).
 """
 
 from __future__ import annotations

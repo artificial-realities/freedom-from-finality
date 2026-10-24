@@ -1,6 +1,6 @@
 """Runner-facing views of a segment.
 
-The Director engine's real output is `src.story.schemas.BeatPlan`; these
+The Now engine's real output is `src.story.schemas.BeatPlan`; these
 two small models are the projection the runner, playback, history and
 transcript consume. They are what a future engine must also produce.
 """

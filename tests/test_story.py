@@ -12,15 +12,15 @@ import pytest
 from src.models.story import Character, FrameZero, Location, Picture, Voice
 from src.story.compiler import compile_clip, speech
 from src.story.context import format_cut_rule, format_world_now
-from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, EchoUpdate, Notebook, Seed
-from src.story.validator import apply_clip, apply_echo, check, resolve_location
+from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThenUpdate, Notebook, Seed
+from src.story.validator import apply_clip, apply_then, check, resolve_location
 from src.story.world import EventRecord, WorldModel
 
 PLAIN = Picture()   # no style, no reference: the compiler's own words only
 
 
 def _world(**kw) -> WorldModel:
-    fz = FrameZero.from_json("stories/lego-void")
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
     if kw:
         fz = fz.model_copy(update=kw)
     return WorldModel.from_frame_zero(fz)
@@ -74,10 +74,9 @@ def _go(where: str, **clip) -> BeatPlan:
 def test_world_from_frame_zero():
     w = _world()
     assert w.camera_location == "the_white_void"
-    assert not w.cast_locked and w.newcomers.startswith("Other minifigures from any LEGO theme")
+    assert not w.cast_locked and w.newcomers
     hero, spaceman = w.entities["lego_man"], w.entities["spaceman"]
     assert hero.present is True and hero.location == "the_white_void"
-    assert hero.description.startswith("The most default minifigure") and hero.wants == "Something to do, and to get it right."
     assert hero.voice.description.startswith("earnest") and hero.state == "standing upright centre frame, arms at his sides"
     assert hero.look_short.startswith("the same plain LEGO minifigure"), "the frame zero's short look carries over"
     assert not spaceman.present and spaceman.location == ""
@@ -140,7 +139,8 @@ def test_validator_checks_every_clip_and_caps_them():
 
 
 def test_validator_cast_lock_and_speakers():
-    w = _world(newcomers="")
+    w = _world()
+    w.newcomers = ""
     _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="plastic dog", description="a plastic dog")])]), w, 1)
     beat = _beat(clips=[_clip(
         entity_ops=[EntityOp(op="introduce", entity="Lego Woman", kind="character", description="second figure")],
@@ -230,13 +230,13 @@ def test_cuts_are_the_storys_choice():
     r = _apply(cut, w, 2)
     assert cut.clips[0].cut_to == "" and any("one continuous take" in x for x in r.warnings)
 
-    fz = FrameZero.from_json("stories/lego-void")
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
     fz = fz.model_copy(update={"picture": fz.picture.model_copy(update={"cuts": True,
                                                                          "cutting": "Cut on a reveal."})})
     w = WorldModel.from_frame_zero(fz)
     rule = format_cut_rule(w)
     assert w.cuts and "Write the new shot in `cut_to`" in rule and rule.endswith("Cut on a reveal.")
-    assert "a cut costs the picture" in rule, "Spark knows what a cut does to the render"
+    assert "a cut costs the picture" in rule, "Now knows what a cut does to the render"
     assert "arrive at another location by cutting to it" in rule, "a walk keeps drawing the old place"
     w.events.append(EventRecord(segment=1, narration="n"))
     cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
@@ -244,17 +244,17 @@ def test_cuts_are_the_storys_choice():
     assert cut.clips[0].cut_to == "close-up of his hands" and w.shot == "close-up of his hands"
 
 
-def test_echo_lands_notebook_and_summaries():
+def test_then_lands_notebook_and_summaries():
     w = _world()
     nb = Notebook(alive="A lone figure.", seeds=[Seed(seed="What is out here?", potential="The void may hold anything.")],
                   intentions="Let him explore.", characters=[], audience="")
-    update = EchoUpdate(scene_summary="He woke and waved.", notebook=nb)
-    notes = apply_echo(w, update, at_segment=5)
+    update = ThenUpdate(scene_summary="He woke and waved.", notebook=nb)
+    notes = apply_then(w, update, at_segment=5)
     assert w.notebook.alive == "A lone figure."
     assert w.notebook.seeds[0].seed == "What is out here?"
     assert any("notebook updated" in n for n in notes)
     assert w.summaries and w.summaries[0].text == "He woke and waved."
-    assert w.echo_runs == 1 and w.last_echo == 5
+    assert w.then_runs == 1 and w.last_then == 5
 
 
 def test_a_location_reference_resolves_to_the_longest_whole_name():
@@ -368,14 +368,21 @@ def test_a_character_starts_only_in_a_known_place():
     with pytest.raises(ValueError):
         FrameZero(name="t", locations=[Location(name="Here", description="d")],
                 characters=[Character(name="A"), Character(name="B", location="There")])
-    quest = WorldModel.from_frame_zero(FrameZero.from_json("stories/lego-quest"))
+    fz = FrameZero(
+        name="quest", picture=Picture(cuts=True),
+        locations=[Location(name="The Village", description="a village"),
+                   Location(name="The Dragons Tower", description="a tower")],
+        characters=[Character(name="Princess", location="The Dragons Tower"),
+                    Character(name="Dragon", location="The Dragons Tower")],
+    )
+    quest = WorldModel.from_frame_zero(fz)
     assert quest.cuts and quest.current_location().id == "the_village"
     assert quest.entities["princess"].location == quest.entities["dragon"].location == "the_dragons_tower"
 
 
 def test_compiler_opening_clip_carries_style_look_and_reference():
     w = _world()
-    reference = FrameZero.from_json("stories/lego-void").picture.reference
+    reference = FrameZero.from_json("tests/fixtures/lego-void").picture.reference
     picture = Picture(style="Studio product shot. Pure white.", anchor="Studio shot, white.", reference=reference)
     beat = _beat(clips=[_clip(action="He waves.", ambient_sound="a faint plastic rattle", end_state="Lego Man mid-wave",
                               dialogue=[DialogueLine(speaker="lego_man", line="Hello?")])])

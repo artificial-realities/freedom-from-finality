@@ -21,13 +21,13 @@ class Config(BaseModel):
     llm_backend: str = "openai"
 
     # ── The two roles ──────────────────────────────────────────────
-    spark_model: str = ""
-    echo_model: str = ""
-    spark_reasoning_effort: str = ""
-    echo_reasoning_effort: str = ""
+    now_model: str = ""
+    then_model: str = ""
+    now_reasoning_effort: str = ""
+    then_reasoning_effort: str = ""
     temperature: float = 0.7
-    max_tokens_spark: int = 2048
-    max_tokens_echo: int = 2048
+    max_tokens_now: int = 2048
+    max_tokens_then: int = 2048
 
     # ── Video ──────────────────────────────────────────────────────
     video_enabled: bool = False
@@ -42,7 +42,7 @@ class Config(BaseModel):
     max_clips_per_beat: int = 4
     answer_max_clips: int = 2
     compaction_interval: int = 10
-    echo_min_gap: int = 4
+    then_min_gap: int = 4
 
     @classmethod
     def from_yaml(cls, path: Path | str) -> "Config":

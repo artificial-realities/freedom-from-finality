@@ -4,7 +4,7 @@ A `ClipShape` is a clip's length in frames, fixed before the clip is
 planned: the frames the server renders, the frames at its head that
 repeat the previous clip's tail (the continuity window), and the frames
 the viewer is given. Everything that needs a clip's length reads the
-run's shape: the Director's prompt, the engine's event record and story
+run's shape: Now's prompt, the engine's event record and story
 clock, the render request, the player's hold. Nothing derives a length
 from seconds anywhere else.
 
@@ -100,7 +100,7 @@ class ClipShape(BaseModel):
 
 
 def seconds_label(seconds: float) -> str:
-    """A length as the Director reads it: 6.0417 → "6", 4.5 → "4.5"."""
+    """A length as Now reads it: 6.0417 → "6", 4.5 → "4.5"."""
     return f"{seconds:.1f}".rstrip("0").rstrip(".")
 
 

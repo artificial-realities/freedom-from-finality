@@ -24,7 +24,7 @@ from src.runner import run_live
 from src.web import WebPlayer
 
 DEFAULT_CONFIG = Path("configs/text.yaml")
-DEFAULT_STORY = Path("data/frame_zero")
+DEFAULT_STORY = Path(".")
 DEFAULT_LOG_DIR = Path("logs")
 
 

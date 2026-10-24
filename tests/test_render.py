@@ -15,7 +15,7 @@ from PIL import Image
 
 from src.i2v.shape import ClipShape, RendererNotReady, main as shape_main, seconds_label
 from src.models.config import Config
-from src.models.story import Story
+from src.models.story import FrameZero
 
 
 def _config(**over) -> Config:
@@ -116,7 +116,7 @@ def test_the_client_checks_the_server_s_warm_shape():
                 except RendererNotReady as exc:
                     assert words in str(exc), (words, str(exc))
         with _Health([153]) as http:
-            client._synthesize_sync("stories/lego-void/legoman-16x9.png", "p", 1, shape)
+            client._synthesize_sync("tests/fixtures/lego-void/legoman-16x9.png", "p", 1, shape)
         assert http.posts[0]["num_frames"] == 153, "the request carries the shape's frames"
         assert "reference_image" in http.posts[0], "the first render seeds from the reference"
 
@@ -126,7 +126,7 @@ async def test_a_run_is_refused_when_its_shape_is_not_warm():
     ends the run there with the verdict in the timing log."""
     from src.runner import run_live
     from tests.test_engine import Scripted
-    story = Story.from_json("stories/lego-void")
+    story = FrameZero.from_json("tests/fixtures/lego-void")
     with tempfile.TemporaryDirectory() as d, _Health([121, 169]) as http:
         config = _config(video_enabled=True, ltxv_server_url="http://x")
         try:
@@ -142,14 +142,14 @@ async def test_a_run_is_refused_when_its_shape_is_not_warm():
 
 
 async def test_every_consumer_reads_the_selected_shape():
-    """Through the live loop with rendered clip files: Spark is told the
+    """Through the live loop with rendered clip files: Now is told the
     shape's length, the render request carries its frames, the player
     holds each clip for its delivered seconds, the event record counts
     them; a clip file of another length is flagged."""
     from src import runner
     from src.llm.mock_backend import MockBackend
     from tests.test_engine import Clips, Scripted, rendering, tiny_clip
-    story = Story.from_json("stories/lego-void")
+    story = FrameZero.from_json("tests/fixtures/lego-void")
     shapes_seen, systems = [], []
     synthesize, generate = Clips.synthesize, MockBackend.generate_structured
 
@@ -189,7 +189,7 @@ async def test_every_consumer_reads_the_selected_shape():
     assert [s.render_frames for s in shapes_seen] == [33, 33, 33]
     assert held == [one] * 3 and [h.shot.duration_seconds for h in state.history] == [one] * 3
     assert [e.duration for e in world.events] == [one] * 3
-    assert all("clips of 1 seconds" in s for s in systems), "Spark is told the shape's length"
+    assert all("clips of 1 seconds" in s for s in systems), "Now is told the shape's length"
     assert not [r for r in records if r["event"] == "shape_mismatch"]
     mismatch = [r for r in wrong_records if r["event"] == "shape_mismatch"]
     assert mismatch and mismatch[0]["frames"] == 57 and abs(mismatch[0]["measured_s"] - 33 / 24) < 0.01
@@ -200,7 +200,7 @@ def test_a_reference_is_resized_whole_or_refused():
     crop, no padding, its edges kept); anything else is refused before the
     film starts."""
     from src.i2v.ltxv import ReferenceRefused, fit_reference
-    story = Story.from_json("stories/lego-void")
+    story = FrameZero.from_json("tests/fixtures/lego-void")
     png, notes = fit_reference(story.reference_image, 512, 288)
     assert Image.open(io.BytesIO(png)).size == (512, 288) and notes == [], "the story's own reference fits"
     with tempfile.TemporaryDirectory() as d:

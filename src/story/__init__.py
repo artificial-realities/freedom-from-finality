@@ -1,7 +1,7 @@
 from src.story.schemas import (
     CharacterPortrait,
     DialogueLine,
-    EchoUpdate,
+    ThenUpdate,
     EntityOp,
     BeatPlan,
     ClipSpec,
@@ -19,7 +19,7 @@ from src.story.world import (
 )
 
 __all__ = [
-    "CharacterPortrait", "DialogueLine", "EchoUpdate", "EntityOp", "BeatPlan",
+    "CharacterPortrait", "DialogueLine", "ThenUpdate", "EntityOp", "BeatPlan",
     "ClipSpec", "Notebook", "Seed",
     "Entity", "Era", "EventRecord", "Intervention", "Summary",
     "WorldModel", "slugify",

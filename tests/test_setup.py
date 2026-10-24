@@ -24,7 +24,7 @@ FAKE_KEY = "sk-test-not-a-real-key-0123456789"
 
 
 def _args(config: str, **over) -> argparse.Namespace:
-    base = dict(config=Path(config), story=Path("stories/lego-void"), log_dir=Path("logs"),
+    base = dict(config=Path(config), story=Path("tests/fixtures/lego-void"), log_dir=Path("logs"),
                 host="127.0.0.1", port=0, segments=None, verbose=False)
     base.update(over)
     return argparse.Namespace(**base)
@@ -111,7 +111,7 @@ async def test_check_probes_the_video_server(monkeypatch):
 
 
 async def test_the_openai_backend_against_a_local_api(monkeypatch):
-    """Spark's call as the installed SDK sends it: strict JSON schema,
+    """Now's call as the installed SDK sends it: strict JSON schema,
     reasoning effort, completion-token cap; the reply's text comes back. A
     refused key is an error result, not an exception."""
     seen: list[dict] = []

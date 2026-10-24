@@ -1,6 +1,6 @@
 """Context assembler: renders the world model into prompt sections.
 
-Everything Spark and Echo read comes through here, so the prompt budget
+Everything Now and Then read comes through here, so the prompt budget
 is decided in one place: active entities in full with each character's
 current state, dormant ones by name, recent clips verbatim, older
 history as summaries. The system prompt (cast, rules, style) never
@@ -17,16 +17,12 @@ from src.story.world import WorldModel
 # ── System-prompt sections (cached; stable across a run) ───────────
 
 def format_frame_zero(fz: FrameZero) -> str:
-    """The world's identity and truths, for Spark and Echo system prompts."""
-    lines = [f"This is **{fz.name}**."]
-    if fz.truths:
-        lines.append("\nWhat is always true:")
-        lines.extend(f"- {t}" for t in fz.truths)
-    return "\n".join(lines)
+    """The world's identity, for Now and Then system prompts."""
+    return f"This is **{fz.name}**."
 
 
 def format_picture(picture: Picture) -> str:
-    """Visual style and reference image, for Spark's system prompt."""
+    """Visual style and reference image, for Now's system prompt."""
     out = [" ".join(picture.style.split()) or "(no style given)"]
     shows = " ".join(picture.reference.shows.split()).rstrip(".") if picture.reference else ""
     if shows:
@@ -39,12 +35,6 @@ def format_picture(picture: Picture) -> str:
     return "\n\n".join(out)
 
 
-def format_opening(fz: FrameZero) -> str:
-    if not fz.opening:
-        return ""
-    return fz.opening
-
-
 def format_cast(world: WorldModel) -> str:
     """The frame zero's cast sheet (system prompts: it never changes during
     a run, so characters introduced during the story are listed in World now)."""
@@ -52,11 +42,7 @@ def format_cast(world: WorldModel) -> str:
     for ent in world.by_kind("character"):
         if ent.dynamic:
             continue
-        bits = [f"- `{ent.id}`: {ent.name}. {ent.description}".rstrip()]
-        if ent.wants:
-            bits.append(f"  Wants: {ent.wants}")
-        if ent.nature:
-            bits.append(f"  Nature: {ent.nature}")
+        bits = [f"- `{ent.id}`: {ent.name}"]
         if not ent.present:
             bits.append("  Not in the story at the start.")
         if ent.cast_look or ent.look:
@@ -104,10 +90,10 @@ def format_locations(world: WorldModel) -> str:
 # ── User-prompt sections (change every call) ───────────────────────
 
 def format_notebook(world: WorldModel) -> str:
-    """Echo's notebook as Spark reads it."""
+    """Then's notebook as Now reads it."""
     nb = world.notebook
     if not nb.characters and not nb.alive and not nb.seeds:
-        return "(Echo has not written the notebook yet.)"
+        return "(Then has not written the notebook yet.)"
     out: list[str] = []
     if nb.characters:
         out.append("**Characters**")

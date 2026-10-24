@@ -23,5 +23,5 @@ def load_prompt(filepath: Path | str, **kwargs: Any) -> str:
 
 
 def prompt_path(name: str) -> Path:
-    """Resolve a prompt filename (e.g. "director.system.md") to its path."""
+    """Resolve a prompt filename (e.g. "now.system.md") to its path."""
     return PROMPTS_DIR / name

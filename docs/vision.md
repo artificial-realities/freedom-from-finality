@@ -21,4 +21,4 @@ Getting there means solving several things at once:
 - **Constraints** — preserve higher-level story guidelines while still letting influence matter. Steering should bend the story, not break it.
 - **Cinematic cohesion** — connect scenes so the result reads as one film, not a reel of isolated AI clips.
 
-None of these is fully solved here. The prototype is one attempt at attacking them together.
+None of these is fully solved here. The system is one attempt at attacking them together.

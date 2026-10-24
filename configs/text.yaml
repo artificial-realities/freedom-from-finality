@@ -1,6 +1,6 @@
 # The story as text, in the browser: no GPU, only OPENAI_API_KEY.
 # Every setting and its default is in src/models/config.py.
-spark_model: "gpt-5.6-luna"
-echo_model: "gpt-5.6-luna"
-spark_reasoning_effort: "none"
-echo_reasoning_effort: "none"
+now_model: "gpt-5.6-luna"
+then_model: "gpt-5.6-luna"
+now_reasoning_effort: "none"
+then_reasoning_effort: "none"

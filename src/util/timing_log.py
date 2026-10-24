@@ -2,7 +2,7 @@
 
 `logs/sessions/<id>/timing.jsonl` records when each clip was fired,
 rendered, queued, put on air and taken off; when each viewer line arrived,
-was taken by the Director and landed; what each Director call cost; and
+was taken by Now and landed; what each Now call cost; and
 the browser's own view of each swap. Nothing reads it back during a run.
 It exists so a benchmark can be computed from a film instead of being
 reconstructed from file times.

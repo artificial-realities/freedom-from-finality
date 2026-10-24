@@ -1,4 +1,4 @@
-"""Echo: the slow-clock LLM call, off the critical path.
+"""Then: the slow-clock LLM call, off the critical path.
 
 Runs on triggers (bootstrap or every `compaction_interval` segments)
 and does three things in one call: compresses the event log into
@@ -27,14 +27,14 @@ from src.story.context import (
     format_summaries,
     format_world_now,
 )
-from src.story.schemas import EchoUpdate
+from src.story.schemas import ThenUpdate
 from src.story.world import WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PATH: Path = prompt_path("echo.system.md")
-USER_PATH: Path = prompt_path("echo.user.md")
+SYSTEM_PATH: Path = prompt_path("then.system.md")
+USER_PATH: Path = prompt_path("then.user.md")
 
 INSTRUCTIONS = {
     "bootstrap": (
@@ -61,7 +61,7 @@ async def run(
     config: Config,
     reason: str,
     mode: str,
-) -> EchoUpdate | None:
+) -> ThenUpdate | None:
     frame_zero = state.story
     system_prompt = load_prompt(
         SYSTEM_PATH,
@@ -80,19 +80,19 @@ async def run(
         instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["compact"]),
     )
     parsed = await call_llm_structured(
-        agent="echo",
+        agent="then",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         llm=llm,
         config=config,
         turn=world.segment,
-        schema=EchoUpdate,
-        max_tokens=config.max_tokens_echo,
+        schema=ThenUpdate,
+        max_tokens=config.max_tokens_then,
     )
     if parsed is None:
         return None
     try:
-        return EchoUpdate(**parsed)
+        return ThenUpdate(**parsed)
     except ValidationError as exc:
-        logger.warning("Echo update validation failed at segment %s: %s", world.segment, exc)
+        logger.warning("Then update validation failed at segment %s: %s", world.segment, exc)
         return None

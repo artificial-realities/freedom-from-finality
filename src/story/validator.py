@@ -1,4 +1,4 @@
-"""Validate and apply a Spark beat against the world model.
+"""Validate and apply a Now beat against the world model.
 
 Plan → Diff → Validate → Apply. The LLM proposes, this module decides
 what is structurally admissible, applies the admissible part, and
@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from src.models.story import Voice
 from src.story.compiler import shot_before
-from src.story.schemas import BeatPlan, EchoUpdate, EntityOp
+from src.story.schemas import BeatPlan, ThenUpdate, EntityOp
 from src.story.world import Entity, Era, Summary, WorldModel, slugify
 
 
@@ -317,8 +317,8 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     return r
 
 
-def apply_echo(world: WorldModel, update: EchoUpdate, *, at_segment: int) -> list[str]:
-    """Land an Echo update: summaries, the rewritten notebook, and eras."""
+def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int) -> list[str]:
+    """Land a Then update: summaries, the rewritten notebook, and eras."""
     notes: list[str] = []
 
     text = update.scene_summary.strip()
@@ -344,6 +344,6 @@ def apply_echo(world: WorldModel, update: EchoUpdate, *, at_segment: int) -> lis
         ))
         notes.append(f"era recognised: {update.era.name} (turned at segment {update.era.turned_at})")
 
-    world.echo_runs += 1
-    world.last_echo = at_segment
+    world.then_runs += 1
+    world.last_then = at_segment
     return notes

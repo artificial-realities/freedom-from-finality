@@ -4,7 +4,7 @@ Project facts and rules for coding agents (and humans). How the story works is i
 
 ## What this is
 
-An infinite, continuously generated story that a viewer steers by typing suggestions into a browser page. Two LLM roles — **Spark** (the creative voice, one beat per call on the critical path) and **Echo** (memory and intuition, off the critical path on a slow clock) — write the story over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
+An infinite, continuously generated story that a viewer steers by typing suggestions into a browser page. Two LLM roles — **Now** (the creative voice, one beat per call on the critical path) and **Then** (memory and intuition, off the critical path on a slow clock) — write the story over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
 
 Two configs: `configs/text.yaml` (the default: the story as text in the browser, no GPU, only an OpenAI key) and `configs/video.yaml` (needs the LTX-2.5 server on an 80 GB NVIDIA GPU, best with the client on the same machine).
 
@@ -14,9 +14,9 @@ Two configs: `configs/text.yaml` (the default: the story as text in the browser,
 main.py                    # check | play; --config, --story, --segments, --log-dir, --host, --port
 src/
   runner.py                # run_live: the story loop (just-in-time render, viewer interrupts, the saved film)
-  engine.py                # SparkEngine: plan a beat, emit its clips, roll back, the Echo clock
-  agents/                  # spark.py (BeatPlan per beat), echo.py (EchoUpdate)
-  prompts/                 # spark.*.md, echo.*.md
+  engine.py                # NowEngine: plan a beat, emit its clips, roll back, the Then clock
+  agents/                  # now.py (BeatPlan per beat), then.py (ThenUpdate)
+  prompts/                 # now.*.md, then.*.md
   story/                   # typed world model, schemas, validator (per clip), context assembler, prompt compiler
   state/story_state.py     # StoryState: the runner-facing surface
   models/                  # config (Config, every field commented), story (FrameZero), responses
@@ -28,7 +28,7 @@ src/
   util/                    # media probe, prompt loader, transcript, timing log
 tests/                     # pytest, offline: test_story, test_engine, test_render, test_web, test_setup
 configs/                   # text.yaml · video.yaml
-stories/                   # one folder per story (frame_zero.json + reference image)
+frame_zero.json            # the story's starting configuration and reference image
 docs/                      # ARCHITECTURE.md (how) · decisions.md (why) · vision.md (the goal)
 server/                    # the LTX-2.5 server for the GPU box, and vast_run.sh to rent one; see server/README.md
 logs/                      # run output (git-ignored): transcripts, sessions/<id>/ (world, events, timing), video/
@@ -59,7 +59,7 @@ python main.py play --config configs/video.yaml        # the film as video (need
 
 ## Paid calls and rented GPUs: rules
 
-- **Never run `python main.py play` or start a film in the browser without the human's explicit permission for that run.** Each beat is a Spark call and each viewer line another, about $0.50 per hour of film.
+- **Never run `python main.py play` or start a film in the browser without the human's explicit permission for that run.** Each beat is a Now call and each viewer line another, about $0.50 per hour of film.
 - **Never run `server/vast_run.sh up` (or anything that rents, starts or restarts a GPU) without explicit approval.** A rented GPU bills by the hour until `server/vast_run.sh down`; after any GPU work, confirm with `server/vast_run.sh status` that nothing is left running.
 - Tests, CI and `check` stay offline and free. The suite's `offline` fixture fails any connection beyond loopback and clears keys from the environment. Fake the models the way the tests do: the mock LLM (`llm_backend: "mock"`), `Clips` in `tests/test_engine.py` for rendering, `_Health` in `tests/test_render.py` for the server, `_serve` in `tests/test_setup.py` for a local HTTP stand-in.
 
@@ -74,10 +74,10 @@ python main.py play --config configs/video.yaml        # the film as video (need
 - **State & responses**: Pydantic v2 `BaseModel`, not `TypedDict` or raw dicts. The world model (`src/story/world.py`) is the system of record; prose is never the source of truth.
 - **Agents** are async functions, not classes. They read prompt sections from `src/story/context.py` and return schema instances; only `src/story/validator.py` mutates the world.
 - **Workflow, not agent system**: no tool use, no LLM-directed control flow. The engine decides order and triggers; the LLM proposes, code validates and applies.
-- **Rendering is opt-out, content is not.** Spark writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
+- **Rendering is opt-out, content is not.** Now writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
 - **The video model's dialect lives in one place**: `src/story/compiler.py`. Schemas do not change when the model does.
-- **Structured outputs are strict**: keep `BeatPlan` and `EchoUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
-- **Prompts, schemas, compiler and engine are story-agnostic.** Anything story-specific lives in its folder under `stories/`.
+- **Structured outputs are strict**: keep `BeatPlan` and `ThenUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
+- **Prompts, schemas, compiler and engine are story-agnostic.** Anything story-specific lives in the frame zero (`frame_zero.json`).
 - **Facts, not thresholds, for story quality.** No code judges pacing, loops or whether the film is moving; give the roles what they need to judge it.
 - **A product, not a research harness.** Experiments, benchmarks and evaluation tooling stay out of the repository; what one decides goes into `docs/decisions.md` in a few lines with its numbers. Comments say why in plain words, without tracker IDs or dates.
 - **Safe by default.** The player and the LTX-2.5 server listen on `127.0.0.1` and have no login; never change that default or document public hosting as safe. The app writes only under `--log-dir`; a value from a request never becomes a path. No telemetry or third-party calls.

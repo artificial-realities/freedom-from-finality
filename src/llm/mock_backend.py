@@ -2,9 +2,9 @@
 
 Returns schema-shaped JSON without calling any API, so the whole engine
 (world model, validator, compiler, triggers, persistence, transcript)
-can be exercised deterministically. The Spark script is keyed on what it
+can be exercised deterministically. The Now script is keyed on what it
 finds in the prompt: the viewer's line, whether a request is still owed,
-whether the story is opening. The Echo script returns a notebook and
+whether the story is opening. The Then script returns a notebook and
 optional compaction.
 """
 
@@ -62,7 +62,7 @@ def _clip(action: str, end_state: str, **over) -> dict:
 
 
 class MockBackend(LLMBackend):
-    echo_delay: float = 0.0
+    then_delay: float = 0.0
 
     def __init__(self, model: str = "mock") -> None:
         self.model = model
@@ -71,15 +71,15 @@ class MockBackend(LLMBackend):
         name = schema.__name__
         if name == "BeatPlan":
             payload = self._beat(messages)
-        elif name == "EchoUpdate":
-            if self.echo_delay:
-                await asyncio.sleep(self.echo_delay)
-            payload = self._echo(messages)
+        elif name == "ThenUpdate":
+            if self.then_delay:
+                await asyncio.sleep(self.then_delay)
+            payload = self._then(messages)
         else:
             raise ValueError(f"MockBackend has no script for schema {name!r}")
         return json.dumps(payload), {"prompt": 0, "completion": 0, "total": 0}
 
-    # ── Spark script ───────────────────────────────────────────────
+    # ── Now script ───────────────────────────────────────────────
 
     def _beat(self, messages: list[dict]) -> dict:
         n = _segment_number(messages)
@@ -144,9 +144,9 @@ class MockBackend(LLMBackend):
             ]
         return base
 
-    # ── Echo script ────────────────────────────────────────────────
+    # ── Then script ────────────────────────────────────────────────
 
-    def _echo(self, messages: list[dict]) -> dict:
+    def _then(self, messages: list[dict]) -> dict:
         user = _user(messages)
         bootstrap = "Trigger: bootstrap" in user
         return {

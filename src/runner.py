@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from src.engine import SparkEngine, EmitFailed
+from src.engine import NowEngine, EmitFailed
 from src.i2v import LtxvI2V
 from src.i2v.base import I2VBackend
 from src.i2v.shape import DEFAULT_FPS, ClipShape
@@ -52,8 +52,8 @@ def _start_timing(config: Config, story: FrameZero, session_id: str, session_dir
     timing.write(
         "session_start", session=session_id, config=config.name, story=story.name,
         revision=revision, dirty=dirty, llm_backend=config.llm_backend,
-        spark_model=config.spark_model,
-        spark_reasoning_effort=config.spark_reasoning_effort or None,
+        now_model=config.now_model,
+        now_reasoning_effort=config.now_reasoning_effort or None,
         video=config.video_enabled,
         clip_seconds=round(shape.delivered_seconds, 4), shape=shape.record(),
         **fields,
@@ -67,7 +67,7 @@ def _line_fields(text: str) -> dict:
     return {"chars": len(text), "sha": hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]}
 
 
-def _log_emit(timing: TimingLog, engine: SparkEngine, turn: int) -> None:
+def _log_emit(timing: TimingLog, engine: NowEngine, turn: int) -> None:
     """The clip the engine just emitted, from its event record."""
     ev = engine.world.events[-1] if engine.world is not None and engine.world.events else None
     if ev is None or ev.segment != turn:
@@ -205,7 +205,7 @@ async def run_live(
 ) -> StoryState:
     """Live loop: a producer generating clips, a player showing them.
 
-    The producer emits one clip per segment from Spark's current beat and
+    The producer emits one clip per segment from Now's current beat and
     pushes each rendered clip onto a bounded queue (size =
     `startup_clips + 1`). The consumer hands them to the player one at a
     time; the player holds each for its duration, so the server is the
@@ -214,10 +214,10 @@ async def run_live(
 
     Just in time: once playback runs, a clip's render is fired as late as
     it safely can be (the render estimate plus `buffer_seconds` before the
-    clip is due on air), and Spark is asked for the next beat as soon as
+    clip is due on air), and Now is asked for the next beat as soon as
     the current one has no clip left. Until the fire the producer listens
     for the viewer. A line cuts the beat in progress short (its unrendered
-    clips are dropped), cancels a Spark call in flight, and Spark writes
+    clips are dropped), cancels a Now call in flight, and Now writes
     the next beat from that line at once, so the line reaches the earliest
     clip that is not yet rendering. Before playback starts the producer
     runs flat out to build the lead.
@@ -226,7 +226,7 @@ async def run_live(
     the clip's text, held for the clip's duration.
 
     The run's timing (fires, renders, the queue, air time, viewer lines,
-    Spark calls) goes to `logs/sessions/<id>/timing.jsonl`; see
+    Now calls) goes to `logs/sessions/<id>/timing.jsonl`; see
     `src.util.timing_log`.
     """
     state = StoryState.initialize(story, config_name=config.name)
@@ -249,7 +249,7 @@ async def run_live(
     )
     _check_reference(i2v, story.reference_image, timing)
     _check_shape(i2v, shape, timing)
-    engine = SparkEngine(config=config, session_dir=session_dir, timing=timing, shape=shape)
+    engine = NowEngine(config=config, session_dir=session_dir, timing=timing, shape=shape)
     print(f"The film plays as {'video' if i2v is not None else 'text'}. Ctrl+C stops it.", flush=True)
 
     queue: asyncio.Queue[Playable | None] = asyncio.Queue(maxsize=queue_size)
@@ -264,7 +264,7 @@ async def run_live(
     air: dict = {"turn": None, "start": None, "hold": 0.0}
     queued_holds: list[float] = []
     # Viewer lines as the timing log follows them, by the player's line id:
-    # taken into a Spark call, then carried by the planned beat until
+    # taken into a Now call, then carried by the planned beat until
     # its first clip is emitted (landed) or the beat is cut first (dropped).
     plan_lines: list[int] = []
     beat_lines: list[int] = []
@@ -356,7 +356,7 @@ async def run_live(
             item.overlap_seconds = shape.overlap_seconds
         if i2v.last_render.get("reseeded"):
             # A restart the client could not restore from the last clip's
-            # tail: the Spark hears the picture was reset.
+            # tail: Now hears the picture was reset.
             timing.write("reseeded", turn=item.turn)
             engine.note_reseed(item.turn)
         item.duration = shape.delivered_seconds
@@ -461,7 +461,7 @@ async def run_live(
                 beat_lines.clear()
 
         async def _plan(text: str) -> None:
-            """Ask the Spark for the next beat from `text`. A line that
+            """Ask Now for the next beat from `text`. A line that
             arrives while the call runs cancels it, and the call restarts
             with everything the viewer typed."""
             nonlocal state, planned_text, carry_text
@@ -480,7 +480,7 @@ async def run_live(
                         # next plan.
                         carry_text = " ".join(x for x in (text, carry_text) if x)
                         timing.write("line_requeued", turn=state.turn_number, lines=list(plan_lines),
-                                     reason="the Spark call that answered them failed")
+                                     reason="the Now call that answered them failed")
                         planned_text = ""
                         return
                     beat_lines[:] = plan_lines
@@ -501,7 +501,7 @@ async def run_live(
             the beat in progress short and plan from the line. When the
             planned beat has not played a clip and its plan answered an
             earlier line (the second line of the pair arrived after the
-            Spark returned), that earlier line is joined to this one
+            Now returned), that earlier line is joined to this one
             and planned once, as a line that cancels a call in flight is:
             its recorded intervention is dropped so the pair is recorded
             once, with one disposition."""
@@ -519,7 +519,7 @@ async def run_live(
         async def _listen(turn: int) -> None:
             """Wait for the just-in-time moment of segment `turn`, taking the
             viewer's lines as they come: a line cuts the beat short and
-            has the Spark write the next one at once."""
+            has Now write the next one at once."""
             while True:
                 need = _needed_at()
                 if need is None:

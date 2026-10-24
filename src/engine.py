@@ -1,17 +1,17 @@
 """The engine: two LLM roles on two clocks, everything else deterministic.
 
-- **Spark** — one structured call per **beat**: one action or state of
+- **Now** — one structured call per **beat**: one action or state of
   the story that lasts one to a few clips. Reads the assembled context
   and returns a `BeatPlan`; the engine then emits its clips one per
   segment with no LLM on the way, applying each clip's world changes as
-  it goes. Spark is called again when the beat has played out, or at
+  it goes. Now is called again when the beat has played out, or at
   once when the viewer speaks: the rest of the beat is dropped and the
   next call is told where the picture actually ends.
-- **Echo** — an async task on a slow clock, triggered at the bootstrap
+- **Then** — an async task on a slow clock, triggered at the bootstrap
   or every `compaction_interval` segments, spawned when the beat's first
   clip has been applied, so its snapshot and its compaction window include
   the clip that caused it. At most one is in flight and runs are at
-  least `echo_min_gap` segments apart. Its update lands at the start of
+  least `then_min_gap` segments apart. Its update lands at the start of
   the first plan that finds it finished; nothing ever waits for it.
   Compresses the event log and rewrites the notebook.
 
@@ -27,8 +27,8 @@ import logging
 import time
 from pathlib import Path
 
-from src.agents import echo as echo_agent
-from src.agents import spark as spark_agent
+from src.agents import now as now_agent
+from src.agents import then as then_agent
 from src.i2v.shape import ClipShape
 from src.llm import build_backend
 from src.models.config import Config
@@ -37,7 +37,7 @@ from src.models.story import FrameZero
 from src.state.story_state import StoryState
 from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ClipSpec
-from src.story.validator import Report, apply_clip, apply_echo
+from src.story.validator import Report, apply_clip, apply_then
 from src.story.world import EventRecord, WorldModel
 from src.util.timing_log import TimingLog
 
@@ -49,7 +49,7 @@ class EmitFailed(RuntimeError):
     and the loop replans the segment."""
 
 
-class SparkEngine:
+class NowEngine:
     def __init__(
         self,
         *,
@@ -64,13 +64,13 @@ class SparkEngine:
         self.timing = timing or TimingLog(None)
         self.world: WorldModel | None = None
         self.story: FrameZero | None = None
-        self.llm_spark = build_backend(config.llm_backend, config.spark_model,
-                                       reasoning_effort=config.spark_reasoning_effort)
-        self.llm_echo = build_backend(config.llm_backend, config.echo_model,
-                                      reasoning_effort=config.echo_reasoning_effort)
-        self._echo_task: asyncio.Task | None = None
-        self._echo_meta: tuple[int, str] | None = None   # (at_segment, reason)
-        self._echo_notes: list[str] = []
+        self.llm_now = build_backend(config.llm_backend, config.now_model,
+                                     reasoning_effort=config.now_reasoning_effort)
+        self.llm_then = build_backend(config.llm_backend, config.then_model,
+                                      reasoning_effort=config.then_reasoning_effort)
+        self._then_task: asyncio.Task | None = None
+        self._then_meta: tuple[int, str] | None = None   # (at_segment, reason)
+        self._then_notes: list[str] = []
         self._last_spawn: int = 0
         self.last_plan_fallback: bool = False
         self._pending_spawn: tuple[str, str] | None = None   # (reason, mode)
@@ -93,52 +93,52 @@ class SparkEngine:
     def beat_unplayed(self) -> bool:
         return self._beat is not None and self._clip_index == 0
 
-    # ── Plan: the Spark call ───────────────────────────────────────
+    # ── Plan: the Now call ──────────────────────────────────────────
 
     async def plan(self, state: StoryState) -> None:
         seg = state.turn_number
         answers = bool((state.user_input or "").strip())
         started = time.monotonic()
-        self.timing.write("spark_start", turn=seg, input=answers)
+        self.timing.write("now_start", turn=seg, input=answers)
         try:
             cost = await self._plan(state)
         except BaseException as exc:
             cancelled = isinstance(exc, asyncio.CancelledError)
-            self.timing.write("spark_end", turn=seg, input=answers, cancelled=cancelled,
+            self.timing.write("now_end", turn=seg, input=answers, cancelled=cancelled,
                               plan_s=round(time.monotonic() - started, 4),
                               **({} if cancelled else {"error": type(exc).__name__}))
             raise
-        self.timing.write("spark_end", turn=seg, input=answers,
+        self.timing.write("now_end", turn=seg, input=answers,
                           plan_s=round(time.monotonic() - started, 4), **cost)
 
     async def _plan(self, state: StoryState) -> dict:
         if self.world is None:
             self.world = self._init_world(state)
-            self._last_spawn = self.world.last_echo
+            self._last_spawn = self.world.last_then
         world = self.world
         seg = state.turn_number
 
         self._land_if_done(seg)
-        notes: list[str] = list(self._echo_notes)
-        self._echo_notes = []
+        notes: list[str] = list(self._then_notes)
+        self._then_notes = []
 
         world.segment = seg
         text = (state.user_input or "").strip()
         if text:
             world.add_intervention(seg, text)
 
-        bootstrap = world.echo_runs == 0
+        bootstrap = world.then_runs == 0
         if bootstrap:
-            await self._run_echo_now(state, reason="bootstrap: opening the story", mode="bootstrap", at_segment=seg - 1)
-            notes.extend(self._echo_notes)
-            self._echo_notes = []
+            await self._run_then_now(state, reason="bootstrap: opening the story", mode="bootstrap", at_segment=seg - 1)
+            notes.extend(self._then_notes)
+            self._then_notes = []
 
         called = time.monotonic()
-        beat, dnotes, retried = await spark_agent.run(
-            world=world, state=state, llm=self.llm_spark, config=self.config,
+        beat, dnotes, retried = await now_agent.run(
+            world=world, state=state, llm=self.llm_now, config=self.config,
             beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
         )
-        spark_s = time.monotonic() - called
+        now_s = time.monotonic() - called
         self._reseed_note = ""
         notes.extend(dnotes)
         fallback = beat is None
@@ -147,9 +147,9 @@ class SparkEngine:
             world.drop_pending_interventions(seg)
         if beat is None:
             beat = self._fallback_beat()
-            notes.append("spark: call failed; holding the picture for one clip"
+            notes.append("now: call failed; holding the picture for one clip"
                          + ("; the viewer's line is answered at the next plan" if text else ""))
-        beat.clips = beat.clips[: spark_agent.clip_cap(self.config, text)]
+        beat.clips = beat.clips[: now_agent.clip_cap(self.config, text)]
 
         world.beats += 1
         self._beat, self._clip_index, self._beat_no = beat, 0, world.beats
@@ -162,13 +162,13 @@ class SparkEngine:
         if reason:
             held = self._hold_reason(seg)
             if held:
-                notes.append(f"echo trigger held ({reason}): {held}")
+                notes.append(f"then trigger held ({reason}): {held}")
             else:
                 self._pending_spawn = (reason, mode)
                 spawning = reason
         self._plan_notes = notes
         self._plan_meta = {"trigger": spawning}
-        cost = {"beat": world.beats, "clips": len(beat.clips), "spark_s": round(spark_s, 4),
+        cost = {"beat": world.beats, "clips": len(beat.clips), "now_s": round(now_s, 4),
                 "retry": retried, "fallback": fallback, "bootstrap": bootstrap}
         self._record_plan(seg, beat, {"fallback": fallback, "bootstrap": bootstrap})
         return cost
@@ -198,14 +198,14 @@ class SparkEngine:
         self._beat = None
         self._clip_index = 0
         if done == 0 and self._pending_spawn is not None:
-            self._echo_notes.append(
-                f"echo ({self._pending_spawn[0]}): not spawned, the beat was cut before its first clip",
+            self._then_notes.append(
+                f"then ({self._pending_spawn[0]}): not spawned, the beat was cut before its first clip",
             )
             self._pending_spawn = None
         if done == 0 and self._plan_notes:
-            self._echo_notes = self._plan_notes + self._echo_notes
+            self._then_notes = self._plan_notes + self._then_notes
             self._plan_notes = []
-        self._echo_notes.append(
+        self._then_notes.append(
             f'beat "{beat.intent}" cut short after clip {done} of {total} ({reason}); {dropped} clip(s) dropped',
         )
         return dropped
@@ -325,10 +325,10 @@ class SparkEngine:
         except OSError:
             logger.exception("Could not write plan record to %s", path)
 
-    def _record_echo(self, update, *, reason: str, at_segment: int, landed_at: int | None = None) -> None:
+    def _record_then(self, update, *, reason: str, at_segment: int, landed_at: int | None = None) -> None:
         if self.session_dir is None or update is None:
             return
-        path = self.session_dir / "echo.jsonl"
+        path = self.session_dir / "then.jsonl"
         record = {"at_segment": at_segment, "reason": reason,
                   "update": update.model_dump(mode="json")}
         if landed_at is not None:
@@ -337,7 +337,7 @@ class SparkEngine:
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except OSError:
-            logger.exception("Could not write echo record to %s", path)
+            logger.exception("Could not write then record to %s", path)
 
     def _restore(self, snap: dict, landings: list[tuple]) -> None:
         clip_counter = self.world._clip_counter if self.world is not None else 0
@@ -349,7 +349,7 @@ class SparkEngine:
         self.world._clip_counter = max(clip_counter, snap.get("clip_counter", 0))
         self.world._last_clip_id = snap.get("last_clip_id", 0)
         for update, at_segment in landings:
-            apply_echo(self.world, update, at_segment=at_segment)
+            apply_then(self.world, update, at_segment=at_segment)
 
     def _cut_after_failure(self, snap: dict, reason: str) -> None:
         beat = self._beat
@@ -364,7 +364,7 @@ class SparkEngine:
             )
             self._last_beat = (beat.intent, done, total)
         self._beat, self._clip_index, self._pending_spawn = None, 0, None
-        self._echo_notes.append(f"segment {seg}: {reason}; rolled back to before it and replanned")
+        self._then_notes.append(f"segment {seg}: {reason}; rolled back to before it and replanned")
 
     async def _emit(self, state: StoryState) -> StoryState:
         world = self.world
@@ -415,7 +415,7 @@ class SparkEngine:
         if first and self._pending_spawn is not None:
             reason, mode = self._pending_spawn
             self._pending_spawn = None
-            self._spawn_echo(state, reason=reason, mode=mode, at_segment=seg)
+            self._spawn_then(state, reason=reason, mode=mode, at_segment=seg)
 
         notes = self._plan_notes if first else []
         self._plan_notes = [] if first else self._plan_notes
@@ -430,7 +430,7 @@ class SparkEngine:
         return state
 
     async def drain(self, state: StoryState) -> None:
-        await self._join_echo()
+        await self._join_then()
         self._save()
 
     # ── Setup ───────────────────────────────────────────────────────
@@ -446,7 +446,7 @@ class SparkEngine:
             except OSError:
                 logger.exception("Could not persist world model to %s", self.session_dir)
 
-    # ── Echo clock ─────────────────────────────────────────────────
+    # ── Then clock ─────────────────────────────────────────────────
 
     def _trigger(self) -> tuple[str | None, str]:
         world = self.world
@@ -455,74 +455,74 @@ class SparkEngine:
             return ("compaction interval", "compact")
         return (None, "")
 
-    def _spawn_echo(self, state: StoryState, *, reason: str, mode: str, at_segment: int) -> None:
+    def _spawn_then(self, state: StoryState, *, reason: str, mode: str, at_segment: int) -> None:
         assert self.world is not None
         snapshot = self.world.model_copy(deep=True)
         state_snapshot = state.model_copy(deep=True)
 
         async def _task():
-            return await echo_agent.run(
-                world=snapshot, state=state_snapshot, llm=self.llm_echo,
+            return await then_agent.run(
+                world=snapshot, state=state_snapshot, llm=self.llm_then,
                 config=self.config, reason=reason, mode=mode,
             )
 
-        self._echo_meta = (at_segment, reason)
-        self._echo_task = asyncio.create_task(_task())
+        self._then_meta = (at_segment, reason)
+        self._then_task = asyncio.create_task(_task())
         self._last_spawn = at_segment
 
-    async def _run_echo_now(self, state: StoryState, *, reason: str, mode: str, at_segment: int) -> None:
+    async def _run_then_now(self, state: StoryState, *, reason: str, mode: str, at_segment: int) -> None:
         """The bootstrap: the only synchronous run."""
         assert self.world is not None
         self._last_spawn = at_segment
-        update = await echo_agent.run(
-            world=self.world, state=state, llm=self.llm_echo,
+        update = await then_agent.run(
+            world=self.world, state=state, llm=self.llm_then,
             config=self.config, reason=reason, mode=mode,
         )
         self._land(update, at_segment=at_segment, reason=reason)
 
     def _hold_reason(self, seg: int) -> str | None:
-        task = self._echo_task
+        task = self._then_task
         if task is not None and task.done():
             self._land_if_done(seg)
-            task = self._echo_task
+            task = self._then_task
         if task is not None:
-            spawned_at = self._echo_meta[0] if self._echo_meta else "?"
+            spawned_at = self._then_meta[0] if self._then_meta else "?"
             return f"a run spawned at segment {spawned_at} is still in flight"
         gap = seg - self._last_spawn
-        if gap < self.config.echo_min_gap:
-            return f"{gap} segment(s) since the last run, minimum {self.config.echo_min_gap}"
+        if gap < self.config.then_min_gap:
+            return f"{gap} segment(s) since the last run, minimum {self.config.then_min_gap}"
         return None
 
     def _land_if_done(self, seg: int) -> None:
-        task, meta = self._echo_task, self._echo_meta
+        task, meta = self._then_task, self._then_meta
         if task is None:
             return
         seg0 = self.world.segment if self.world else 0
         at_segment, reason = meta or (seg0, "?")
         if not task.done():
-            self._echo_notes.append(
-                f"echo ({reason}, spawned at segment {at_segment}): still running; continuing with the current notebook",
+            self._then_notes.append(
+                f"then ({reason}, spawned at segment {at_segment}): still running; continuing with the current notebook",
             )
             return
-        self._echo_task, self._echo_meta = None, None
+        self._then_task, self._then_meta = None, None
         try:
             update = task.result()
         except Exception:
-            logger.exception("Echo task failed; continuing with the current notebook")
-            self._echo_notes.append("echo: task failed; notebook unchanged")
+            logger.exception("Then task failed; continuing with the current notebook")
+            self._then_notes.append("then: task failed; notebook unchanged")
             return
         self._land(update, at_segment=at_segment, reason=reason, landed_at=seg)
 
-    async def _join_echo(self) -> None:
-        if self._echo_task is None:
+    async def _join_then(self) -> None:
+        if self._then_task is None:
             return
-        task, meta = self._echo_task, self._echo_meta
-        self._echo_task, self._echo_meta = None, None
+        task, meta = self._then_task, self._then_meta
+        self._then_task, self._then_meta = None, None
         try:
             update = await task
         except Exception:
-            logger.exception("Echo task failed; continuing with the current notebook")
-            self._echo_notes.append("echo: task failed; notebook unchanged")
+            logger.exception("Then task failed; continuing with the current notebook")
+            self._then_notes.append("then: task failed; notebook unchanged")
             return
         seg0 = self.world.segment if self.world else 0
         at_segment, reason = meta or (seg0, "?")
@@ -531,17 +531,17 @@ class SparkEngine:
     def _land(self, update, *, at_segment: int, reason: str, landed_at: int | None = None) -> None:
         assert self.world is not None
         if update is None:
-            self._echo_notes.append(f"echo ({reason}): no update (parse failure)")
+            self._then_notes.append(f"then ({reason}): no update (parse failure)")
             return
-        landed = apply_echo(self.world, update, at_segment=at_segment)
+        landed = apply_then(self.world, update, at_segment=at_segment)
         self._landed_since.append((update, at_segment))
-        self._record_echo(update, reason=reason, at_segment=at_segment, landed_at=landed_at)
-        line = f"echo ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
+        self._record_then(update, reason=reason, at_segment=at_segment, landed_at=landed_at)
+        line = f"then ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
         if landed_at is not None and landed_at > at_segment + 1:
             line += f" · landed at segment {landed_at} (spawned at {at_segment})"
         if update.rationale.strip():
             line += f" · rationale: {update.rationale.strip()}"
-        self._echo_notes.append(line)
+        self._then_notes.append(line)
 
     # ── Views for the runner ───────────────────────────────────────
 
@@ -600,11 +600,9 @@ class SparkEngine:
         if clip.dialogue:
             out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in clip.dialogue))
         if first and meta.get("trigger"):
-            out.append(f"- Echo spawned: {meta['trigger']}")
+            out.append(f"- Then spawned: {meta['trigger']}")
         for n in notes:
             out.append(f"- {n}")
         return "\n".join(out) + "\n"
 
 
-# Keep the old name as an alias during migration.
-DirectorEngine = SparkEngine

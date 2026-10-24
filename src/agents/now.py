@@ -1,4 +1,4 @@
-"""Spark: the one LLM call on the critical path, once per beat.
+"""Now: the one LLM call on the critical path, once per beat.
 
 Reads the assembled context (notebook, world, viewer, summaries,
 recent clips, where the picture is) and returns a `BeatPlan`:
@@ -27,7 +27,6 @@ from src.story.context import (
     format_interventions,
     format_newcomers,
     format_notebook,
-    format_opening,
     format_picture,
     format_recent,
     format_summaries,
@@ -40,8 +39,8 @@ from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PATH: Path = prompt_path("spark.system.md")
-USER_PATH: Path = prompt_path("spark.user.md")
+SYSTEM_PATH: Path = prompt_path("now.system.md")
+USER_PATH: Path = prompt_path("now.user.md")
 
 
 def clip_cap(config: Config, user_input: str) -> int:
@@ -52,21 +51,21 @@ def clip_cap(config: Config, user_input: str) -> int:
 
 async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: Config, turn: int) -> BeatPlan | None:
     parsed = await call_llm_structured(
-        agent="spark",
+        agent="now",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         llm=llm,
         config=config,
         turn=turn,
         schema=BeatPlan,
-        max_tokens=config.max_tokens_spark,
+        max_tokens=config.max_tokens_now,
     )
     if parsed is None:
         return None
     try:
         return BeatPlan(**parsed)
     except ValidationError as exc:
-        logger.warning("Spark beat validation failed at segment %s: %s", turn, exc)
+        logger.warning("Now beat validation failed at segment %s: %s", turn, exc)
         return None
 
 
@@ -87,7 +86,6 @@ async def run(
         SYSTEM_PATH,
         frame_zero=format_frame_zero(frame_zero),
         picture=format_picture(frame_zero.picture),
-        opening=format_opening(frame_zero),
         cast=format_cast(world),
         newcomers=format_newcomers(world),
         cut_rule=format_cut_rule(world),
@@ -110,12 +108,12 @@ async def run(
     notes: list[str] = []
     beat = await _call(system_prompt, user_prompt, llm, config, state.turn_number)
     if beat is None:
-        return None, ["spark: structured parse failed"], False
+        return None, ["now: structured parse failed"], False
 
     report = check(beat, world, max_clips=clip_cap(config, state.user_input))
     retried = bool(report.violations)
     if report.violations:
-        notes.append("spark: first proposal rejected: " + "; ".join(report.violations))
+        notes.append("now: first proposal rejected: " + "; ".join(report.violations))
         retry_prompt = (
             user_prompt
             + "\n\n## Corrections required\n\n"
@@ -130,9 +128,9 @@ async def run(
                 beat = second
             if report2.violations:
                 notes.append(
-                    "spark: retry still had violations (invalid ops dropped): "
+                    "now: retry still had violations (invalid ops dropped): "
                     + "; ".join(report2.violations),
                 )
             else:
-                notes.append("spark: retry accepted")
+                notes.append("now: retry accepted")
     return beat, notes, retried

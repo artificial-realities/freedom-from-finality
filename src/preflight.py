@@ -67,11 +67,11 @@ def _check_llm(config: Config, add) -> None:
     if backend != "openai":
         add("error", f"unknown llm_backend {config.llm_backend!r} (use \"openai\" or \"mock\")")
         return
-    if not (config.spark_model and config.echo_model):
-        add("error", "spark_model and echo_model must both be set in the config")
+    if not (config.now_model and config.then_model):
+        add("error", "now_model and then_model must both be set in the config")
     if os.getenv("OPENAI_API_KEY", "").strip():
         add("ok", f"OPENAI_API_KEY is set (not tried against OpenAI); "
-                  f"Spark {config.spark_model}, Echo {config.echo_model}")
+                  f"Now {config.now_model}, Then {config.then_model}")
     else:
         add("error", f"OPENAI_API_KEY is not set: create a key at {OPENAI_KEYS_URL} and put it in .env "
                      f"(cp .env.example .env)")

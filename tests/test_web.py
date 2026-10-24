@@ -1,5 +1,5 @@
 """The live loop through the web player: the film streams over HTTP, input
-posted mid-stream reaches the Director, clips are served to the page, and
+posted mid-stream reaches Now, clips are served to the page, and
 the played clips are saved as one film joined the way the page joins them.
 Runs on the mock LLM; video comes from a prepared clip file."""
 
@@ -15,7 +15,7 @@ import aiohttp
 
 from src.runner import run_live
 from src.models.config import Config
-from src.models.story import Story
+from src.models.story import FrameZero
 from src.playback.player import Playable, Player
 from src.web import WebPlayer
 from tests.test_engine import rendering, tiny_clip
@@ -57,7 +57,7 @@ async def _read_events(session: aiohttp.ClientSession, url: str, on_event=None) 
 
 
 async def test_web_player_text_mode_streams_and_takes_input():
-    story = Story.from_json("stories/lego-void")
+    story = FrameZero.from_json("tests/fixtures/lego-void")
     player = WebPlayer(port=0, time_scale=50)
     line = "A soccer ball appears at your feet."
     with tempfile.TemporaryDirectory() as d:
@@ -85,7 +85,7 @@ async def test_web_player_text_mode_streams_and_takes_input():
         assert all("path" not in e for e in playing), "the page never sees a local path"
         assert events[-1][0] == "ended" and events[-1][1]["segments"] == 5
         transcript = next(Path(d).glob("*.md")).read_text()
-        assert f'— "{line}"' in transcript, "the posted line reached the Director"
+        assert f'— "{line}"' in transcript, "the posted line reached Now"
 
         async with aiohttp.ClientSession() as http:
             try:
@@ -96,7 +96,7 @@ async def test_web_player_text_mode_streams_and_takes_input():
 
 
 async def test_web_player_serves_rendered_clips():
-    story = Story.from_json("stories/lego-void")
+    story = FrameZero.from_json("tests/fixtures/lego-void")
     with tempfile.TemporaryDirectory() as d, rendering(Path(d) / "a.mp4"):
         tiny_clip(Path(d) / "a.mp4")
         config = _config(video_enabled=True, clip_seconds=1)
@@ -154,7 +154,7 @@ async def test_player_input_joins_lines_and_pipelined_items_keep_views():
     assert await p.next_input() == "make it rain and a dog appears"
     assert await p.next_input() == ""
 
-    story = Story.from_json("stories/lego-void")
+    story = FrameZero.from_json("tests/fixtures/lego-void")
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(), story=story, log_dir=d, player=p, max_segments=3)
     assert [i.turn for i in p.items] == [1, 2, 3]
@@ -167,7 +167,7 @@ async def test_input_takes_json_lines_only_and_caps_their_length():
     """Another page in the viewer's browser can post a form or plain text
     without asking, but not JSON: /input takes only JSON, so it cannot type
     into the film. A line longer than the page allows is refused, since each
-    costs a Director call."""
+    costs a Now call."""
     from src.web.server import MAX_INPUT_CHARS
     player = WebPlayer(host="127.0.0.1", port=0)
     await player.start(title="t", session_id="s")

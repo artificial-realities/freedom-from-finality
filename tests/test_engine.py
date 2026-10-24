@@ -1,5 +1,5 @@
 """The story loop end to end on the scripted mock LLM: beats emitted clip by
-clip, viewer lines cutting beats short, Echo off the critical path, and the
+clip, viewer lines cutting beats short, Then off the critical path, and the
 two failure paths that must not lose the story or the viewer's line."""
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def tiny_clip(path: Path, frames: int = 33) -> Path:
 
 def _config(**over) -> Config:
     base = dict(name="mocktest", llm_backend="mock",
-                compaction_interval=4, echo_min_gap=1, buffer_seconds=0.0)
+                compaction_interval=4, then_min_gap=1, buffer_seconds=0.0)
     base.update(over)
     return Config(**base)
 
@@ -73,8 +73,8 @@ def _records(session: Path) -> list[dict]:
     return [json.loads(x) for x in (session / "timing.jsonl").read_text().splitlines()]
 
 
-async def test_spark_engine_end_to_end():
-    fz = FrameZero.from_json("stories/lego-void")
+async def test_now_engine_end_to_end():
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
     player = Scripted(lines={1: "A soccer ball appears at your feet.", 4: "Do a trick with it."})
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(), story=fz, log_dir=d, player=player, max_segments=7)
@@ -103,7 +103,7 @@ async def test_spark_engine_end_to_end():
         hero = world.entities["lego_man"]
         assert hero.state == "state 7", "the state the last op wrote"
         assert "cut short" in transcript and "the viewer spoke" in transcript
-        assert world.echo_runs >= 2, "bootstrap + at least one compaction"
+        assert world.then_runs >= 2, "bootstrap + at least one compaction"
         assert world.summaries, "compaction landed"
 
         assert 'Beat 1 "he wakes and looks around" · clip 1 of 2' in transcript and "clip 2 of 2" in transcript
@@ -111,7 +111,7 @@ async def test_spark_engine_end_to_end():
 
 
 async def test_viewer_line_cuts_a_beat_short():
-    fz = FrameZero.from_json("stories/lego-void")
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
     player = Scripted(on_prepare={1: "A soccer ball appears at your feet."})
     with tempfile.TemporaryDirectory() as d:
         state = await run_live(config=_config(), story=fz, log_dir=d, player=player, max_segments=3)
@@ -123,10 +123,10 @@ async def test_viewer_line_cuts_a_beat_short():
     assert "soccer_ball" in world.entities
 
 
-async def test_echo_never_blocks_a_segment():
+async def test_then_never_blocks_a_segment():
     import time
-    fz = FrameZero.from_json("stories/lego-void")
-    MockBackend.echo_delay = 0.25
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
+    MockBackend.then_delay = 0.25
     try:
         t0 = time.monotonic()
         with tempfile.TemporaryDirectory() as d:
@@ -137,16 +137,16 @@ async def test_echo_never_blocks_a_segment():
             transcript = next(Path(d).glob("*.md")).read_text()
             world = WorldModel.load(next((Path(d) / "sessions").iterdir()))
     finally:
-        MockBackend.echo_delay = 0.0
+        MockBackend.then_delay = 0.0
     assert len(state.history) == 7
     assert wall < 0.9, wall
     assert "still running; continuing with the current notebook" in transcript
-    assert "echo trigger held" in transcript and "still in flight" in transcript
+    assert "then trigger held" in transcript and "still in flight" in transcript
     assert world.summaries, "the compaction landed by the end of the run"
 
 
 async def test_a_failed_render_rolls_the_world_back_and_the_film_goes_on():
-    fz = FrameZero.from_json("stories/lego-void")
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
     synthesize, generate = Clips.synthesize, MockBackend.generate_structured
     left, prompts = {3: 1}, []
 
@@ -198,7 +198,7 @@ async def test_a_line_whose_answer_failed_is_answered_at_the_next_plan():
             seen["answered"] += 1
         return await generate(backend, messages, schema, *a, **kw)
 
-    fz = FrameZero.from_json("stories/lego-void")
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
     with tempfile.TemporaryDirectory() as d, mock.patch.object(MockBackend, "generate_structured", flaky):
         await run_live(config=_config(), story=fz, log_dir=d, player=Scripted({2: line}), max_segments=7)
         session = next((Path(d) / "sessions").iterdir())
@@ -207,7 +207,7 @@ async def test_a_line_whose_answer_failed_is_answered_at_the_next_plan():
     mine = [i for i in world.interventions if line in i.text]
     assert len(mine) == 1 and mine[0].disposition == "absorbed"
     requeued = [r for r in records if r["event"] == "line_requeued"]
-    assert requeued and requeued[0]["reason"] == "the Spark call that answered them failed"
+    assert requeued and requeued[0]["reason"] == "the Now call that answered them failed"
     held = [e for e in world.events if e.segment == requeued[0]["turn"]]
     assert held and held[0].beat_intent == "holding the picture", "the failed plan held the picture for a clip"
     assert mine[0].segment == requeued[0]["turn"] + 1, "answered by the next plan"

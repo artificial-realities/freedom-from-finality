@@ -1,16 +1,16 @@
-"""Structured outputs for the Spark and Echo calls.
+"""Structured outputs for the Now and Then calls.
 
 Both schemas are consumed through OpenAI strict structured outputs, so
 they stay inside the strict subset: no free-form dicts, every field a
 plain type, list or nested model. Validation against the world happens
 in `src/story/validator.py`, not here.
 
-Spark writes a **beat**: one action or state of the story that lasts a
+Now writes a **beat**: one action or state of the story that lasts a
 few clips. Each clip carries its own picture and the world changes that
 happen in it, so a beat can be cut short by the viewer after any clip
 and the world stays true to what was rendered.
 
-Echo writes a **notebook update**: compressed memory, the rewritten
+Then writes a **notebook update**: compressed memory, the rewritten
 notebook (characters, seeds, intentions, audience), and optionally an
 era recognised retrospectively.
 """
@@ -25,7 +25,7 @@ EntityKind = Literal["character", "prop", "location"]
 
 
 class EntityOp(BaseModel):
-    """One world change proposed by Spark, in the clip where it happens.
+    """One world change proposed by Now, in the clip where it happens.
 
     `entity` is an existing entity id for `update`/`remove`, or the name
     of a new thing for `introduce`. Empty strings mean "unchanged".
@@ -57,7 +57,7 @@ class DialogueLine(BaseModel):
 class ClipSpec(BaseModel):
     """One clip of a beat: the next few seconds of continuous picture.
     `action` is the only prose the story has; the transcript, the player
-    and Echo's log all read it.
+    and Then's log all read it.
 
     `cut_to` (only where the story allows cuts; "" = the clip
     continues the shot): the shot the clip cuts to, at its start; the
@@ -84,7 +84,7 @@ class ClipSpec(BaseModel):
 
 
 class BeatPlan(BaseModel):
-    """Spark's whole output: one beat, one to a few clips."""
+    """Now's whole output: one beat, one to a few clips."""
 
     intent: str
     framing: str
@@ -94,7 +94,7 @@ class BeatPlan(BaseModel):
     delivered_request: int = 0
 
 
-# ── Echo schemas ────────────────────────────────────────────────────
+# ── Then schemas ────────────────────────────────────────────────────
 
 class CharacterPortrait(BaseModel):
     entity: str
@@ -120,8 +120,8 @@ class EraOut(BaseModel):
     chronicle: str
 
 
-class EchoUpdate(BaseModel):
-    """Echo's output: memory compression plus the rewritten notebook."""
+class ThenUpdate(BaseModel):
+    """Then's output: memory compression plus the rewritten notebook."""
 
     scene_summary: str = ""
     act_summary: str = ""

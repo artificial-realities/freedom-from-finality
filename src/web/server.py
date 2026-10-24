@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 PAGE = Path(__file__).with_name("player.html")
 HEARTBEAT_S = 15.0
 # A viewer line, as long as the page's text box allows. Every line costs a
-# Director call, so the server holds the same limit.
+# Now call, so the server holds the same limit.
 MAX_INPUT_CHARS = 400
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -76,7 +76,7 @@ class WebPlayer(Player):
         print(f"Player: {self.url}", flush=True)
         if self.host not in LOOPBACK_HOSTS:
             print(f"Note: the player listens on {self.host} and has no login; anyone who can reach port "
-                  f"{self.port} can steer the film, and every line costs a Director call.", flush=True)
+                  f"{self.port} can steer the film, and every line costs a Now call.", flush=True)
 
     @property
     def url(self) -> str:

@@ -1,9 +1,9 @@
-"""Frame Zero: the minimal starting configuration for an infinite story.
+"""Frame Zero: the initial visual state for an infinite story.
 
-A frame zero holds what the story starts from — its name, how it opens,
-what is always true, who is in it, where it begins and how it looks —
-and nothing more. Everything that happens is composed live by Spark
-and Echo. All fields are read-only during a run.
+A frame zero holds what the first frame looks like — the story's name,
+who is on screen, where it begins and how it looks — and nothing more.
+No personalities, desires, premises or permanent truths: everything
+creative emerges from Now and Then as the story develops.
 """
 
 from __future__ import annotations
@@ -44,9 +44,6 @@ class Location(BaseModel):
 
 class Character(BaseModel):
     name: str
-    who: str = ""
-    wants: str = ""
-    nature: str = ""
     voice: Voice | None = None
     look: str = ""
     look_short: str = ""
@@ -80,10 +77,7 @@ class Picture(BaseModel):
 
 class FrameZero(BaseModel):
     name: str
-    opening: str = ""
-    truths: list[str] = Field(default_factory=list)
     picture: Picture = Field(default_factory=Picture)
-    newcomers: str = ""
     characters: list[Character] = Field(default_factory=list)
     locations: list[Location] = Field(default_factory=list)
 
@@ -130,7 +124,3 @@ class FrameZero(BaseModel):
         except Exception as exc:
             raise ValueError(f"{self.name}: reference image {image} does not decode as an image ({exc})") from exc
 
-
-# Aliases for backward compatibility during migration.
-Genesis = FrameZero
-Story = FrameZero
