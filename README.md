@@ -2,7 +2,7 @@
 
 An infinite, continuously generated story that plays in your browser while you type suggestions into it.
 
-A stick figure stands alone in an empty white world. Two LLM roles — **Now** and **Then** — begin writing its story, and the story never stops. You watch. When you type something, the story listens and takes it wherever it goes. Characters appear, places form, things happen: nothing is scripted, nothing is predetermined, and the story develops its own meaning and continuity over time.
+A man drawn in black lines stands alone in an empty white world. Two LLM roles — **Now** and **Then** — begin writing his story, and the story never stops. You watch. When you type something, the story listens and takes it wherever it goes. Characters appear, places form, things happen: nothing is scripted, nothing is predetermined, and the story develops its own meaning and continuity over time.
 
 ```
 ┌─▶ the viewer types a suggestion (or doesn't)

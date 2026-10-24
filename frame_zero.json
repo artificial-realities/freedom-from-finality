@@ -1,14 +1,14 @@
 {
-  "scene": "A stick figure stands alone in the middle of an empty white world.",
+  "scene": "A man drawn in black lines stands alone in the middle of an empty white world.",
   "character": {
     "name": "Mac",
-    "look": "a simple black stick figure with a round head",
-    "personality": "Curious about the world.",
-    "state": "standing left of centre, low in the frame, one arm stretched toward frame right"
+    "look": "a man drawn in black outline on white, in a striped long-sleeved sweater; short tousled hair, a small smile, a belt with a square buckle, plain trousers and plain shoes, no shading or colour",
+    "personality": "Curious about the world, but a little socially awkward, most of all around women. His full name is MacLaren; everyone calls him Mac.",
+    "state": "standing in the middle of the frame, facing the camera, arms at his sides"
   },
   "location": {
     "name": "The White",
-    "look": "empty white space in every direction"
+    "look": "plain white space in every direction, with no walls, floor, horizon or scenery; anything in it stands alone in the white"
   },
-  "reference_image": "frame_zero.jpg"
+  "reference_image": "frame_zero.png"
 }
