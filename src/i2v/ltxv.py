@@ -5,10 +5,16 @@ sliding window: it keeps the tail of each generated clip in memory and
 conditions the next one on it. This backend sends a prompt and downloads
 the returned MP4, which already carries its sound.
 
-The reference image is uploaded on the first call and seeds the chain;
-after that only prompts go over the wire. If the server restarts and
-loses its session, the client sends the reference again together with the
-last clip's tail, so the picture continues.
+A run's first call starts a session on the server from one of two
+things: the reference image, when the adventure is new, or the frames the
+picture continues from (`resume_from`), when it resumes. After that only
+prompts go over the wire. If the server restarts and loses its session,
+the client starts it again from the last clip's tail, so the picture
+continues; only with no tail to read does it re-seed from the reference.
+
+Clips are temporary: each is written under `output_dir`, named by its clip
+id, for the player to show and the adventure to cut its last frames from
+(`cut_window`); the runner deletes it once it has played.
 """
 
 from __future__ import annotations
@@ -70,8 +76,8 @@ class LtxvI2V(I2VBackend):
         self._last_clip: str | None = None
         self.continuity_strength = continuity_strength
         self.continuity_frames = WINDOW_FRAMES
-        # Every clip's seed is derived from this key (the session id) and its
-        # segment (`derive_seed`); "" → the server draws one.
+        # Every clip's seed is derived from this key (the adventure id) and
+        # its segment (`derive_seed`); "" → the server draws one.
         self.seed_key = seed_key
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -81,6 +87,11 @@ class LtxvI2V(I2VBackend):
         # silently disagree about the frame rate or the render size.
         self._frame_rate: float | None = None
         self._size: tuple[int, int] | None = None
+
+    def resume_from(self, window: Path | str) -> None:
+        """Continue the picture from `window` (frames saved by `cut_window`)
+        instead of starting from the reference image."""
+        self._last_clip = str(window)
 
     def _tail_frames(self, path: str, count: int) -> list[str]:
         try:
@@ -213,8 +224,17 @@ class LtxvI2V(I2VBackend):
         }
         if self.seed_key:
             payload["seed"] = derive_seed(self.seed_key, turn)
+        window: list[str] = []
         if not self._initialized:
-            payload["reference_image"] = self._encode_reference(self._seed_image_path)
+            # A new session: from the frames the picture continues from when
+            # the adventure resumes, from the reference when it is new (or
+            # those frames cannot be read, which resets the picture).
+            payload["start"] = True
+            window = self._tail_frames(self._last_clip, self.continuity_frames) if self._last_clip else []
+            if window:
+                payload["window_frames"] = window
+            else:
+                payload["reference_image"] = self._encode_reference(self._seed_image_path)
         if clip_id is not None:
             payload["clip_id"] = clip_id
         if parent_clip_id is not None:
@@ -223,22 +243,28 @@ class LtxvI2V(I2VBackend):
                             "reference": "reference_image" in payload,
                             "seed": payload.get("seed"),
                             "clip_id": clip_id, "parent_clip_id": parent_clip_id}
+        if window:
+            self.last_render["restored"] = len(window)
+        elif "reference_image" in payload and self._last_clip:
+            self.last_render["reseeded"] = True
 
         url = f"{self.server_url}/generate"
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
 
-        # Server lost its session (a restart): send the reference again with
-        # the last clip's tail and retry once; the reference alone only when
-        # the tail cannot be read, which resets the picture.
+        # Server lost its session (a restart): start it again from the last
+        # clip's tail and retry once; from the reference only when the tail
+        # cannot be read, which resets the picture.
         if resp.status_code == 400 and "reference_image" in resp.text:
-            payload["reference_image"] = self._encode_reference(self._seed_image_path)
+            payload["start"] = True
             window = self._tail_frames(self._last_clip, self.continuity_frames) if self._last_clip else []
             if window:
                 logger.warning("LTX-2.5 server lost state — restoring the window from the last clip's tail")
+                payload.pop("reference_image", None)
                 payload["window_frames"] = window
                 self.last_render = {**self.last_render, "reference": False, "restored": len(window)}
             else:
                 logger.warning("LTX-2.5 server lost state — re-seeding reference")
+                payload["reference_image"] = self._encode_reference(self._seed_image_path)
                 self.last_render = {**self.last_render, "reference": True, "reseeded": True}
             resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_S)
 
@@ -266,8 +292,10 @@ class LtxvI2V(I2VBackend):
 
         self._initialized = True
 
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = self.output_dir / f"turn_{turn:04d}_{stamp}.mp4"
+        if clip_id is not None:
+            out_path = self.output_dir / f"clip_{clip_id:06d}.mp4"
+        else:
+            out_path = self.output_dir / f"turn_{turn:04d}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         out_path.write_bytes(resp.content)
         self._last_clip = str(out_path)
 
@@ -281,6 +309,27 @@ class LtxvI2V(I2VBackend):
             out_path,
         )
         return str(out_path)
+
+
+def cut_window(clip: Path | str, dest: Path | str, *, fps: float, frames: int = WINDOW_FRAMES) -> Path:
+    """The clip's last `frames` frames, exactly as they decode, in a small
+    lossless file: all the renderer needs to continue the picture, since
+    each clip is conditioned on the previous one's last WINDOW_FRAMES
+    frames and nothing else. 112-275 KB against 0.7-2 MB for the clip."""
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "stream=width,height", "-of", "csv=p=0", str(clip)],
+                           capture_output=True, text=True, check=True).stdout
+    w, h = (int(x) for x in probe.strip().split(",")[:2])
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-sseof", "-1.5", "-i", str(clip), "-an",
+                          "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"], capture_output=True, check=True).stdout
+    size = w * h * 3 // 2
+    tail = raw[len(raw) // size * size - frames * size:len(raw) // size * size]
+    if len(tail) != frames * size:
+        raise ValueError(f"{clip} has fewer than {frames} frames in its last 1.5 s")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", f"{w}x{h}",
+                    "-r", f"{fps:g}", "-i", "-", "-c:v", "libx264", "-qp", "0", "-pix_fmt", "yuv420p", str(dest)],
+                   input=tail, capture_output=True, check=True)
+    return Path(dest)
 
 
 def _tail_frames_png(path: str, count: int, size: tuple[int, int]) -> list[str]:

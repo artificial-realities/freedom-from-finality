@@ -43,7 +43,7 @@ def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) 
 
     add("ok", f"frame zero: {story.character.name} in {story.location.name}")
     if not config.video_enabled:
-        add("ok", "video off: the film plays as text, no GPU or ffmpeg needed")
+        add("ok", "text mode, a testing tool: the story as text in a test adventure, no GPU or ffmpeg needed")
         return found
 
     missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]

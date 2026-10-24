@@ -19,30 +19,35 @@ A stick figure stands alone in an empty white world. Two LLM roles — **Now** a
 
 ## Run it
 
-Without a GPU the same story plays as text in the browser. You need Python 3.11+ and an [OpenAI API key](https://platform.openai.com/api-keys):
+You need Python 3.11+, an [OpenAI API key](https://platform.openai.com/api-keys), ffmpeg, and the LTX-2.5 server on an NVIDIA GPU with 80 GB (an H100 has cost about $3 an hour to rent) with a Hugging Face token for the gated weights. [server/README.md](server/README.md) has the details.
 
 ```bash
 git clone https://github.com/artificial-realities/untitled-project.git
 cd untitled-project
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env              # then add your OpenAI API key to .env
-python main.py play               # open http://127.0.0.1:8765/
+cp .env.example .env              # then add your keys to .env
 ```
 
-Video needs the LTX-2.5 server on an NVIDIA GPU with 80 GB (an H100 has cost about $3 an hour to rent), plus ffmpeg and a Hugging Face token for the gated weights. [server/README.md](server/README.md) has the details; with a [Vast.ai](https://vast.ai) key it is three commands:
+With a [Vast.ai](https://vast.ai) key it is three commands:
 
 ```bash
 server/vast_run.sh up             # rent an H100, start the server (5-20 min the first time)
-server/vast_run.sh run            # play the film on it; open http://127.0.0.1:8765/
-server/vast_run.sh down           # stop paying
+server/vast_run.sh run            # play your adventure on it; open http://127.0.0.1:8765/
+server/vast_run.sh down           # bring your adventure home and stop paying
 ```
 
-`python main.py check --config configs/video.yaml` says what is missing, without paid calls. Every run writes a transcript, the world model, the viewer's memory, a timing log and the film itself to `logs/`. The player has no login and listens on `127.0.0.1` only: every line typed into it is billed to your OpenAI key.
+On a machine with its own GPU, start the server there and run `python main.py play`. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: every line typed into it is billed to your OpenAI key.
+
+## Your adventure
+
+There is one adventure, and it never ends. The first `play` begins it from the first frame; every `play` after that resumes it from the last moment you saw, with its world, its characters, everything that has happened and what the story has learned about you. It lives in the `adventure/` folder on your computer (never in git): copy the folder to back it up or move it to another computer. When the film runs on a rented GPU, `server/vast_run.sh` copies it there before the film and brings it home every minute and when the film stops.
+
+The film itself is not kept: each clip is deleted once it has played, and only the few frames the next clip continues from are saved. Nothing is ever replayed; the story only goes on. `logs/` holds technical records of each run (transcripts, timing, the models' raw outputs), none of which the adventure needs.
 
 ## How it works
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence, and [docs/vision.md](docs/vision.md) what it is reaching for. Every adventure starts from the first frame in [frame_zero.json](frame_zero.json), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence, and [docs/vision.md](docs/vision.md) what it is reaching for. Every adventure begins from the first frame in [frame_zero.json](frame_zero.json), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
 
 `pip install -r requirements-dev.txt`, then `ruff check .`. There is no test suite, by choice. Issues and pull requests are welcome.
 

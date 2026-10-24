@@ -22,7 +22,12 @@ ENV/
 .env.*
 !.env.example
 
-# Run output: transcripts, world models, timing logs, clips
+# The viewer's adventure: personal data, never committed (adventure.previous,
+# .incoming and .creating are its copies during a swap or a beginning)
+/adventure/
+/adventure.*/
+
+# Run output: transcripts, timing logs, raw model outputs, the test adventure
 logs/
 *.log
 

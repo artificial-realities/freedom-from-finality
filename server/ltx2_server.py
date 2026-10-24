@@ -23,9 +23,12 @@ Continuity
 strength)`: the reference image for the first clip, otherwise the last
 `continuity_frames` of the previous clip at `continuity_strength` (1.0
 holds the previous clip hard and largely ignores a new prompt; lower lets
-the prompt through at the cost of continuity). After a restart the client
-sends its copy of the last clip's tail (`window_frames`) and the picture
-continues instead of resetting to the reference.
+the prompt through at the cost of continuity). A client run's first
+request (`start`) begins a new session from either the reference image (a
+new adventure) or the client's copy of the frames to continue from
+(`window_frames`: an adventure resuming, or this server restarted), and
+nothing from an earlier session carries over: neither its picture nor its
+clip ids.
 
 Warm-up
 -------
@@ -105,14 +108,17 @@ _lock = asyncio.Lock()
 
 class GenerateRequest(BaseModel):
     prompt: str
-    reference_image: str | None = None  # base64 PNG, required on the first call
+    # A client run's first request: a new session, from `reference_image` or
+    # from `window_frames`.
+    start: bool = False
+    reference_image: str | None = None  # base64 PNG: seeds a new session
     continuity_strength: float = Field(default=1.0, ge=0.0, le=1.0)
     continuity_frames: int = Field(default=9, ge=1)
     seed: int | None = None
     num_frames: int = Field(default=153, ge=9)
-    # After a restart, the client's copy of the last clip's tail (base64
-    # PNGs); the session continues from it instead of the reference, so
-    # costume and position survive the restart.
+    # The client's copy of the frames to continue from (base64 PNGs): an
+    # adventure resuming, a server restart, or a parent this server no
+    # longer holds. Always adopted, so costume and position carry over.
     window_frames: list[str] | None = None
     # Fenced renders: the clip this render belongs to and the clip it
     # continues from. The server keeps the last few tails keyed by clip_id
@@ -319,32 +325,35 @@ def _run_pipeline(req: GenerateRequest) -> dict:
     the timings; the encode happens outside the lock in `_encode_response`."""
     from diffusers.pipelines.ltx2.pipeline_ltx2_condition import LTX2VideoCondition
 
-    if "ref_image" not in session:
-        if req.reference_image is None:
-            raise HTTPException(400, "reference_image required on first call (base64 PNG). "
-                                     "Send it again if the server was restarted.")
-        session.update(ref_image=_decode_image(req.reference_image), window=None, turn_count=0, tails={})
-        logger.info("Session seeded with reference image")
-    elif req.reference_image is not None:
+    if req.start:
+        if req.reference_image is None and not req.window_frames:
+            raise HTTPException(400, "a new session needs reference_image or window_frames")
+        session.clear()
+        session.update(window=None, turn_count=0, tails={})
+        logger.info("New session from %s", "the client's frames" if req.window_frames else "the reference image")
+    elif "turn_count" not in session:
+        raise HTTPException(400, "no session: start one with reference_image or window_frames "
+                                 "(send it again if the server was restarted)")
+    if req.reference_image is not None:
         session["ref_image"] = _decode_image(req.reference_image)
-        logger.info("Reference image replaced mid-session")
 
-    # Fenced render: resolve the parent's tail from the keyed store.
-    if req.clip_id is not None and req.parent_clip_id is not None:
-        tails: dict = session.setdefault("tails", {})
+    if req.window_frames:
+        frames = [np.asarray(_decode_image(f).resize((WIDTH, HEIGHT))) for f in req.window_frames]
+        session["window"] = np.stack(frames).astype(np.uint8)
+        logger.info("Window from %d frames of the client's copy", len(frames))
+    elif req.clip_id is not None and req.parent_clip_id is not None:
+        # Fenced render: resolve the parent's tail from the keyed store.
+        tails: dict = session["tails"]
         if req.parent_clip_id in tails:
             session["window"] = tails[req.parent_clip_id]
-        elif req.parent_clip_id != 0 and not req.window_frames and session.get("window") is not None:
+        elif req.parent_clip_id != 0 and session.get("window") is not None:
             raise HTTPException(
                 409,
                 f"unknown_parent: parent_clip_id={req.parent_clip_id} not among the held tails "
                 f"{sorted(tails)}; resend with window_frames from the client's copy",
             )
-
-    if req.window_frames and session.get("window") is None:
-        frames = [np.asarray(_decode_image(f).resize((WIDTH, HEIGHT))) for f in req.window_frames]
-        session["window"] = np.stack(frames).astype(np.uint8)
-        logger.info("Session window restored from %d frames of the client's last clip", len(frames))
+    if session["window"] is None and "ref_image" not in session:
+        raise HTTPException(400, "nothing to continue from: start the session with reference_image")
 
     session["turn_count"] += 1
     turn = session["turn_count"]

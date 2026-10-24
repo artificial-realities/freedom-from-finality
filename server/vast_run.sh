@@ -4,11 +4,17 @@
 #
 #   server/vast_run.sh up [OFFER_ID]               rent (the cheapest matching H100 unless given), install,
 #                                                  start the server, open the tunnel, wait until it is ready
-#   server/vast_run.sh run [config] [args...]      the film ON the box; the player comes back on localhost:8765
-#   server/vast_run.sh pull [local_dir]            fetch the run's logs and clips from the box
+#   server/vast_run.sh run [config] [args...]      your adventure ON the box; the player comes back on localhost:8765
+#   server/vast_run.sh pull [local_dir]            bring your adventure home, and fetch the run's logs
 #   server/vast_run.sh restart                     restart the server on the same box and wait until it is ready
 #   server/vast_run.sh status                      instance state and server health
-#   server/vast_run.sh down                        close the tunnel and destroy the instance
+#   server/vast_run.sh down                        bring your adventure home, close the tunnel, destroy the instance
+#
+# The film runs on the box, but your adventure lives here: `run` copies it
+# to the box first, brings it back every minute and when the film stops,
+# and `down` brings it back before the box is destroyed. A copy coming back
+# replaces yours only if it is the same adventure and not behind it
+# (`main.py adopt`); the one it replaces is kept as adventure.previous.
 #
 # Needs VAST_API_KEY, HF_TOKEN and OPENAI_API_KEY in .env, the `vastai` CLI,
 # and your ssh public key registered on Vast (`vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"`).
@@ -25,6 +31,8 @@ need() {
 }
 STATE=logs/vast; mkdir -p "$STATE"
 CONFIG=configs/video.yaml
+ADVENTURE=adventure
+PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 IMAGE=pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel
 # H100 SXM and NVL: cheaper than the PCIe on Vast and ~1.3x faster on this compute-bound model.
 QUERY=${VAST_QUERY:-'gpu_name in [H100_SXM,H100_NVL] gpu_ram>=80 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true reliability>0.98'}
@@ -36,6 +44,28 @@ pick_offer() {
 instance_json() { vastai show instance "$(cat "$STATE/id")" --raw; }
 field() { instance_json | python3 -c "import json,sys; print(json.load(sys.stdin).get('$1') or '')"; }
 ssh_cmd() { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" "$@"; }
+box_rsync() { rsync -a --exclude .lock -e "ssh -p $(cat "$STATE/port") -o StrictHostKeyChecking=no -o ConnectTimeout=15" "$@"; }
+
+# Bring the box's copy of the adventure home: it lands next to yours and
+# replaces it only if it is the same adventure and not behind. Fails when
+# the box cannot be reached or the copy is refused; nothing on the box is fine.
+pull_adventure() {
+  local code=0
+  ssh_cmd "test -f /root/film/$ADVENTURE/adventure.json" || code=$?
+  [ "$code" = 1 ] && return 0
+  [ "$code" = 0 ] || { echo "the box cannot be reached; your adventure was not brought home" >&2; return "$code"; }
+  rm -rf "$ADVENTURE.incoming"
+  box_rsync "root@$(cat "$STATE/host"):/root/film/$ADVENTURE/" "$ADVENTURE.incoming/"
+  "$PY" main.py adopt "$ADVENTURE.incoming" --adventure "$ADVENTURE"
+}
+# Your adventure to the box, so the film there resumes it (it begins a new
+# one only when you have none).
+push_adventure() {
+  [ -f "$ADVENTURE/adventure.json" ] || return 0
+  ssh_cmd "mkdir -p /root/film"
+  box_rsync --delete "$ADVENTURE/" "root@$(cat "$STATE/host"):/root/film/$ADVENTURE/"
+  echo "your adventure is on the box"
+}
 # The frame counts the server warms come from the client's clip shape, so they are never typed twice.
 server_env() { echo "HF_TOKEN=$HF_TOKEN LTX2_WARMUP_FRAMES=$(python3 -W ignore::RuntimeWarning -m src.i2v.shape "$CONFIG")"; }
 
@@ -100,12 +130,21 @@ run() {
   # Only the client's key goes over (the box is someone else's machine).
   grep -E '^OPENAI_API_KEY=' .env | ssh_cmd "cat > /root/film/.env && chmod 600 /root/film/.env"
   ssh_cmd "cd /root/film && pip install -q -r requirements.txt 2>&1 | grep -v 'WARNING: Running pip' | tail -1"
+  # Anything a run before this one left on the box comes home first (a copy
+  # behind yours is refused, and yours replaces it); then yours goes over.
+  # Without it on the box the film would begin anew.
+  pull_adventure || true
+  push_adventure
+  ( while sleep 60; do pull_adventure >/dev/null 2>&1 || true; done ) &
+  local syncer=$!
+  trap 'kill '"$syncer"' 2>/dev/null; wait '"$syncer"' 2>/dev/null; pull_adventure && echo "your adventure is home"' EXIT
   echo "the film runs on the box: open http://127.0.0.1:8765/  (Ctrl+C stops it; fetch its logs with: $0 pull)"
   ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -L 8765:localhost:8765 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" \
     "cd /root/film && python main.py play --config $config $*"
 }
 pull() {
-  # Fetch the box's logs (transcripts, world models, timing logs, clips).
+  # Bring the adventure home, and fetch the box's logs (transcripts, timing logs).
+  pull_adventure
   local local_dir=${1:-logs/box}
   mkdir -p "$local_dir"
   rsync -az -e "ssh -p $(cat "$STATE/port") -o StrictHostKeyChecking=no" "root@$(cat "$STATE/host"):/root/film/logs/" "$local_dir/"
@@ -117,11 +156,15 @@ status() {
 }
 down() {
   need VAST_API_KEY
+  if [ -f "$STATE/id" ] && ! pull_adventure; then
+    read -r -p "Your adventure could not be brought home from the box. Destroy the box anyway? [y/N] " answer
+    [ "$answer" = y ] || { echo "the box keeps running (and billing): try $0 pull, then $0 down" >&2; exit 1; }
+  fi
   pkill -f "ssh -f -N .* -L 8000:localhost:8000" 2>/dev/null || true
   if [ -f "$STATE/id" ]; then vastai destroy instance "$(cat "$STATE/id")" -y; rm -f "$STATE/id" "$STATE/host" "$STATE/port"; fi
   echo "tunnel closed, instance destroyed"
 }
 case "${1:-}" in
   up) shift; up "$@";; run) shift; run "$@";; pull) shift; pull "$@";; restart) restart;; status) status;; down) down;;
-  *) sed -n '2,15p' "$0"; exit 1;;
+  *) sed -n '2,21p' "$0"; exit 1;;
 esac

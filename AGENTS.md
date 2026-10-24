@@ -6,14 +6,15 @@ Project facts and rules for coding agents (and humans). How the story works is i
 
 An infinite, continuously generated story that a viewer steers by typing suggestions into a browser page. Two LLM roles — **Now** (the creative voice, one beat per call on the critical path) and **Then** (memory and intuition, off the critical path on a slow clock) — write the story over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
 
-Two configs: `configs/text.yaml` (the default: the story as text in the browser, no GPU, only an OpenAI key) and `configs/video.yaml` (needs the LTX-2.5 server on an 80 GB NVIDIA GPU, best with the client on the same machine).
+Each viewer has one adventure, which never ends: it begins once from the frame zero and resumes from the last clip they saw, in the `adventure/` folder on their own computer (see "The adventure" in ARCHITECTURE.md). `configs/video.yaml` is how it is played (the default; it needs the LTX-2.5 server on an 80 GB NVIDIA GPU, best with the client on the same machine). `configs/text.yaml` is a testing tool, never for viewers: the story as text, no GPU, only an OpenAI key, played in its own test adventure (`logs/test-adventure`), never the viewer's.
 
 ## Repository map
 
 ```
-main.py                    # check | play; --config, --story, --segments, --log-dir, --host, --port
+main.py                    # check | play | adopt; --config, --adventure, --story, --segments, --log-dir, --host, --port
 src/
-  runner.py                # run_live: the story loop (just-in-time render, viewer interrupts, the saved film)
+  adventure.py             # the adventure on disk: begin, resume, commit as of each aired clip, crash recovery, adopt
+  runner.py                # run_live: the story loop (just-in-time render, viewer interrupts, commit on air)
   engine.py                # NowEngine: plan a beat, emit its clips, roll back, the Then clock
   agents/                  # now.py (BeatPlan per beat), then.py (ThenUpdate)
   prompts/                 # now.*.md, then.*.md, policy.md (the content policy, the same in every adventure)
@@ -25,12 +26,13 @@ src/
   playback/player.py       # Playable + Player: the loop's boundary to the page
   web/                     # WebPlayer (aiohttp: SSE, /input, clips) + player.html
   preflight.py             # setup checks (`main.py check`)
-  util/                    # media probe, prompt loader, transcript, timing log
+  util/                    # durable writes, media probe, prompt loader, transcript, timing log
 configs/                   # text.yaml · video.yaml
-frame_zero.json            # the first frame every adventure starts from: scene, character, location, reference image
+frame_zero.json            # the first frame a new adventure begins from (read only then): scene, character, location, image
 docs/                      # ARCHITECTURE.md (how) · decisions.md (why) · vision.md (the goal)
 server/                    # the LTX-2.5 server for the GPU box, and vast_run.sh to rent one; see server/README.md
-logs/                      # run output (git-ignored): transcripts, sessions/<id>/ (world, events, viewer, timing), video/
+adventure/                 # the viewer's adventure (git-ignored, personal): see src/adventure.py
+logs/                      # technical run output (git-ignored): transcripts, sessions/<id>/, test-adventure/
 ```
 
 ## Commands
@@ -39,12 +41,13 @@ logs/                      # run output (git-ignored): transcripts, sessions/<id
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt                    # runtime + ruff
 ruff check .                                           # lint (rules in pyproject.toml)
-python main.py check                                   # setup check, no paid calls; exit 1 names what is missing
-python main.py check --config configs/video.yaml       # also probes the LTX-2.5 server's /health (free)
+python main.py check                                   # setup and adventure check, no paid calls; probes the
+                                                       # LTX-2.5 server's /health (free); exit 1 names what is missing
+python main.py check --config configs/text.yaml        # the same without a server (the test adventure)
 
 # Paid: these call OpenAI (see the rules below)
-python main.py play                                    # the film as text at http://127.0.0.1:8765/
-python main.py play --config configs/video.yaml        # the film as video (needs the LTX-2.5 server)
+python main.py play                                    # the viewer's adventure, as video at http://127.0.0.1:8765/
+python main.py play --config configs/text.yaml         # testing: the story as text, in logs/test-adventure
 ```
 
 `--segments N` bounds a run; Ctrl+C stops it. Python 3.11+. There is no formatter or type checker; don't reformat files you aren't changing.
@@ -64,7 +67,7 @@ python main.py play --config configs/video.yaml        # the film as video (need
 ## Verifying changes
 
 1. `ruff check .` passes.
-2. Engine, prompt, schema or compiler changes: nothing runs the loop offline, so they are seen working only in a paid run: say so.
+2. Engine, prompt, schema or compiler changes: nothing runs the loop offline, so they are seen working only in a paid run: say so. Never test against the viewer's `adventure/`; a test run uses its own `--adventure` folder.
 3. Server changes: `python -m py_compile server/*.py` and `bash -n server/*.sh`; anything beyond that needs a GPU, so report it as unverified.
 
 ## Conventions
@@ -79,8 +82,9 @@ python main.py play --config configs/video.yaml        # the film as video (need
 - **Facts, not thresholds, for story quality.** No code judges pacing, loops or whether the film is moving; give the roles what they need to judge it.
 - **No test suite, by choice.** The project changes too fast for tests to pay their upkeep; `ruff check .` is the gate. Don't add tests or test-only code paths unless the owner asks.
 - **A product, not a research harness.** Experiments, benchmarks and evaluation tooling stay out of the repository; what one decides goes into `docs/decisions.md` in a few lines with its numbers. Comments say why in plain words, without tracker IDs or dates.
-- **Safe by default.** The player and the LTX-2.5 server listen on `127.0.0.1` and have no login; never change that default or document public hosting as safe. The app writes only under `--log-dir`; a value from a request never becomes a path. No telemetry or third-party calls.
-- **One clip shape, one continuous picture.** `clip_seconds` becomes the run's one shape (`src/i2v/shape.py`), which every consumer reads and the server must have warmed. Only a film's first clip is seeded from the reference image; never re-seed mid-film (it resets costume, props and position).
+- **Safe by default.** The player and the LTX-2.5 server listen on `127.0.0.1` and have no login; never change that default or document public hosting as safe. The app writes only under `--log-dir` and `--adventure`; a value from a request never becomes a path. No telemetry or third-party calls.
+- **One clip shape, one continuous picture.** `clip_seconds` becomes the run's one shape (`src/i2v/shape.py`), which every consumer reads and the server must have warmed. Only an adventure's first clip is seeded from the reference image; a resume continues from the frames saved with the last clip; never re-seed mid-film (it resets costume, props and position).
+- **The adventure belongs to the viewer and lasts.** It is saved as of the last clip they saw and holds the story, never the rendered video (clips are deleted once played; only the frames the next clip continues from are kept). Only `src/adventure.py` and the viewer's memory write to it, durably (`src/util/durable.py`); keep it portable (relative paths, JSON, JSON lines, the format number in `adventure.json`) and outside the world model what belongs to the person.
 
 ## Definition of done
 

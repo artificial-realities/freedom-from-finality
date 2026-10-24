@@ -13,12 +13,12 @@ Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL, and H200 NVL), torc
 
 ## Renting a GPU on Vast.ai
 
-`vast_run.sh` rents the cheapest matching H100, installs and starts the server, tunnels it to `localhost:8000`, and runs the film on the box, so no clip crosses the internet (an MP4 through the tunnel costs 1.5-4.6 s).
+`vast_run.sh` rents the cheapest matching H100, installs and starts the server, tunnels it to `localhost:8000`, and runs the film on the box, so no clip crosses the internet (an MP4 through the tunnel costs 1.5-4.6 s). Your adventure stays yours: `run` copies it to the box, brings it home every minute and when the film stops, and `down` brings it home before destroying the box.
 
 ```bash
 server/vast_run.sh up        # rent and start; ready in 5-20 min (weights download, then the warm-up)
-server/vast_run.sh run       # the film on the box; open http://127.0.0.1:8765/ (Ctrl+C stops it)
-server/vast_run.sh pull      # its transcript, world model, timing log and film → logs/box/
+server/vast_run.sh run       # your adventure on the box; open http://127.0.0.1:8765/ (Ctrl+C stops it)
+server/vast_run.sh pull      # bring your adventure home, and the run's transcript and timing log → logs/box/
 server/vast_run.sh down      # always: renting bills by the hour until this
 server/vast_run.sh status    # what is rented, and the server's /health
 ```
@@ -43,7 +43,7 @@ Open the player through a tunnel from your computer: `ssh -N -L 8765:localhost:8
 
 **Warm-up.** Under fp8 every frame count compiles for 90-170 s, so a film has one clip length and the server renders throwaway clips at startup for it (`LTX2_WARMUP_FRAMES`, default the video config's 153 frames, three times). `/health` says `loading`, then `warming`, then `ready`, and lists `warm_frames`; the client refuses a server that has not warmed its shape, so a compile never lands on a viewer's clip.
 
-**Continuity.** Only a film's first clip is conditioned on the reference image; every other clip on the last 9 frames of the one before. After a restart the client sends its copy of that tail (`window_frames`) and the picture continues instead of resetting. `ltxv_continuity_strength` in the client config trades continuity against steering: at 1.0 a new prompt barely lands.
+**Continuity.** Only an adventure's first clip is conditioned on the reference image; every other clip on the last 9 frames of the one before. A client run's first request (`start`) begins a fresh session from either the reference (a new adventure) or the client's saved copy of those frames (`window_frames`: a resume, or after this server restarted), so nothing from an earlier session carries over and the picture continues instead of resetting. `ltxv_continuity_strength` in the client config trades continuity against steering: at 1.0 a new prompt barely lands.
 
 **Why the distilled recipe.** The distilled weights sampled with the full model's recipe (15 steps, CFG 3, STG) made the figure drift within every clip, and no prompt fixed it. On their own recipe the figure holds; the full model on its recipe gives the same identity at 3.5× the time. See [docs/decisions.md](../docs/decisions.md).
 

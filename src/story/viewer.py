@@ -21,14 +21,14 @@ of the viewer, each reading citing the lines it rests on
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, TypeAdapter, ValidationError
 
 from src.story.schemas import Reading, ThenUpdate, ViewerUnderstanding
 from src.story.world import WorldModel, words
+from src.util.durable import append_line, read_jsonl
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,7 @@ class Understanding(ViewerUnderstanding):
 
 
 Record = Annotated[Said | Answer | DirectionEnd | Mark | Understanding, Field(discriminator="kind")]
+_RECORD = TypeAdapter(Record)
 
 
 class ViewerMemory(BaseModel):
@@ -111,11 +112,23 @@ class ViewerMemory(BaseModel):
         memory._path = path
         return memory
 
+    @classmethod
+    def load(cls, path: Path) -> "ViewerMemory":
+        """The memory saved at `path` (empty when there is none), appending to
+        it from now on. A record a crash cut off is skipped."""
+        memory = cls.at(path)
+        for raw in read_jsonl(path):
+            try:
+                memory.records.append(_RECORD.validate_python(raw))
+            except ValidationError:
+                logger.warning("A record in %s is not a viewer record; skipped: %s", path, str(raw)[:200])
+        return memory
+
     def add(self, record: Record) -> Record:
         self.records.append(record)
         if self._path is not None:
             try:
-                _append_line(self._path, record.model_dump_json())
+                append_line(self._path, record.model_dump_json())
             except OSError:
                 logger.exception("Could not append to the viewer's memory at %s", self._path)
         return record
@@ -133,6 +146,15 @@ class ViewerMemory(BaseModel):
 
     def understanding(self) -> Understanding | None:
         return next((r for r in reversed(self.records) if isinstance(r, Understanding)), None)
+
+    def unanswered(self, timeline: str) -> list[Said]:
+        """The lines typed in `timeline` after the story last answered one
+        there that it never answered: what the viewer said just before the
+        story stopped."""
+        answered = {i for o in self.outcomes() if isinstance(o, Answer) for i in o.said}
+        lines = [s for s in self.lines() if s.timeline == timeline]
+        last = max((s.id for s in lines if s.id in answered), default=0)
+        return [s for s in lines if s.id > last and s.id not in answered]
 
     # ── Writing ─────────────────────────────────────────────────────
 
@@ -185,18 +207,3 @@ class ViewerMemory(BaseModel):
             recorded.add(words(text))
             notes.append(f"viewer's mark recorded: {text}")
         return notes
-
-
-def _append_line(path: Path, line: str) -> None:
-    """Append one line and make it durable before returning. A line always
-    starts on a line of its own, so one cut off by a crash damages only
-    itself and a reader can skip it."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as f:
-        if f.seek(0, os.SEEK_END) > 0:
-            f.seek(-1, os.SEEK_END)
-            if f.read(1) != b"\n":
-                f.write(b"\n")
-        f.write(line.encode("utf-8") + b"\n")
-        f.flush()
-        os.fsync(f.fileno())

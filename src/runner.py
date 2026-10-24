@@ -2,6 +2,10 @@
 
 `run_live` is a producer emitting and rendering clips just in time and a
 `Player` (the web player) showing them while the viewer steers mid-stream.
+It plays one adventure on from where the viewer left it: every clip that
+goes on air is committed to the adventure, and its file is deleted once
+it has played, so nothing of the film is kept but the story and the
+frames that continue it.
 """
 
 from __future__ import annotations
@@ -10,14 +14,15 @@ import asyncio
 import hashlib
 import logging
 import shutil
-import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 
+from src.adventure import Adventure
 from src.engine import NowEngine, EmitFailed
 from src.i2v import LtxvI2V
 from src.i2v.base import I2VBackend
+from src.i2v.ltxv import cut_window
 from src.i2v.shape import DEFAULT_FPS, ClipShape
 from src.models.config import Config
 from src.models.story import FrameZero
@@ -109,15 +114,16 @@ def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog)
         timing.write("reference", image=seed_image, **verdict)
 
 
-def _maybe_i2v(config: Config, log_dir: Path | str, session_id: str) -> I2VBackend | None:
-    """The run's renderer, with seeds derived from the session id."""
+def _maybe_i2v(config: Config, clips_dir: Path, seed_key: str) -> I2VBackend | None:
+    """The run's renderer: its clips go to `clips_dir` until they have
+    played, and its seeds derive from `seed_key` (the adventure id)."""
     if not config.video_enabled:
         return None
     return LtxvI2V(
         server_url=config.ltxv_server_url,
         continuity_strength=config.ltxv_continuity_strength,
-        output_dir=Path(log_dir) / "video",
-        seed_key=session_id,
+        output_dir=clips_dir,
+        seed_key=seed_key,
     )
 
 
@@ -143,61 +149,10 @@ def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
     )
 
 
-async def _has_audio(path: str) -> bool:
-    proc = await asyncio.create_subprocess_exec(
-        "ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path,
-        stdout=asyncio.subprocess.PIPE, stderr=subprocess.DEVNULL,
-    )
-    out, _ = await proc.communicate()
-    return bool(out.strip())
-
-
-async def _save_film(played: list[Playable], output_path: Path, fps: float) -> str | None:
-    """The played clips as one film, joined the way the page joins them:
-    each clip's head that repeats the previous clip's tail is shown once,
-    and the sound crossfades over it (a clip with speech comes in at once)."""
-    if not played or not shutil.which("ffmpeg"):
-        return None
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with_audio = all([await _has_audio(item.path) for item in played])
-    inputs: list[str] = []
-    filters: list[str] = []
-    for i, item in enumerate(played):
-        inputs += ["-i", str(item.path)]
-        head = round(item.overlap_seconds * fps) if i else 0
-        filters.append(f"[{i}:v]trim=start_frame={head},setpts=PTS-STARTPTS[v{i}]")
-    filters.append("".join(f"[v{i}]" for i in range(len(played))) + f"concat=n={len(played)}:v=1:a=0[v]")
-    maps = ["-map", "[v]"]
-    if with_audio:
-        prev = "[0:a]"
-        for i, item in enumerate(played[1:], start=1):
-            if item.overlap_seconds > 0:
-                incoming = "nofade" if item.speech else "qsin"
-                filters.append(f"{prev}[{i}:a]acrossfade=d={item.overlap_seconds:.4f}:c1=qsin:c2={incoming}[a{i}]")
-            else:
-                filters.append(f"{prev}[{i}:a]concat=n=2:v=0:a=1[a{i}]")
-            prev = f"[a{i}]"
-        maps += ["-map", prev if len(played) > 1 else "0:a"]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", ";".join(filters), *maps,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
-            *(["-c:a", "aac", "-b:a", "192k"] if with_audio else []), "-movflags", "+faststart", str(output_path),
-            stdout=subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-        )
-        _, err = await proc.communicate()
-        if proc.returncode == 0:
-            return str(output_path)
-        logger.warning("ffmpeg could not join the film (exit %s): %s", proc.returncode, err.decode()[-500:])
-    except Exception:
-        logger.exception("Failed to save the film")
-    return None
-
-
 async def run_live(
     *,
     config: Config,
-    story: FrameZero,
+    adventure: Adventure,
     player: Player,
     log_dir: Path | str = "logs",
     max_segments: int | None = None,
@@ -226,8 +181,11 @@ async def run_live(
 
     The run's timing (fires, renders, the queue, air time, viewer lines,
     Now calls) goes to `logs/sessions/<id>/timing.jsonl`; see
-    `src.util.timing_log`.
+    `src.util.timing_log`. The adventure itself is committed as each clip
+    goes on air (`NowEngine.commit`), so a run stopped or killed anywhere
+    resumes from the last clip the viewer saw.
     """
+    story: FrameZero = adventure.origin
     state = StoryState.initialize(story, config_name=config.name)
     session_id = _make_session_id(config.name)
     story_logger = StoryLogger(
@@ -237,9 +195,10 @@ async def run_live(
         log_dir=log_dir,
     )
 
-    i2v = _maybe_i2v(config, log_dir, session_id)
     queue_size = max(1, config.startup_clips + 1)
     session_dir = Path(log_dir) / "sessions" / session_id
+    clips_dir = session_dir / "clips"
+    i2v = _maybe_i2v(config, clips_dir, adventure.id)
     shape = ClipShape.from_config(config, fps=i2v.frame_rate if i2v is not None else DEFAULT_FPS)
     timing = _start_timing(
         config, story, session_id, session_dir, shape=shape,
@@ -248,14 +207,58 @@ async def run_live(
     )
     _check_reference(i2v, story.reference_image, timing)
     _check_shape(i2v, shape, timing)
-    engine = NowEngine(config=config, session_dir=session_dir, timing=timing, shape=shape)
-    print(f"The film plays as {'video' if i2v is not None else 'text'}. Ctrl+C stops it.", flush=True)
+    engine = NowEngine(config=config, adventure=adventure, session_dir=session_dir, timing=timing, shape=shape)
+    resumed_at = engine.world.segment
+    if i2v is not None and resumed_at:
+        if adventure.window is not None:
+            i2v.resume_from(adventure.window)
+        else:
+            # Nothing saved to continue the picture from: it starts again
+            # from the first frame, and Now hears so.
+            engine.note_reseed(resumed_at + 1)
+    timing.write("adventure", id=adventure.id, timeline=adventure.manifest.timeline, resumed_at=resumed_at,
+                 window=adventure.window is not None)
+    print(("Your adventure continues from segment %d." % resumed_at if resumed_at else "Your adventure begins.")
+          + f" It plays as {'video' if i2v is not None else 'text'}. Ctrl+C stops it.", flush=True)
 
     queue: asyncio.Queue[Playable | None] = asyncio.Queue(maxsize=queue_size)
     stop_event = asyncio.Event()
     producer_done = asyncio.Event()
     lead_ready = asyncio.Event()   # the lead is built: playback may start
     played: list[Playable] = []
+    # Commits run one after another, each clip as it goes on air (each waits
+    # for the one before, so the latest stands for all); the files of clips
+    # that have played are deleted once the next is saved.
+    commit_task: asyncio.Task | None = None
+    aired: dict[int, str] = {}
+
+    async def _commit(item: Playable, before: asyncio.Task | None) -> None:
+        """Save the adventure as of `item`, now on air: the world then and,
+        for a clip, its last frames. Then the clips two before it, which no
+        page needs any more, are deleted."""
+        if before is not None:
+            await asyncio.gather(before, return_exceptions=True)
+        window = None
+        try:
+            if item.path:
+                window = await asyncio.to_thread(cut_window, item.path, clips_dir / f"window_{item.turn:06d}.mp4",
+                                                 fps=shape.fps)
+        except Exception as exc:
+            logger.warning("Could not cut the last frames of segment %s (%s); the adventure keeps the previous ones",
+                           item.turn, exc)
+            timing.write("window_failed", turn=item.turn, error=repr(exc))
+        try:
+            await engine.commit(item.turn, window)
+        except Exception as exc:
+            logger.exception("Could not save the adventure as of segment %s", item.turn)
+            timing.write("commit_failed", turn=item.turn, error=repr(exc))
+        finally:
+            if window is not None:
+                window.unlink(missing_ok=True)
+        if item.path:
+            aired[item.turn] = item.path
+        for turn in [t for t in aired if t <= item.turn - 2]:
+            Path(aired.pop(turn)).unlink(missing_ok=True)
     # The player's clock as the producer sees it: which clip is on air,
     # when it started (monotonic) and how long it holds, plus the rendered
     # clips waiting behind it.
@@ -371,7 +374,7 @@ async def run_live(
     async def producer() -> None:
         nonlocal state
         seed_image = story.reference_image
-        turn = 0
+        turn = resumed_at
         # Background render task for pipelining, and the hold of the clip it
         # renders (the shape's delivered seconds on the player's clock).
         _prev_render: asyncio.Task | None = None
@@ -555,7 +558,7 @@ async def run_live(
 
         try:
             while not stop_event.is_set():
-                if max_segments is not None and turn >= max_segments:
+                if max_segments is not None and turn - resumed_at >= max_segments:
                     break
                 turn += 1
                 state.turn_number = turn
@@ -634,6 +637,7 @@ async def run_live(
                 pass
 
     async def consumer() -> None:
+        nonlocal commit_task
         try:
             # Startup gate: wait until `startup_clips + 1` items are queued (or
             # the producer is already done). At 0 this is just "wait for the
@@ -660,7 +664,7 @@ async def run_live(
                 air["turn"] = item.turn
                 air["start"] = time.monotonic()
                 air["hold"] = _hold_of(item)
-                engine.on_air(item.turn)
+                commit_task = asyncio.create_task(_commit(item, commit_task))
                 timing.write("playing", turn=item.turn, duration=item.duration,
                              hold=round(air["hold"], 4), waited=round(waited, 4), first=not played)
                 played.append(item)
@@ -692,15 +696,14 @@ async def run_live(
             except (asyncio.CancelledError, Exception):
                 pass
         await player.stop()
-        await engine.drain(state)
+        # The last clip on air is saved before the run ends; the clips and
+        # frames the run rendered are not kept.
+        if commit_task is not None:
+            await asyncio.gather(commit_task, return_exceptions=True)
+        engine.close()
+        shutil.rmtree(clips_dir, ignore_errors=True)
         timing.write("session_end", turn=state.turn_number, played=len(played))
         timing.close()
-
-        clips = [item for item in played if item.path]
-        if clips:
-            print("Saving the film…", flush=True)
-            saved = await _save_film(clips, Path(log_dir) / "video" / f"{session_id}.mp4", shape.fps)
-            print(f"Saved: {saved}" if saved else "Could not save the film.", flush=True)
     return state
 
 

@@ -17,9 +17,10 @@
   understanding of the viewer.
 
 Code owns the rest: the typed `WorldModel`, validation and apply, the
-prompt compiler, persistence per clip, and the viewer's memory: each
-line as it arrives, and what the story did with it once that clip is on
-air, never rolled back with the world.
+prompt compiler, the viewer's memory (each line as it arrives, and what
+the story did with it once that clip is on air, never rolled back with
+the world), and the adventure: it is saved as of each clip the viewer
+sees (`commit`) and resumed from the last one.
 """
 
 from __future__ import annotations
@@ -30,19 +31,19 @@ import logging
 import time
 from pathlib import Path
 
+from src.adventure import Adventure
 from src.agents import now as now_agent
 from src.agents import then as then_agent
 from src.i2v.shape import ClipShape
 from src.llm import OpenAIBackend
 from src.models.config import Config
 from src.models.responses import Beat, Shot
-from src.models.story import FrameZero
 from src.state.story_state import StoryState
 from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ClipSpec
 from src.story.validator import Report, apply_clip, apply_then
-from src.story.viewer import Answer, DirectionEnd, ViewerMemory
-from src.story.world import ROOT_TIMELINE, Direction, EventRecord, WorldModel
+from src.story.viewer import Answer, DirectionEnd
+from src.story.world import Direction, EventRecord
 from src.util.timing_log import TimingLog
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ class NowEngine:
         self,
         *,
         config: Config,
+        adventure: Adventure,
         session_dir: Path | str | None = None,
         timing: TimingLog | None = None,
         shape: ClipShape | None = None,
@@ -66,14 +68,16 @@ class NowEngine:
         self.shape = shape or ClipShape.from_config(config)
         self.session_dir = Path(session_dir) if session_dir else None
         self.timing = timing or TimingLog(None)
-        self.world: WorldModel | None = None
-        self.story: FrameZero | None = None
+        self.adventure = adventure
+        self.world = adventure.world
+        self.story = adventure.origin
+        self.viewer = adventure.viewer
         self.llm_now = OpenAIBackend(model=config.now_model, reasoning_effort=config.now_reasoning_effort)
         self.llm_then = OpenAIBackend(model=config.then_model, reasoning_effort=config.then_reasoning_effort)
-        self.viewer = ViewerMemory.at(self.session_dir / "viewer.jsonl" if self.session_dir else None)
-        # What each emitted clip did with the viewer's lines, recorded in
-        # their memory when that clip goes on air (dropped if it never does).
-        self._on_air: dict[int, list[Answer | DirectionEnd]] = {}
+        # Each emitted clip until it goes on air: the world as of it, its
+        # event, and what it did with the viewer's lines. Committed then,
+        # dropped if it never airs.
+        self._on_air: dict[int, tuple[str, str, list[Answer | DirectionEnd]]] = {}
         self._then_task: asyncio.Task | None = None
         self._then_meta: tuple[int, str, int] | None = None   # (at_segment, reason, records read)
         self._then_notes: list[str] = []
@@ -92,6 +96,30 @@ class NowEngine:
         self._last_beat: tuple[str, int, int] | None = None
         self._pending_note: str = ""
         self._reseed_note: str = ""
+        self._last_spawn = self.world.last_then
+        self._resume()
+
+    def _resume(self) -> None:
+        """Pick up where the viewer left off: the picture ends on the last
+        clip they saw, and lines they typed after the story last answered
+        them are owed."""
+        world = self.world
+        if not world.events:
+            return
+        ev = world.events[-1]
+        self._last_end_state = ev.end_state
+        self._last_beat = (ev.beat_intent, ev.clip_index, ev.clip_count)
+        if ev.clip_index < ev.clip_count:
+            self._pending_note = (f'The beat "{ev.beat_intent}" was cut short after clip {ev.clip_index} of '
+                                  f"{ev.clip_count}; its remaining clips were never shown. "
+                                  f"The picture ends on: {ev.end_state}")
+        owed = self.viewer.unanswered(world.timeline)
+        if owed:
+            said = [line.id for line in owed]
+            item = world.add_intervention(world.segment, " ".join(line.text for line in owed), said=said)
+            item.disposition, item.reason = "deferred", "typed just before the story stopped, not answered yet"
+            self.viewer.add(Answer(said=said, timeline=world.timeline, segment=world.segment,
+                                   disposition="deferred", reason=item.reason))
 
     def has_next_clip(self) -> bool:
         return self._beat is not None and self._clip_index < len(self._beat.clips)
@@ -118,9 +146,6 @@ class NowEngine:
                           plan_s=round(time.monotonic() - started, 4), **cost)
 
     async def _plan(self, state: StoryState) -> dict:
-        if self.world is None:
-            self.world = self._init_world(state)
-            self._last_spawn = self.world.last_then
         world = self.world
         seg = state.turn_number
 
@@ -292,11 +317,6 @@ class NowEngine:
             self.world.drop_pending_interventions(seg)
         self._cut_after_failure(snap, reason)
         self._emit_snapshot, self._landed_since = None, []
-        if self.session_dir is not None:
-            try:
-                self.world.save(self.session_dir, rewrite=True)
-            except OSError:
-                logger.exception("Could not persist world model to %s", self.session_dir)
         return " ".join(carry)
 
     def _snapshot(self, segment: int) -> dict:
@@ -309,8 +329,6 @@ class NowEngine:
             "plan_notes": list(self._plan_notes), "plan_meta": dict(self._plan_meta),
             "last_end_state": self._last_end_state, "last_beat": self._last_beat,
             "pending_note": self._pending_note, "pending_spawn": self._pending_spawn,
-            "clip_counter": self.world._clip_counter if self.world is not None else 0,
-            "last_clip_id": self.world._last_clip_id if self.world is not None else 0,
         }
 
     def _record_plan(self, segment: int, beat: BeatPlan, meta: dict) -> None:
@@ -341,14 +359,14 @@ class NowEngine:
             logger.exception("Could not write then record to %s", path)
 
     def _restore(self, snap: dict, landings: list[tuple]) -> None:
-        clip_counter = self.world._clip_counter if self.world is not None else 0
+        # Clip ids are never reused, not even a rolled-back clip's.
+        clip_counter = self.world.clip_counter
         self.world = snap["world"]
+        self.world.clip_counter = max(clip_counter, self.world.clip_counter)
         self._beat, self._clip_index, self._beat_no = snap["beat"], snap["clip_index"], snap["beat_no"]
         self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
         self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
         self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
-        self.world._clip_counter = max(clip_counter, snap.get("clip_counter", 0))
-        self.world._last_clip_id = snap.get("last_clip_id", 0)
         for update, at_segment in landings:
             apply_then(self.world, update, at_segment=at_segment)
 
@@ -398,7 +416,6 @@ class NowEngine:
             taken = next((item for item, was in before if was == "pending" and item.disposition == "absorbed"), None)
             world.direction = Direction(text=self._beat_input, segment=seg, said=taken.said if taken else [],
                                         reason=beat.intervention_reason.strip())
-        self._on_air[seg] = heard
         prompt = compile_clip(beat, i, world, scene=state.story.scene, opening=(seg == 1), segment_no=seg)
         shape = self.shape
         state.current_shape = shape
@@ -426,7 +443,8 @@ class NowEngine:
             location=here.id if here else "",
             duration=duration,
         ))
-        self._save()
+        world.trim_events()
+        self._on_air[seg] = (world.model_dump_json(), world.events[-1].model_dump_json(), heard)
         if first and self._pending_spawn is not None:
             reason, mode = self._pending_spawn
             self._pending_spawn = None
@@ -457,33 +475,31 @@ class NowEngine:
         entities = set(ev.on_screen) if ev is not None else set()
         if world is not None:
             entities |= world.mentions(text)
-        line = self.viewer.hear(text, timeline=world.timeline if world is not None else ROOT_TIMELINE,
-                                segment=on_air or 0, during=ev.narration if ev is not None else "",
-                                entities=entities)
+        line = self.viewer.hear(text, timeline=world.timeline, segment=on_air or 0,
+                                during=ev.narration if ev is not None else "", entities=entities)
         return line.id
 
-    def on_air(self, turn: int) -> None:
-        """The clip of segment `turn` reached the screen: what it did with
-        the viewer's lines becomes part of their memory."""
-        for record in self._on_air.pop(turn, []):
+    async def commit(self, turn: int, window: Path | None) -> bool:
+        """The clip of segment `turn` is on air: save the adventure as of it
+        (with `window`, the frames that continue it, for video), then record
+        what it did with the viewer's lines. False when there was nothing to
+        commit (a clip rolled back, or one this engine did not emit)."""
+        pending = self._on_air.pop(turn, None)
+        if pending is None:
+            return False
+        world_json, event_json, heard = pending
+        await asyncio.to_thread(self.adventure.commit, turn, world_json, event_json, window)
+        for record in heard:
             self.viewer.add(record)
+        return True
 
-    async def drain(self, state: StoryState) -> None:
-        await self._join_then()
-        self._save()
-
-    # ── Setup ───────────────────────────────────────────────────────
-
-    def _init_world(self, state: StoryState) -> WorldModel:
-        self.story = state.story
-        return WorldModel.from_frame_zero(state.story)
-
-    def _save(self) -> None:
-        if self.world is not None and self.session_dir is not None:
-            try:
-                self.world.save(self.session_dir)
-            except OSError:
-                logger.exception("Could not persist world model to %s", self.session_dir)
+    def close(self) -> None:
+        """The film stopped. A Then run in flight is dropped: its work is
+        redone after resuming, since nothing past the last aired clip is
+        saved."""
+        if self._then_task is not None:
+            self._then_task.cancel()
+            self._then_task, self._then_meta = None, None
 
     # ── Then clock ─────────────────────────────────────────────────
 
@@ -553,21 +569,6 @@ class NowEngine:
             self._then_notes.append("then: task failed; notebook unchanged")
             return
         self._land(update, at_segment=at_segment, reason=reason, upto=upto, landed_at=seg)
-
-    async def _join_then(self) -> None:
-        if self._then_task is None:
-            return
-        task, meta = self._then_task, self._then_meta
-        self._then_task, self._then_meta = None, None
-        try:
-            update = await task
-        except Exception:
-            logger.exception("Then task failed; continuing with the current notebook")
-            self._then_notes.append("then: task failed; notebook unchanged")
-            return
-        seg0 = self.world.segment if self.world else 0
-        at_segment, reason, upto = meta or (seg0, "?", 0)
-        self._land(update, at_segment=at_segment, reason=reason, upto=upto)
 
     def _land(self, update, *, at_segment: int, reason: str, upto: int, landed_at: int | None = None) -> None:
         """Land a Then update: the world's part (re-applied if the world is

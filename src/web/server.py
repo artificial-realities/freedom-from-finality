@@ -87,6 +87,10 @@ class WebPlayer(Player):
 
     async def play(self, item: Playable) -> None:
         self._register(item)
+        # Only what is on air, just before it and queued is served: a clip
+        # that has played is deleted, and the film is never replayed.
+        for turn in [t for t in self._clips if t < item.turn - 1]:
+            del self._clips[turn]
         self.queued = [q for q in self.queued if q.turn != item.turn]
         self.now = item
         self.started_at = time.time()

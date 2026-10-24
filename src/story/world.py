@@ -11,18 +11,18 @@ A world is one timeline (`timeline`). What the viewer said and put into
 the story, and Then's understanding of them, belong to the person and
 live outside it, in the viewer's memory (`viewer.py`).
 
-Only validated deltas mutate it (see `validator.py`). It is persisted
-after every clip to `logs/sessions/<session>/` so a run can be
-inspected (resume is not built: every run starts a fresh world).
+Only validated deltas mutate it (see `validator.py`). The adventure
+(`src/adventure.py`) saves it as of every clip the viewer sees and loads
+it to resume; in memory it keeps only the recent events the prompts read
+(`trim_events`), while the adventure's event log keeps them all.
 """
 
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field
 
 from src.models.story import FrameZero, Voice
 from src.story.schemas import Notebook
@@ -45,6 +45,8 @@ def slugify(name: str) -> str:
 
 
 SHORT_LOOK_WORDS = 14
+KEEP_EVENTS = 24      # events kept in memory: at least the last clips the prompts read
+MOST_EVENTS = 200     # and at most this many, however long Then goes without compacting
 
 
 def short_look(look: str) -> str:
@@ -188,10 +190,10 @@ class WorldModel(BaseModel):
     then_runs: int = 0
     direction: Direction | None = None
     shot: str = ""
-
-    _saved_events: int = PrivateAttr(default=0)
-    _clip_counter: int = PrivateAttr(default=0)
-    _last_clip_id: int = PrivateAttr(default=0)
+    # Clip ids are never reused, across sessions included: the renderer
+    # keys the frames it continues from by them.
+    clip_counter: int = 0
+    last_clip_id: int = 0
 
     # ── Construction ────────────────────────────────────────────────
 
@@ -288,37 +290,16 @@ class WorldModel(BaseModel):
     # ── Clocks ──────────────────────────────────────────────────────
 
     def next_clip_id(self) -> int:
-        self._clip_counter += 1
-        self._last_clip_id = self._clip_counter
-        return self._clip_counter
-
-    @property
-    def last_clip_id(self) -> int:
-        return self._last_clip_id
-
-    @last_clip_id.setter
-    def last_clip_id(self, value: int) -> None:
-        self._last_clip_id = value
+        self.clip_counter += 1
+        self.last_clip_id = self.clip_counter
+        return self.clip_counter
 
     def events_since(self, segment: int) -> list[EventRecord]:
         return [e for e in self.events if e.segment > segment]
 
-    # ── Persistence ─────────────────────────────────────────────────
-
-    def save(self, directory: Path | str, *, rewrite: bool = False) -> None:
-        directory = Path(directory)
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / "world.json").write_text(
-            self.model_dump_json(indent=2, exclude={"events"}), encoding="utf-8",
-        )
-        if rewrite:
-            (directory / "events.jsonl").write_text(
-                "".join(ev.model_dump_json() + "\n" for ev in self.events), encoding="utf-8")
-            self._saved_events = len(self.events)
-        else:
-            new = self.events[self._saved_events:]
-            if new:
-                with (directory / "events.jsonl").open("a", encoding="utf-8") as f:
-                    for ev in new:
-                        f.write(ev.model_dump_json() + "\n")
-                self._saved_events = len(self.events)
+    def trim_events(self) -> None:
+        """Keep in memory only the events the prompts read: those since Then
+        last compacted (at most MOST_EVENTS) and at least the last
+        KEEP_EVENTS. The story's whole history is the adventure's event log."""
+        keep = max(KEEP_EVENTS, sum(1 for e in self.events if e.segment > self.last_compacted))
+        del self.events[:-min(keep, MOST_EVENTS)]
