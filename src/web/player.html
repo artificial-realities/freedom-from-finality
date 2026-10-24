@@ -212,7 +212,6 @@
   es.addEventListener('hello', e => {
     const s = JSON.parse(e.data);
     skew = Date.now() / 1000 - s.server_time;
-    if (s.title) document.title = s.title;
     s.queued.forEach(prefetch);
     if (s.now) show(s.now);
     if (s.ended) finish();

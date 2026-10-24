@@ -1,9 +1,12 @@
-"""Frame Zero: the initial visual state for an infinite story.
+"""Frame zero: the opening scene every adventure starts from.
 
-A frame zero holds what the first frame looks like — the story's name,
-who is on screen, where it begins and how it looks — and nothing more.
-No personalities, desires, premises or permanent truths: everything
-creative emerges from Now and Then as the story develops.
+A frame zero is the first frame and nothing more: a sentence saying what
+it shows, the one character in it (its name, how it looks, who it is to
+begin with and where it stands), the place it stands in, and the image
+the first clip is rendered from. None of it is a rule: once the story
+starts it is ordinary world state, and Now and Then may change any of
+it. What holds in every adventure is the content policy
+(`src/prompts/policy.md`), not the frame zero.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ import json
 from pathlib import Path
 
 from PIL import Image
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict
 
 
 class Voice(BaseModel):
@@ -32,67 +35,40 @@ class Voice(BaseModel):
         return value
 
 
-class Location(BaseModel):
-    """A place the story can be. `look` and `look_short` are for the
-    renderer: without a look the video prompt never names the place."""
+class StartingCharacter(BaseModel):
+    """The character in the first frame. `personality` is who it is when
+    the story begins, until Then's notebook has a portrait of it; `state`
+    is where it stands and what it is doing."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str
-    description: str
-    look: str = ""
-    look_short: str = ""
-
-
-class Character(BaseModel):
-    name: str
-    voice: Voice | None = None
-    look: str = ""
-    look_short: str = ""
+    look: str
+    personality: str = ""
     state: str = ""
-    present: bool = True
-    location: str = ""
-
-    @field_validator("voice", mode="before")
-    @classmethod
-    def _voice(cls, value):
-        return Voice.coerce(value)
 
 
-class Reference(BaseModel):
-    """The image the first clip is rendered from, and what it shows."""
+class StartingLocation(BaseModel):
+    """The place the story begins in, drawn from its `look`."""
 
-    image: str
-    shows: str = ""
+    model_config = ConfigDict(extra="forbid")
 
-
-class Picture(BaseModel):
-    """How the story looks. `cuts`: whether a clip may cut to a new shot,
-    with `cutting` as guidance on when."""
-
-    style: str = ""
-    anchor: str = ""
-    reference: Reference | None = None
-    cuts: bool = False
-    cutting: str = ""
+    name: str
+    look: str
 
 
 class FrameZero(BaseModel):
-    name: str
-    picture: Picture = Field(default_factory=Picture)
-    characters: list[Character] = Field(default_factory=list)
-    locations: list[Location] = Field(default_factory=list)
+    """`scene` is what the first frame shows. `reference_image`, a path
+    relative to the file, is that frame for the renderer: only a video
+    run needs it. Unknown keys are refused, so a stale field or a typo is
+    an error instead of being silently ignored."""
 
-    @model_validator(mode="after")
-    def _check_character_locations(self):
-        place_names = {loc.name.lower() for loc in self.locations}
-        for ch in self.characters:
-            if ch.location and ch.location.lower() not in place_names:
-                raise ValueError(f"character {ch.name!r} has location {ch.location!r}, "
-                                 f"not one of the locations: {[loc.name for loc in self.locations]}")
-        return self
+    model_config = ConfigDict(extra="forbid")
 
-    @property
-    def reference_image(self) -> str:
-        return self.picture.reference.image if self.picture.reference else ""
+    scene: str
+    character: StartingCharacter
+    location: StartingLocation
+    reference_image: str = ""
 
     @classmethod
     def from_json(cls, path: Path | str) -> "FrameZero":
@@ -104,9 +80,8 @@ class FrameZero(BaseModel):
         else:
             fz_dir = path.parent
         fz = cls(**json.loads(path.read_text(encoding="utf-8")))
-        ref = fz.picture.reference
-        if ref is not None and not Path(ref.image).is_absolute():
-            ref.image = str(fz_dir / ref.image)
+        if fz.reference_image and not Path(fz.reference_image).is_absolute():
+            fz.reference_image = str(fz_dir / fz.reference_image)
         fz.check_reference()
         return fz
 
@@ -117,10 +92,9 @@ class FrameZero(BaseModel):
             return
         image = Path(self.reference_image)
         if not image.is_file():
-            raise ValueError(f"{self.name}: reference image {image} does not exist")
+            raise ValueError(f"reference image {image} does not exist")
         try:
             with Image.open(image) as img:
                 img.verify()
         except Exception as exc:
-            raise ValueError(f"{self.name}: reference image {image} does not decode as an image ({exc})") from exc
-
+            raise ValueError(f"reference image {image} does not decode as an image ({exc})") from exc

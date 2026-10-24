@@ -30,11 +30,12 @@ class EntityOp(BaseModel):
     `entity` is an existing entity id for `update`/`remove`, or the name
     of a new thing for `introduce`. Empty strings mean "unchanged".
     `description` is how a new thing looks (introduce), or the whole new
-    look of an existing character or prop whose appearance changes for
-    good (update); a new character also says `who` it is in the story
+    look of an existing character, prop or place whose appearance changes
+    for good (update); a new character also says `who` it is in the story
     and what it wants, and how its `voice` sounds, so it is registered
-    once and stays the same.  `state` is the entity at the end of the
-    clip, in prose, replacing its last one.
+    once and stays the same. An update may give a character the voice it
+    lacks, or a new one. `state` is the entity at the end of the clip, in
+    prose, replacing its last one.
     """
 
     op: Literal["introduce", "update", "remove"]

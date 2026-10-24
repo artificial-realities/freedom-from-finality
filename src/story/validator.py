@@ -3,9 +3,9 @@
 Plan → Diff → Validate → Apply. The LLM proposes, this module decides
 what is structurally admissible, applies the admissible part, and
 reports the rest so the caller can re-ask once and log the remainder.
-Hard violations (unknown entities, a character the story's cast does
-not allow, a line from someone who is not a character) are the ones
-worth a retry; warnings are fixed up silently.
+Hard violations (unknown entities, a new character without a look, a
+line from someone who is not a character) are the ones worth a retry;
+warnings are fixed up silently.
 
 `check` looks at the whole beat before any of it plays. `apply_clip`
 applies one clip when it is emitted, so a beat the viewer cuts short
@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from src.models.story import Voice
 from src.story.compiler import shot_before
 from src.story.schemas import BeatPlan, ThenUpdate, EntityOp
-from src.story.world import Entity, Era, Summary, WorldModel, slugify
+from src.story.world import Entity, Era, Summary, WorldModel, short_look, slugify
 
 
 @dataclass
@@ -55,13 +55,6 @@ def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, 
         if existing is not None:
             r.warnings.append(f"{where}: '{op.entity}' already exists as {existing.id}; treated as update")
         elif op.kind == "character":
-            cast = ", ".join(f"`{e.id}`" for e in world.by_kind("character"))
-            if world.cast_locked:
-                r.violations.append(
-                    f"{where}: cannot introduce character '{op.entity}': this story allows no characters "
-                    f"beyond its cast ({cast}); bring one of them in, or make it a prop",
-                )
-                return
             if not op.description.strip():
                 r.violations.append(
                     f"{where}: new character '{op.entity}' needs a `description` of how it looks, "
@@ -115,27 +108,6 @@ def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
     return r
 
 
-SHORT_LOOK_WORDS = 14
-
-
-def _short_look(look: str) -> str:
-    text = " ".join(look.split()).rstrip(".")
-    for stop in ("; ", ". "):
-        cut = text.find(stop)
-        if cut > 0:
-            text = text[:cut]
-    words = text.split()
-    if len(words) > SHORT_LOOK_WORDS:
-        text = " ".join(words[:SHORT_LOOK_WORDS])
-        comma = text.rfind(",")
-        joint = text.rfind(" and ")
-        if comma > 0:
-            text = text[:comma]
-        elif joint > len(text) // 2:
-            text = text[:joint]
-    return text.rstrip(" ,;:")
-
-
 def _same_shot(a: str, b: str) -> bool:
     def norm(text: str) -> str:
         words = re.sub(r"[^a-z0-9 ]", " ", text.lower()).split()
@@ -153,9 +125,9 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     also lands the viewer disposition.
 
     Normalises the clip: `on_screen` references become entity ids,
-    invalid dialogue is dropped, and a cut the story does not allow (or
-    one on the story's first clip) is dropped; the world's shot follows the
-    beat's framing and the clip's cut.
+    invalid dialogue is dropped, and a cut on the story's first clip (or
+    to the shot it already opens on) is dropped; the world's shot follows
+    the beat's framing and the clip's cut.
     """
     r = Report()
     clip = beat.clips[index]
@@ -165,25 +137,24 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     for op in clip.entity_ops:
         ent = world.resolve(op.entity)
         if op.op == "introduce" and ent is None:
-            if op.kind == "character" and (world.cast_locked or not op.description.strip()):
+            if op.kind == "character" and not op.description.strip():
                 continue
             eid = world._unique_id(slugify(op.entity))
             name = op.entity.strip()
             if "_" in name and " " not in name:
                 name = name.replace("_", " ")
             look = " ".join(op.description.split())
+            # A new place keeps its look too: the video model draws it from that.
             ent = Entity(
                 id=eid, name=name, kind=op.kind,
-                description=look, look=look if op.kind != "location" else "",
+                description=look, look=look, look_short=short_look(look),
                 first_seen=seg,
             )
             if ent.kind == "character":
                 ent.dynamic = True
-                ent.look_short = _short_look(look)
                 ent.description = " ".join(op.who.split())
                 ent.voice = Voice(description=" ".join(op.voice.split())) if op.voice.strip() else None
             if ent.kind == "prop":
-                ent.look_short = _short_look(look)
                 here = world.current_location()
                 ent.location = here.id if here else ""
             ent.present = True
@@ -203,11 +174,17 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
 
         changes: list[str] = []
         look = " ".join(op.description.split())
-        if op.op == "update" and look and ent.kind != "location" and look != ent.look:
-            ent.cast_look = ent.cast_look or ent.look
+        if op.op == "update" and look and look != ent.look:
             ent.look = ent.look_short = look
             ent.look_since = seg
             changes.append(f"look={look}")
+        # A character may get its voice when it first speaks, or a new one
+        # when its voice changes for good.
+        voice = " ".join(op.voice.split())
+        if (op.op == "update" and voice and ent.kind == "character"
+                and (ent.voice is None or voice != ent.voice.description)):
+            ent.voice = Voice(description=voice)
+            changes.append(f"voice={voice}")
         state = " ".join(op.state.split())
         if state and state != ent.state:
             ent.state = state
@@ -265,10 +242,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     ]
 
     cut = " ".join(clip.cut_to.split()).rstrip(".")
-    if cut and not world.cuts:
-        r.warnings.append(f"cut to '{cut}' dropped: this story is one continuous take")
-        cut = ""
-    elif cut and not world.events:
+    if cut and not world.events:
         r.warnings.append(f"cut to '{cut}' dropped: the story's first clip never cuts")
         cut = ""
     elif cut and _same_shot(cut, shot_before(beat, index)):

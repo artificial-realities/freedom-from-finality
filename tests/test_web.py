@@ -76,7 +76,7 @@ async def test_web_player_text_mode_streams_and_takes_input():
         state = await run
 
         hello = events[0]
-        assert hello[0] == "hello" and hello[1]["title"] == story.name and hello[1]["now"], \
+        assert hello[0] == "hello" and hello[1]["now"], \
             "a late joiner is told what is on air"
         playing = [e for n, e in events if n == "playing"]
         assert len(state.history) == 5 and playing, "segments played after the client connected"
@@ -170,7 +170,7 @@ async def test_input_takes_json_lines_only_and_caps_their_length():
     costs a Now call."""
     from src.web.server import MAX_INPUT_CHARS
     player = WebPlayer(host="127.0.0.1", port=0)
-    await player.start(title="t", session_id="s")
+    await player.start(session_id="s")
     try:
         async with aiohttp.ClientSession() as http:
             async with http.post(player.url + "input", data='{"text": "a dog appears"}',

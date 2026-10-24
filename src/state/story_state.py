@@ -40,7 +40,6 @@ class StoryState(BaseModel):
     turn_notes: str = ""
 
     world_state: dict = Field(default_factory=dict)
-    context_brief: str = ""
 
     history: list[HistoryEntry] = Field(default_factory=list)
     config_name: str = ""

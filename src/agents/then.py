@@ -19,11 +19,10 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.state.story_state import StoryState
 from src.story.context import (
-    format_cast,
     format_events,
-    format_frame_zero,
     format_interventions_all,
     format_notebook,
+    format_policy,
     format_summaries,
     format_world_now,
 )
@@ -38,10 +37,12 @@ USER_PATH: Path = prompt_path("then.user.md")
 
 INSTRUCTIONS = {
     "bootstrap": (
-        "The story has not started; there is nothing to summarize. Write the "
-        "opening notebook: a portrait for each character who is present, your "
-        "initial sense of what is alive, any seeds you notice in the frame zero, "
-        "and your opening intentions. The audience section is empty."
+        "The story has not started; there is nothing to summarize. Its first "
+        "frame shows: {scene}. Write the opening notebook: a portrait of each "
+        "character who is present, from who World now says it is and nothing "
+        "more, since nothing has happened yet; your initial sense of what is "
+        "alive; any seeds you notice in the first frame; and your opening "
+        "intentions. The audience section is empty."
     ),
     "compact": (
         "Compress the events since the last compaction into `scene_summary`. "
@@ -62,12 +63,8 @@ async def run(
     reason: str,
     mode: str,
 ) -> ThenUpdate | None:
-    frame_zero = state.story
-    system_prompt = load_prompt(
-        SYSTEM_PATH,
-        frame_zero=format_frame_zero(frame_zero),
-        cast=format_cast(world),
-    )
+    system_prompt = load_prompt(SYSTEM_PATH, policy=format_policy())
+    scene = " ".join(state.story.scene.split()).rstrip(".")
     user_prompt = load_prompt(
         USER_PATH,
         reason=reason,
@@ -77,7 +74,7 @@ async def run(
         events=format_events(world, world.last_compacted),
         world_now=format_world_now(world),
         interventions=format_interventions_all(world),
-        instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["compact"]),
+        instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["compact"]).format(scene=scene),
     )
     parsed = await call_llm_structured(
         agent="then",

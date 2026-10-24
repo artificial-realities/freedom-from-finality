@@ -3,88 +3,23 @@
 Everything Now and Then read comes through here, so the prompt budget
 is decided in one place: active entities in full with each character's
 current state, dormant ones by name, recent clips verbatim, older
-history as summaries. The system prompt (cast, rules, style) never
-changes during a run so the API's prompt cache hits; everything that
-moves goes into the user prompt.
+history as summaries. The system prompts (each role's craft, the
+content policy, the output contract) never change during a run so the
+API's prompt cache hits; everything that moves, every character
+included, goes into the user prompt.
 """
 
 from __future__ import annotations
 
-from src.models.story import FrameZero, Picture
 from src.story.world import WorldModel
+from src.util.prompt_loader import load_prompt, prompt_path
 
 
 # ── System-prompt sections (cached; stable across a run) ───────────
 
-def format_frame_zero(fz: FrameZero) -> str:
-    """The world's identity, for Now and Then system prompts."""
-    return f"This is **{fz.name}**."
-
-
-def format_picture(picture: Picture) -> str:
-    """Visual style and reference image, for Now's system prompt."""
-    out = [" ".join(picture.style.split()) or "(no style given)"]
-    shows = " ".join(picture.reference.shows.split()).rstrip(".") if picture.reference else ""
-    if shows:
-        out.append(f"The story's first clip starts from a reference image that shows {shows}. Open the action "
-                   "from exactly that picture, then move; a character it does not show enters the picture.")
-    elif picture.reference:
-        out.append("The story's first clip starts from a reference image; open the action from it, then move.")
-    else:
-        out.append("There is no reference image: the story's first clip is drawn from your words alone.")
-    return "\n\n".join(out)
-
-
-def format_cast(world: WorldModel) -> str:
-    """The frame zero's cast sheet (system prompts: it never changes during
-    a run, so characters introduced during the story are listed in World now)."""
-    lines = []
-    for ent in world.by_kind("character"):
-        if ent.dynamic:
-            continue
-        bits = [f"- `{ent.id}`: {ent.name}"]
-        if not ent.present:
-            bits.append("  Not in the story at the start.")
-        if ent.cast_look or ent.look:
-            bits.append(f"  Look (verbatim for shots): {ent.cast_look or ent.look}")
-        if ent.voice is not None:
-            voice = ent.voice
-            said = "; ".join(x for x in (voice.description, voice.language and f"speaks {voice.language}",
-                                          voice.accent, voice.delivery and f"usually {voice.delivery}") if x)
-            if said:
-                bits.append(f"  Voice: {said}.")
-        lines.append("\n".join(bits))
-    return "\n".join(lines) if lines else "(none)"
-
-
-def format_newcomers(world: WorldModel) -> str:
-    if world.newcomers:
-        return (f"New characters beyond the starting cast may appear: {world.newcomers} "
-                "Introduce one with `introduce`, kind `character`, a `description` of how it looks, "
-                "`who` it is in the story and what it wants, and its `voice`.")
-    return "No characters beyond the starting cast."
-
-
-def format_cut_rule(world: WorldModel) -> str:
-    if not world.cuts:
-        return ("The picture never cuts: a change of angle or distance is a camera move within a clip, "
-                "and `cut_to` stays empty.")
-    guide = f" {' '.join(world.cutting.split())}" if world.cutting.strip() else ""
-    return ("This story allows cuts, and a cut costs the picture: the video model lands it seconds into the clip "
-            "and can repaint faces. So cut only when a camera move cannot get there: to another location, or for a "
-            "reveal the story calls for; any other change of view is a camera move. Write the new shot in `cut_to` as "
-            "size, angle and subject (\"wide shot of the tower on its rock\"), never the current framing again. The "
-            "clip cuts at its start: its `action`, `end_state` and `camera_motion` belong to the new shot, which holds "
-            "for the rest of the beat and after it. At most one cut per clip, never on the story's first clip. Within a "
-            "location a cut changes only the view: everyone and everything keeps its place, posture and holdings, and "
-            "the new shot continues the same moment. The video model replaces the place reliably only on a cut: a "
-            "walk keeps drawing the place it comes from. So arrive at another location by cutting to it, which jumps "
-            "to a later moment there, and give the moving character the new `location` in that clip." + guide)
-
-
-def format_locations(world: WorldModel) -> str:
-    lines = [f"- `{e.id}`: {e.name}. {e.description}" for e in world.by_kind("location")]
-    return "\n".join(lines) if lines else "(none)"
+def format_policy() -> str:
+    """The content policy, the same in every adventure, for both system prompts."""
+    return load_prompt(prompt_path("policy.md"))
 
 
 # ── User-prompt sections (change every call) ───────────────────────
@@ -130,6 +65,7 @@ def format_world_now(world: WorldModel) -> str:
     else:
         drawn = " ".join((here.look_short or here.look).split()).rstrip(".")
         out.append(f"Location: `{here.id}` {here.name}" + (f" · drawn as: {drawn}" if drawn else ""))
+    portrayed = {e.id for c in world.notebook.characters if (e := world.resolve(c.entity)) is not None}
     present = world.present_entities()
     if present:
         present.sort(key=lambda e: (e.kind != "character", -e.last_seen))
@@ -139,16 +75,20 @@ def format_world_now(world: WorldModel) -> str:
             if ent.kind == "character":
                 now = ent.state or "(not recorded yet: describe it in your first op)"
                 line = f"- {ent.id} (character): {ent.name} · now: {_clip(now, STATE_CHARS)}"
-                if ent.look_since:
-                    line += f" · looks now: {ent.look}"
+                if ent.look:
+                    line += f" · looks: {ent.look}"
                 if ent.dynamic:
-                    line += (f" · introduced at segment {ent.first_seen}"
-                             + (f" · who: {ent.description}" if ent.description else "")
-                             + (f" · voice: {ent.voice.description}" if ent.voice and ent.voice.description else ""))
+                    line += f" · introduced at segment {ent.first_seen}"
+                # Who a character is starts here and moves to Then's
+                # portrait once there is one, so it can change.
+                if ent.description and ent.id not in portrayed:
+                    line += f" · who: {ent.description}"
+                if ent.voice and ent.voice.description:
+                    line += f" · voice: {ent.voice.description}"
                 out.append(line)
                 continue
             now = f" · now: {_clip(ent.state, STATE_CHARS)}" if ent.state else ""
-            looks = f" · looks now: {ent.look}" if ent.look_since else ""
+            looks = f" · looks: {ent.look}" if ent.look_since else ""
             out.append(f"- {ent.id} ({ent.kind}): {ent.name}{now}{looks}")
         if rest:
             out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))

@@ -31,12 +31,34 @@ def slugify(name: str) -> str:
     return slug or "entity"
 
 
-def names(text: str, name: str) -> bool:
-    """Whether `text` names `name` as a whole phrase, ignoring case."""
-    return bool(name.strip()) and re.search(rf"\b{re.escape(name.strip().lower())}\b", text.lower()) is not None
+SHORT_LOOK_WORDS = 14
+
+
+def short_look(look: str) -> str:
+    """The look restated on every clip: its first phrase, at most
+    SHORT_LOOK_WORDS words, ending on a whole phrase."""
+    text = " ".join(look.split()).rstrip(".")
+    for stop in ("; ", ". "):
+        cut = text.find(stop)
+        if cut > 0:
+            text = text[:cut]
+    words = text.split()
+    if len(words) > SHORT_LOOK_WORDS:
+        text = " ".join(words[:SHORT_LOOK_WORDS])
+        comma = text.rfind(",")
+        joint = text.rfind(" and ")
+        if comma > 0:
+            text = text[:comma]
+        elif joint > len(text) // 2:
+            text = text[:joint]
+    return text.rstrip(" ,;:")
 
 
 class Entity(BaseModel):
+    """`description` is how a prop or place looks as introduced, or, for a
+    character, who it is: the frame zero's personality or the `who` Now
+    gave it, shown to the roles until Then's notebook has a portrait of it."""
+
     id: str
     name: str
     kind: EntityKind
@@ -44,7 +66,6 @@ class Entity(BaseModel):
     look: str = ""
     look_short: str = ""
     look_since: int = 0
-    cast_look: str = ""
     state: str = ""
     location: str = ""
     present: bool = False
@@ -52,8 +73,6 @@ class Entity(BaseModel):
     first_seen: int = 0
     last_seen: int = 0
     voice: Voice | None = None
-    wants: str = ""
-    nature: str = ""
     dynamic: bool = False
 
     def render_look(self) -> str:
@@ -112,11 +131,7 @@ class EventRecord(BaseModel):
 
 
 class WorldModel(BaseModel):
-    title: str = ""
     segment: int = 0
-    newcomers: str = ""
-    cuts: bool = False
-    cutting: str = ""
     opening_picture: list[str] | None = None
     camera_location: str = ""
 
@@ -144,46 +159,26 @@ class WorldModel(BaseModel):
 
     @classmethod
     def from_frame_zero(cls, frame_zero: FrameZero) -> "WorldModel":
-        """A fresh world from a frame zero."""
-        ref = frame_zero.picture.reference
-        world = cls(
-            title=frame_zero.name,
-            newcomers="Anyone the story needs.",
-            cuts=frame_zero.picture.cuts, cutting=frame_zero.picture.cutting.strip(),
+        """A fresh world from a frame zero: its place and its character,
+        ordinary entities from here on."""
+        world = cls()
+        place, ch = frame_zero.location, frame_zero.character
+        lid = slugify(place.name)
+        look = " ".join(place.look.split())
+        world.entities[lid] = Entity(id=lid, name=place.name.strip(), kind="location",
+                                     look=look, look_short=short_look(look), present=True)
+        world.camera_location = lid
+        cid = world._unique_id(slugify(ch.name))
+        look = " ".join(ch.look.split())
+        world.entities[cid] = Entity(
+            id=cid, name=ch.name.strip(), kind="character",
+            description=" ".join(ch.personality.split()), look=look, look_short=short_look(look),
+            state=" ".join(ch.state.split()), present=True, location=lid,
         )
-        place_ids: dict[str, str] = {}
-        for i, loc in enumerate(frame_zero.locations):
-            lid = world._unique_id(slugify(loc.name))
-            place_ids[loc.name.lower()] = lid
-            world.entities[lid] = Entity(
-                id=lid, name=loc.name, kind="location",
-                description=loc.description, look=loc.look, look_short=loc.look_short,
-                present=(i == 0),
-            )
-        home = next((e.id for e in world.entities.values() if e.kind == "location"), "")
-        world.camera_location = home
-        for ch in frame_zero.characters:
-            cid = world._unique_id(slugify(ch.name))
-            if ch.location:
-                loc = place_ids.get(ch.location.lower(), "")
-            elif ch.present:
-                loc = home
-            else:
-                loc = ""
-            world.entities[cid] = Entity(
-                id=cid, name=ch.name, kind="character",
-                look=ch.look, look_short=ch.look_short,
-                voice=ch.voice,
-                state=ch.state, present=ch.present,
-                location=loc,
-            )
-        if ref is not None and ref.shows:
-            world.opening_picture = [e.id for e in world.by_kind("character") if names(ref.shows, e.name)]
+        # The first frame shows the character, so the opening clip does not
+        # describe it as entering.
+        world.opening_picture = [cid]
         return world
-
-    @property
-    def cast_locked(self) -> bool:
-        return not self.newcomers
 
     def _unique_id(self, base: str) -> str:
         if base not in self.entities:

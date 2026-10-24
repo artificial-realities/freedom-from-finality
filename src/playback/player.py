@@ -49,7 +49,7 @@ class Player(ABC):
         # Set by the live loop for the timing log: a non-blank line arrived (id, text).
         self.on_line: Callable[[int, str], None] | None = None
 
-    async def start(self, *, title: str, session_id: str) -> None:
+    async def start(self, *, session_id: str) -> None:
         """Bring the surface up before the first segment."""
 
     async def stop(self) -> None:

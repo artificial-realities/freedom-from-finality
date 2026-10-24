@@ -212,24 +212,21 @@ class NowEngine:
 
     def note_reseed(self, segment: int) -> None:
         self._reseed_note = (f"At segment {segment} the renderer restarted and the picture was re-seeded from "
-                             f"{self._reference() or 'the reference image'}. Nothing from before is in the picture. "
+                             f"the first frame ({self._scene()}). Nothing from before is in the picture. "
                              "Bring back in this beat whatever the story needs on screen. ")
 
-    def _reference(self) -> str:
-        ref = self.story.picture.reference if self.story is not None else None
-        if ref is None:
-            return ""
-        shows = " ".join(ref.shows.split()).rstrip(".")
-        return "the reference image" + (f", which shows {shows}" if shows else "")
+    def _scene(self) -> str:
+        """What the frame zero's first frame shows. Now hears it only when
+        the picture is that frame: at the opening, or after a re-seed."""
+        return " ".join(self.story.scene.split()).rstrip(".") if self.story is not None else ""
 
     def _unplayed(self) -> str:
-        ref = self._reference()
-        return f"The picture is still {ref}." if ref else "Nothing has played yet."
+        return f"The picture is still the first frame: {self._scene()}."
 
     def _beat_status(self) -> str:
         status = self._reseed_note + self._beat_status_plain()
         world = self.world
-        if world is not None and world.cuts and world.shot:
+        if world is not None and world.shot:
             status += f" The picture is in this shot: {world.shot}."
         return status
 
@@ -240,9 +237,8 @@ class NowEngine:
             intent, done, total = self._last_beat
             return (f'The previous beat "{intent}" ({done} clip{"s" if done != 1 else ""}) played out in full. '
                     f"The picture ends on: {self._last_end_state}")
-        ref = self._reference()
-        return "You are opening the story; " + (f"the picture starts as {ref}." if ref else
-                                                "there is no reference image: the first clip starts from your words alone.")
+        return (f"You are opening the story. The first frame shows: {self._scene()}. Open the action from exactly "
+                "that picture, then move; anyone it does not show enters the picture.")
 
     def _fallback_beat(self) -> BeatPlan:
         world = self.world
@@ -384,7 +380,7 @@ class NowEngine:
         if first and beat.intervention == "absorbed" and self._beat_input:
             world.viewer_momentum = self._beat_input
             world.viewer_momentum_segment = seg
-        prompt = compile_clip(beat, i, world, picture=state.story.picture, opening=(seg == 1), segment_no=seg)
+        prompt = compile_clip(beat, i, world, scene=state.story.scene, opening=(seg == 1), segment_no=seg)
         shape = self.shape
         state.current_shape = shape
         state.current_clip_id = clip_id
@@ -572,7 +568,6 @@ class NowEngine:
             "camera_location": here.id if here else "",
             "present": [e.id for e in world.present_entities()],
         }
-        state.context_brief = world.title
 
     def _format_notes(self, beat: BeatPlan, index: int, report: Report, notes: list[str], *, first: bool) -> str:
         world = self.world

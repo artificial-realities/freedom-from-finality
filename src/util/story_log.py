@@ -23,12 +23,12 @@ class StoryLogger:
         *,
         session_id: str,
         config_name: str,
-        story_title: str,
+        first_frame: str,
         log_dir: Path | str = "logs",
     ) -> None:
         self.session_id = session_id
         self.config_name = config_name
-        self.story_title = story_title
+        self.first_frame = first_frame
 
         log_dir = Path(log_dir)
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -40,7 +40,7 @@ class StoryLogger:
         header = (
             f"# Story transcript — {self.config_name}\n\n"
             f"- Session: `{self.session_id}`\n"
-            f"- Story: {self.story_title or '(untitled)'}\n"
+            f"- First frame: {self.first_frame}\n"
             f"- Started: {datetime.now().isoformat(timespec='seconds')}\n\n"
             "---\n\n"
         )
@@ -66,7 +66,6 @@ class StoryLogger:
         shot: Shot | None,
         dialogue: list[str],
         world_state: dict,
-        context_brief: str,
         extra: str = "",
     ) -> None:
         section = self._format_turn(
@@ -76,7 +75,6 @@ class StoryLogger:
             shot=shot,
             dialogue=dialogue,
             world_state=world_state,
-            context_brief=context_brief,
             extra=extra,
         )
         try:
@@ -94,7 +92,6 @@ class StoryLogger:
         shot: Shot | None,
         dialogue: list[str],
         world_state: dict,
-        context_brief: str,
         extra: str = "",
     ) -> str:
         heading_input = f'"{user_input}"' if user_input.strip() else "_(silent)_"
@@ -138,8 +135,6 @@ class StoryLogger:
             out.append(f"- Location: {location}\n")
         if characters:
             out.append(f"- Characters: {characters}\n")
-        if context_brief:
-            out.append(f"- Context brief (next turn): {context_brief}\n")
         if extra:
             out.append("\n" + extra.rstrip("\n") + "\n")
         out.append("\n---\n\n")

@@ -21,13 +21,9 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.state.story_state import StoryState
 from src.story.context import (
-    format_cast,
-    format_cut_rule,
-    format_frame_zero,
     format_interventions,
-    format_newcomers,
     format_notebook,
-    format_picture,
+    format_policy,
     format_recent,
     format_summaries,
     format_world_now,
@@ -81,14 +77,9 @@ async def run(
     """Return (beat, notes, retried). `beat` is None on a parse failure;
     `retried` says the validator re-ask was made (a second LLM call).
     `clip_seconds` is the delivered length of the run's clip shape."""
-    frame_zero = state.story
     system_prompt = load_prompt(
         SYSTEM_PATH,
-        frame_zero=format_frame_zero(frame_zero),
-        picture=format_picture(frame_zero.picture),
-        cast=format_cast(world),
-        newcomers=format_newcomers(world),
-        cut_rule=format_cut_rule(world),
+        policy=format_policy(),
         clip_seconds=seconds_label(clip_seconds),
         beat_seconds=seconds_label(round(clip_seconds * config.max_clips_per_beat)),
         typical_seconds=f"{round(2 * clip_seconds)} to {round(3 * clip_seconds)}",

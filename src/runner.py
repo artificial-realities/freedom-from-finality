@@ -50,7 +50,7 @@ def _start_timing(config: Config, story: FrameZero, session_id: str, session_dir
     timing = TimingLog(session_dir / "timing.jsonl")
     revision, dirty = git_revision()
     timing.write(
-        "session_start", session=session_id, config=config.name, story=story.name,
+        "session_start", session=session_id, config=config.name, first_frame=story.scene,
         revision=revision, dirty=dirty, llm_backend=config.llm_backend,
         now_model=config.now_model,
         now_reasoning_effort=config.now_reasoning_effort or None,
@@ -99,7 +99,7 @@ def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog)
         return
     try:
         if not seed_image:
-            raise ValueError("this story has no reference image (`picture.reference`); the renderer starts "
+            raise ValueError("the frame zero has no `reference_image`; the renderer starts "
                              "the film from one, so a video run needs it")
         verdict = i2v.check_reference(seed_image)
     except Exception as exc:
@@ -139,7 +139,6 @@ def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
         shot=state.current_shot,
         dialogue=state.current_dialogue,
         world_state=state.world_state,
-        context_brief=state.context_brief,
         extra=state.turn_notes,
     )
 
@@ -234,7 +233,7 @@ async def run_live(
     story_logger = StoryLogger(
         session_id=session_id,
         config_name=config.name,
-        story_title=story.name,
+        first_frame=story.scene,
         log_dir=log_dir,
     )
 
@@ -670,7 +669,7 @@ async def run_live(
             timing.write("error", where="consumer", error=repr(exc))
             stop_event.set()
 
-    await player.start(title=story.name, session_id=session_id)
+    await player.start(session_id=session_id)
     producer_task = asyncio.create_task(producer())
     consumer_task = asyncio.create_task(consumer())
 

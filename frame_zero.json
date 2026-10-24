@@ -1,21 +1,14 @@
 {
-  "name": "Untitled",
-  "locations": [
-    {
-      "name": "White",
-      "description": "An empty white world, nothing but white in every direction."
-    }
-  ],
-  "characters": [
-    {
-      "name": "Figure",
-      "look": "a simple black stick figure with a round head, drawn with clean lines on pure white",
-      "look_short": "a black stick figure",
-      "state": "standing still, centre frame"
-    }
-  ],
-  "picture": {
-    "style": "Simple black lines on pure white. A stick figure drawn with clean, minimal strokes: round head, straight body, stick arms and legs. No shading, no colour, no background detail. The world is white and empty. Motion is loose and hand-drawn.",
-    "anchor": "Simple black stick figure on pure white, clean minimal lines, no shading, no colour, no background."
-  }
+  "scene": "A stick figure stands alone in the middle of an empty white world.",
+  "character": {
+    "name": "Figure",
+    "look": "a simple black stick figure with a round head",
+    "personality": "Curious about the world, with a personality shaped by what it experiences.",
+    "state": "standing still in the middle of the frame"
+  },
+  "location": {
+    "name": "The White",
+    "look": "empty white space in every direction"
+  },
+  "reference_image": "frame_zero.jpg"
 }

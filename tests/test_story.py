@@ -9,14 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from src.models.story import Character, FrameZero, Location, Picture, Voice
+from src.models.story import FrameZero, StartingCharacter, StartingLocation, Voice
 from src.story.compiler import compile_clip, speech
-from src.story.context import format_cut_rule, format_world_now
-from src.story.schemas import BeatPlan, ClipSpec, DialogueLine, EntityOp, ThenUpdate, Notebook, Seed
+from src.story.context import format_world_now
+from src.story.schemas import BeatPlan, CharacterPortrait, ClipSpec, DialogueLine, EntityOp, ThenUpdate, Notebook, Seed
 from src.story.validator import apply_clip, apply_then, check, resolve_location
-from src.story.world import EventRecord, WorldModel
+from src.story.world import Entity, EventRecord, WorldModel
 
-PLAIN = Picture()   # no style, no reference: the compiler's own words only
+# Lego Man's short look, made from his look the way a newcomer's is.
+LEGO_SHORT = "the most default LEGO minifigure: bare yellow head with no hair piece"
 
 
 def _world(**kw) -> WorldModel:
@@ -44,7 +45,7 @@ def _apply(beat: BeatPlan, w: WorldModel, segment_no: int, index: int = 0):
 
 def _emit(beat: BeatPlan, w: WorldModel, seg: int, index: int = 0, **kw) -> str:
     _apply(beat, w, seg, index)
-    prompt = compile_clip(beat, index, w, picture=PLAIN, segment_no=seg, **kw)
+    prompt = compile_clip(beat, index, w, segment_no=seg, **kw)
     clip = beat.clips[index]
     here = w.current_location()
     w.events.append(EventRecord(segment=seg, narration=clip.action_text(),
@@ -53,17 +54,17 @@ def _emit(beat: BeatPlan, w: WorldModel, seg: int, index: int = 0, **kw) -> str:
     return prompt
 
 
-def _road(**picture) -> WorldModel:
-    fz = FrameZero(
-        name="The road", opening="A knight sets out.",
-        locations=[Location(name="Castle", description="home", look="a grey castle", look_short="the castle"),
-                   Location(name="Castle Tower", description="the top", look="a tall tower"),
-                   Location(name="Forest", description="the wild", look="tall pine trees", look_short="the pines")],
-        characters=[Character(name="Knight", look="a knight"),
-                    Character(name="Squire", look="a boy", present=False, location="Forest")],
-        picture=Picture(**picture),
-    )
-    return WorldModel.from_frame_zero(fz)
+def _road() -> WorldModel:
+    """A knight at a castle, with places and a squire the story has made since."""
+    fz = FrameZero(scene="A knight at the castle gate.", character=StartingCharacter(name="Knight", look="a knight"),
+                   location=StartingLocation(name="Castle", look="a grey castle"))
+    w = WorldModel.from_frame_zero(fz)
+    w.entities["castle"].look_short = "the castle"
+    w.entities["castle_tower"] = Entity(id="castle_tower", name="Castle Tower", kind="location", look="a tall tower")
+    w.entities["forest"] = Entity(id="forest", name="Forest", kind="location", look="tall pine trees",
+                                  look_short="the pines")
+    w.entities["squire"] = Entity(id="squire", name="Squire", kind="character", look="a boy", location="forest")
+    return w
 
 
 def _go(where: str, **clip) -> BeatPlan:
@@ -73,16 +74,30 @@ def _go(where: str, **clip) -> BeatPlan:
 
 def test_world_from_frame_zero():
     w = _world()
-    assert w.camera_location == "the_white_void"
-    assert not w.cast_locked and w.newcomers
-    hero, spaceman = w.entities["lego_man"], w.entities["spaceman"]
-    assert hero.present is True and hero.location == "the_white_void"
-    assert hero.voice.description.startswith("earnest") and hero.state == "standing upright centre frame, arms at his sides"
-    assert hero.look_short.startswith("the same plain LEGO minifigure"), "the frame zero's short look carries over"
-    assert not spaceman.present and spaceman.location == ""
-    assert w.opening_picture == ["lego_man"], "the reference image shows Lego Man, not the Spaceman"
-    assert w.current_location().id == "the_white_void"
+    assert set(w.entities) == {"the_white_void", "lego_man"} and w.camera_location == "the_white_void"
+    place, hero = w.entities["the_white_void"], w.entities["lego_man"]
+    assert place.kind == "location" and place.look_short == place.look.rstrip(".")
+    assert place.look.startswith("an infinite, featureless white space"), "the place is drawn from its look"
+    assert hero.present is True and hero.location == "the_white_void" and hero.voice is None
+    assert hero.state == "standing upright centre frame, arms at his sides"
+    assert hero.description == "Earnest and game for anything; takes small things very seriously.", "who he is, to start"
+    assert hero.look_short == LEGO_SHORT, "a short look made the way a newcomer's is"
+    assert w.opening_picture == ["lego_man"], "the first frame shows the character"
     assert w.resolve("Lego Man") is hero and w.resolve("lego man") is hero
+
+
+def test_a_frame_zero_is_the_first_frame_and_nothing_else():
+    fz = FrameZero.from_json(".")
+    assert fz.scene and fz.character.look and fz.location.look, "the project's own frame zero loads"
+    base = {"scene": "s", "character": {"name": "A", "look": "a"}, "location": {"name": "Here", "look": "h"}}
+    assert FrameZero(**base).reference_image == "", "only a video run needs the image"
+    for stale in ({"name": "old"}, {"truths": ["x"]}, {"picture": {"style": "s"}}):
+        with pytest.raises(ValueError):
+            FrameZero(**base, **stale)
+    with pytest.raises(ValueError):
+        FrameZero(**{**base, "character": {"name": "A", "look": "a", "wants": "x"}})
+    with pytest.raises(ValueError):
+        FrameZero(**{**base, "location": {"name": "Here"}})
 
 
 def test_validator_introduce_update_remove_and_character_state():
@@ -138,20 +153,19 @@ def test_validator_checks_every_clip_and_caps_them():
     assert not r.violations and any("only the first 2" in x for x in r.warnings), "clips past the cap are not checked"
 
 
-def test_validator_cast_lock_and_speakers():
+def test_validator_speakers():
     w = _world()
-    w.newcomers = ""
     _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="plastic dog", description="a plastic dog")])]), w, 1)
     beat = _beat(clips=[_clip(
-        entity_ops=[EntityOp(op="introduce", entity="Lego Woman", kind="character", description="second figure")],
+        entity_ops=[EntityOp(op="introduce", entity="Lego Woman", kind="character")],
         dialogue=[DialogueLine(speaker="lego_man", line="Hi"), DialogueLine(speaker="plastic_dog", line="Woof, said the dog")],
     )])
     r = check(beat, w)
-    assert any("allows no characters beyond its cast" in v for v in r.violations)
+    assert any("new character 'Lego Woman' needs a `description`" in v for v in r.violations)
     assert any("dialogue speaker 'plastic_dog' is not a known character id" in v for v in r.violations)
     assert not any("speaker 'lego_man'" in v for v in r.violations), "every character may speak"
     _apply(beat, w, 2)
-    assert "lego_woman" not in w.entities, "locked cast: the character is never created"
+    assert "lego_woman" not in w.entities, "a character without a look is never created"
     assert [d.speaker for d in beat.clips[0].dialogue] == ["lego_man"], "the prop's line is dropped on apply"
 
     beat = _beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="plastic cat", kind="prop", description="a small plastic cat")])])
@@ -161,8 +175,6 @@ def test_validator_cast_lock_and_speakers():
 
 def test_a_newcomer_is_registered_once_and_stays_the_same():
     w = _world()
-    from src.story.context import format_cast, format_world_now
-    system_before = format_cast(w)
     pirate = EntityOp(op="introduce", entity="pirate captain", kind="character",
                       description="a LEGO pirate captain minifigure in a black tricorn hat and red coat; a peg leg",
                       who="a castaway who thinks the void is a becalmed sea", voice="gravelly, booming",
@@ -178,20 +190,42 @@ def test_a_newcomer_is_registered_once_and_stays_the_same():
     assert ent.voice.description == "gravelly, booming" and beat.clips[0].dialogue == [hello]
     assert ent.look_short == "a LEGO pirate captain minifigure in a black tricorn hat and red coat"
     assert ent.state == "standing on his peg leg at frame right, squinting at the horizon"
-    prompt = compile_clip(beat, 0, w, picture=PLAIN, segment_no=12)
+    prompt = compile_clip(beat, 0, w, segment_no=12)
     assert "Entering the picture during this clip: pirate captain (a LEGO pirate captain minifigure" in prompt
     assert 'Pirate captain says in a gravelly, booming voice, "Ahoy!"' in prompt, "the speaker opens a sentence"
     later = _beat(clips=[_clip(on_screen=["lego_man", "pirate_captain"])])
     apply_clip(later, 0, w, segment_no=13)
-    prompt = compile_clip(later, 0, w, picture=PLAIN, segment_no=13)
+    prompt = compile_clip(later, 0, w, segment_no=13)
     assert "pirate captain (a LEGO pirate captain minifigure in a black tricorn hat and red coat)" in prompt, \
         "identity restated on every later clip"
-    assert format_cast(w) == system_before, "the system prompt stays byte-identical (cache)"
     now = format_world_now(w)
     assert "pirate_captain (character): pirate captain" in now and "introduced at segment 12" in now
+    assert "looks: a LEGO pirate captain minifigure in a black tricorn hat and red coat; a peg leg" in now
     assert "who: a castaway who thinks the void is a becalmed sea" in now and "voice: gravelly, booming" in now
     voiceless = EntityOp(op="introduce", entity="knight", kind="character", description="a LEGO knight")
     assert any("has no `voice`" in x for x in check(_beat(voiceless), w).warnings)
+
+
+def test_who_a_character_is_moves_to_thens_portrait():
+    w = _world()
+    now = format_world_now(w)
+    assert "lego_man (character): Lego Man · now: standing upright centre frame, arms at his sides · looks: the most default" in now
+    assert "who: Earnest and game for anything" in now, "the starting personality, until Then has a portrait"
+    portrait = CharacterPortrait(entity="lego_man", portrait="Braver now; the void no longer frightens him.")
+    apply_then(w, ThenUpdate(notebook=Notebook(characters=[portrait])), at_segment=3)
+    assert "who:" not in format_world_now(w), "the portrait is who he is now"
+
+
+def test_a_voice_can_come_later():
+    w = _world()
+    assert w.entities["lego_man"].voice is None
+    speak = EntityOp(op="update", entity="lego_man", kind="character", voice="earnest, a little breathless")
+    hi = DialogueLine(speaker="lego_man", line="Hello?")
+    beat = _beat(clips=[_clip(entity_ops=[speak], dialogue=[hi])])
+    r = _apply(beat, w, 2)
+    assert w.entities["lego_man"].voice.description == "earnest, a little breathless", r.applied
+    assert 'Lego Man says in an earnest, a little breathless voice, "Hello?"' in compile_clip(beat, 0, w, segment_no=2)
+    assert "voice: earnest, a little breathless" in format_world_now(w)
 
 
 def test_validator_interventions():
@@ -222,22 +256,11 @@ def test_validator_interventions():
     assert w.drop_pending_interventions(5) == 1 and not w.unresolved_interventions()[1:]
 
 
-def test_cuts_are_the_storys_choice():
+def test_a_cut_lands_after_the_first_clip():
     w = _world()
-    assert not w.cuts and "`cut_to` stays empty" in format_cut_rule(w)
-    w.events.append(EventRecord(segment=1, narration="n"))
     cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
-    r = _apply(cut, w, 2)
-    assert cut.clips[0].cut_to == "" and any("one continuous take" in x for x in r.warnings)
-
-    fz = FrameZero.from_json("tests/fixtures/lego-void")
-    fz = fz.model_copy(update={"picture": fz.picture.model_copy(update={"cuts": True,
-                                                                         "cutting": "Cut on a reveal."})})
-    w = WorldModel.from_frame_zero(fz)
-    rule = format_cut_rule(w)
-    assert w.cuts and "Write the new shot in `cut_to`" in rule and rule.endswith("Cut on a reveal.")
-    assert "a cut costs the picture" in rule, "Now knows what a cut does to the render"
-    assert "arrive at another location by cutting to it" in rule, "a walk keeps drawing the old place"
+    r = _apply(cut, w, 1)
+    assert cut.clips[0].cut_to == "" and any("first clip never cuts" in x for x in r.warnings)
     w.events.append(EventRecord(segment=1, narration="n"))
     cut = _beat(clips=[_clip(cut_to="close-up of his hands")])
     _apply(cut, w, 2)
@@ -298,14 +321,29 @@ def test_a_place_with_a_look_is_in_the_video_prompt():
     assert walk.index("He walks into the trees.") < walk.index("Arriving in Forest (tall pine trees).")
     assert "Setting: Forest (the pines)." in _emit(_beat(clips=[_clip(on_screen=["knight"])]), w, 4)
 
-    w = _road(cuts=True)
+    w = _road()
     _emit(_beat(clips=[_clip(on_screen=["knight"])]), w, 1, opening=True)
     cut = _emit(_go("forest", cut_to="wide shot of the forest path"), w, 2)
     assert "The view cuts to a wide shot of the forest path" in cut and "Arriving" not in cut
     assert cut.index("The view cuts to") < cut.index("The new setting: Forest (tall pine trees).")
 
     w = _world()
-    assert "Setting" not in _emit(_beat(), w, 1, opening=True) + _emit(_beat(), w, 2)
+    void = "Setting: The White Void (an infinite, featureless white space under soft, shadowless studio light)."
+    assert void in _emit(_beat(), w, 1, opening=True) and void in _emit(_beat(), w, 2)
+
+
+def test_a_place_the_story_makes_is_drawn_from_its_look():
+    w = _world()
+    _emit(_beat(), w, 1, opening=True)
+    forest = EntityOp(op="introduce", entity="Pine Forest", kind="location", description="a dark pine forest at dusk")
+    _emit(_beat(clips=[_clip(entity_ops=[forest])]), w, 2)
+    assert w.entities["pine_forest"].look == "a dark pine forest at dusk"
+    go = EntityOp(op="update", entity="lego_man", kind="character", location="pine_forest")
+    cut = _emit(_beat(clips=[_clip(cut_to="wide shot of the forest", entity_ops=[go])]), w, 3)
+    assert "The new setting: Pine Forest (a dark pine forest at dusk)." in cut and "White Void" not in cut
+    snow = EntityOp(op="update", entity="pine_forest", kind="location", description="a pine forest under deep snow")
+    _apply(_beat(clips=[_clip(entity_ops=[snow])]), w, 4)
+    assert "Setting: Pine Forest (a pine forest under deep snow)." in _emit(_beat(), w, 5), "a place's look can change"
 
 
 def test_the_writers_see_the_place_as_the_video_model_draws_it():
@@ -314,13 +352,12 @@ def test_the_writers_see_the_place_as_the_video_model_draws_it():
     _apply(_go("castle_tower"), w, 1)
     assert format_world_now(w).startswith("Location: `castle_tower` Castle Tower · drawn as: a tall tower\n"), \
         "no short look: the full one"
-    assert format_world_now(_world()).startswith("Location: `the_white_void` The White Void\n"), "no look, nothing said"
+    assert format_world_now(_world()).startswith(
+        "Location: `the_white_void` The White Void · drawn as: an infinite, featureless white space")
 
 
 def test_a_lasting_change_of_appearance_replaces_the_look():
-    from src.story.context import format_cast
     w = _world()
-    system_before = format_cast(w)
     helmeted = "the plain LEGO minifigure wearing a silver knight's helmet with a red plume, plain red torso, plain blue legs"
     on = EntityOp(op="update", entity="lego_man", kind="character", description=helmeted, state="helmet on, centre frame")
     r = _apply(_beat(on, clips=[_clip(entity_ops=[on])]), w, 3)
@@ -329,15 +366,14 @@ def test_a_lasting_change_of_appearance_replaces_the_look():
     assert any(a.startswith("update lego_man: look=") for a in r.applied)
     p = _emit(_beat(clips=[_clip(action="He nods.")]), w, 4)
     assert f"On screen: Lego Man ({helmeted})." in p and "bare yellow head" not in p, "the whole new look, uncut"
-    assert f"· looks now: {helmeted}" in format_world_now(w)
-    assert format_cast(w) == system_before, "the system prompt stays byte-identical (cache)"
+    assert f"· looks: {helmeted}" in format_world_now(w)
     _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="shield", description="a red LEGO shield")])]), w, 5)
     _apply(_beat(clips=[_clip(entity_ops=[EntityOp(op="introduce", entity="shield", description="a blue LEGO shield")])]), w, 6)
     assert w.entities["shield"].look == "a red LEGO shield"
     paint = EntityOp(op="update", entity="shield", description="a red LEGO shield with a white star painted on it")
     _apply(_beat(clips=[_clip(entity_ops=[paint])]), w, 7)
     assert w.entities["shield"].look_short == "a red LEGO shield with a white star painted on it"
-    assert "shield (prop): shield · looks now: a red LEGO shield with a white star" in format_world_now(w)
+    assert "shield (prop): shield · looks: a red LEGO shield with a white star" in format_world_now(w)
     plain = "the plain LEGO minifigure: bare yellow head, plain red torso, plain blue legs"
     off = EntityOp(op="update", entity="lego_man", kind="character", description=plain)
     _apply(_beat(clips=[_clip(entity_ops=[off])]), w, 8)
@@ -364,35 +400,18 @@ def test_a_line_says_each_quality_of_the_voice_once():
         "Lego Man says in a quiet, earnest, slightly formal, a little breathless voice")
 
 
-def test_a_character_starts_only_in_a_known_place():
-    with pytest.raises(ValueError):
-        FrameZero(name="t", locations=[Location(name="Here", description="d")],
-                characters=[Character(name="A"), Character(name="B", location="There")])
-    fz = FrameZero(
-        name="quest", picture=Picture(cuts=True),
-        locations=[Location(name="The Village", description="a village"),
-                   Location(name="The Dragons Tower", description="a tower")],
-        characters=[Character(name="Princess", location="The Dragons Tower"),
-                    Character(name="Dragon", location="The Dragons Tower")],
-    )
-    quest = WorldModel.from_frame_zero(fz)
-    assert quest.cuts and quest.current_location().id == "the_village"
-    assert quest.entities["princess"].location == quest.entities["dragon"].location == "the_dragons_tower"
-
-
-def test_compiler_opening_clip_carries_style_look_and_reference():
-    w = _world()
-    reference = FrameZero.from_json("tests/fixtures/lego-void").picture.reference
-    picture = Picture(style="Studio product shot. Pure white.", anchor="Studio shot, white.", reference=reference)
+def test_compiler_opening_clip_opens_on_the_first_frame():
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
+    w = WorldModel.from_frame_zero(fz)
     beat = _beat(clips=[_clip(action="He waves.", ambient_sound="a faint plastic rattle", end_state="Lego Man mid-wave",
                               dialogue=[DialogueLine(speaker="lego_man", line="Hello?")])])
-    prompt = compile_clip(beat, 0, w, picture=picture, opening=True, segment_no=1)
-    assert prompt.startswith("Studio product shot. Pure white.")
-    assert "Lego Man (the most default LEGO minifigure" in prompt, "the full look on the opening clip"
-    assert "The shot opens with Lego Man standing upright in a wide product shot" in prompt
+    prompt = compile_clip(beat, 0, w, scene=fz.scene, opening=True, segment_no=1)
+    assert prompt.startswith("Setting: The White Void (an infinite, featureless"), "no style paragraph: the place's look"
+    assert "Lego Man (the most default LEGO minifigure" in prompt and "claw hands" in prompt, "the full look"
+    assert "The shot opens on this picture: Lego Man standing upright in a wide product shot" in prompt
     assert "A faint plastic rattle." in prompt and "Medium shot; the camera remains static." in prompt
-    assert "Entering the picture" not in prompt, "the reference image already shows the character"
-    assert 'Lego Man says in an earnest, slightly formal, a little breathless voice, in English, "Hello?"' in prompt
+    assert "Entering the picture" not in prompt, "the first frame already shows the character"
+    assert 'Lego Man says, "Hello?"' in prompt, "no voice yet: the line as written"
     assert "Final frame: Lego Man mid-wave." in prompt
 
 
@@ -403,50 +422,49 @@ def test_compiler_continuing_clip_is_compact():
         _clip(action="He kicks.", end_state="mid-kick", on_screen=["lego_man", "soccer_ball"]),
         _clip(action="He watches the ball roll.", end_state="watching", on_screen=["lego_man", "soccer_ball"], camera_motion="slow push in"),
     ])
-    style = "Studio product shot. Pure white cyclorama."
-    p1 = compile_clip(beat, 0, w, picture=Picture(style=style, anchor="Studio shot, white."), segment_no=2)
-    assert p1.startswith("Studio shot, white.") and "Pure white cyclorama" not in p1, "the anchor replaces the style paragraph"
-    assert "Lego Man (the same plain LEGO minifigure" in p1 and "the most default" not in p1, "short look on continues"
+    p1 = compile_clip(beat, 0, w, segment_no=2)
+    assert p1.startswith("Setting: The White Void ("), "no style or anchor: the place's look opens the prompt"
+    assert f"Lego Man ({LEGO_SHORT})" in p1 and "claw hands" not in p1, "short look on continues"
     assert "soccer ball (a studded LEGO ball)" in p1, "a prop already introduced carries its short look"
-    assert "The shot opens with" not in p1 and "Cut to" not in p1
-    p2 = compile_clip(beat, 1, w, picture=Picture(style=style), segment_no=3)
-    assert p2.startswith("Studio product shot.") and "cyclorama" not in p2, "no anchor: the style's first sentence"
+    assert "The shot opens" not in p1 and "Cut to" not in p1
+    p2 = compile_clip(beat, 1, w, segment_no=3)
     assert "Medium shot; the camera makes a slow push in." in p2
     beat3 = _beat(clips=[_clip(action="A cone appears.", end_state="cone", on_screen=["lego_man", "cone"],
                                entity_ops=[EntityOp(op="introduce", entity="cone", description="a yellow LEGO cone")])])
     _apply(beat3, w, 4)
-    p3 = compile_clip(beat3, 0, w, picture=Picture(style=style), segment_no=4)
+    p3 = compile_clip(beat3, 0, w, segment_no=4)
     assert "Entering the picture during this clip: cone (a yellow LEGO cone). A cone appears." in p3
-    assert "On screen: Lego Man (the same plain" in p3 and "; cone" not in p3, "an entering entity is not listed as present"
+    assert f"On screen: Lego Man ({LEGO_SHORT})" in p3 and "; cone" not in p3, "an entering entity is not listed as present"
 
 
 def test_compiler_describes_entering_and_returning_entities():
     w = _world()
     p1 = _emit(_beat(clips=[_clip(action="He looks around.", on_screen=["lego_man"])]), w, 1, opening=True)
-    assert "On screen: Lego Man (the most default" in p1 and "Entering" not in p1
+    assert "On screen: Lego Man (the most default" in p1 and "claw hands" in p1 and "Entering" not in p1
     ball = _beat(clips=[_clip(action="A soccer ball rolls in and stops at his feet.", on_screen=["lego_man", "soccer_ball"],
                               entity_ops=[EntityOp(op="introduce", entity="soccer ball", description="a studded LEGO ball")])])
     p2 = _emit(ball, w, 2)
-    assert "On screen: Lego Man (the same plain LEGO minifigure" in p2 and "soccer ball" not in p2.split("Entering")[0]
+    assert f"On screen: Lego Man ({LEGO_SHORT})." in p2 and "soccer ball" not in p2.split("Entering")[0]
     assert "Entering the picture during this clip: soccer ball (a studded LEGO ball). A soccer ball rolls in" in p2
     p3 = _emit(_beat(clips=[_clip(action="He nudges the ball.", on_screen=["lego_man", "soccer_ball"])]), w, 3)
-    assert "On screen: Lego Man (the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands); soccer ball (a studded LEGO ball)." in p3
+    assert f"On screen: Lego Man ({LEGO_SHORT}); soccer ball (a studded LEGO ball)." in p3
     assert "Entering" not in p3
     crown = _beat(clips=[_clip(action="The crown pops off with a click. He holds it up.", on_screen=["lego_man"],
                                entity_ops=[EntityOp(op="introduce", entity="princess crown", description="a bright, blocky LEGO crown", state="in Lego Man's hand")])])
     p4 = _emit(crown, w, 4)
     assert "Entering the picture during this clip: princess crown (a bright, blocky LEGO crown). The crown pops off" in p4
-    assert "On screen: Lego Man (the same plain" in p4 and "soccer ball" not in p4
+    assert f"On screen: Lego Man ({LEGO_SHORT})." in p4 and "soccer ball" not in p4
     p5 = _emit(_beat(clips=[_clip(action="He turns the crown over.", on_screen=["lego_man", "princess_crown"])]), w, 5)
     assert "; princess crown (a bright, blocky LEGO crown)." in p5 and "Entering" not in p5
     p6 = _emit(_beat(clips=[_clip(action="He kicks the ball, crown still in hand.", on_screen=["lego_man", "princess_crown", "soccer_ball"])]), w, 6)
     assert "Entering the picture during this clip: soccer ball (a studded LEGO ball). He kicks the ball" in p6
-    assert "On screen: Lego Man (the same plain LEGO minifigure: bare yellow head with two-dot eyes and a curved smile, plain red torso, plain blue legs, claw hands); princess crown (a bright, blocky LEGO crown)." in p6
+    assert f"On screen: Lego Man ({LEGO_SHORT}); princess crown (a bright, blocky LEGO crown)." in p6
     p7 = _emit(_beat(clips=[_clip(action="The ball sits alone; he is out of frame.", end_state="the ball alone", on_screen=["soccer_ball"])]), w, 7)
     assert "On screen: soccer ball (a studded LEGO ball)." in p7 and "Lego Man" not in p7
     p8 = _emit(_beat(clips=[_clip(action="He walks back in carrying a hat.", on_screen=["lego_man", "soccer_ball", "hat"],
                                entity_ops=[EntityOp(op="introduce", entity="hat", description="a red LEGO cap")])]), w, 8)
-    assert "Entering the picture during this clip: Lego Man (the most default LEGO minifigure" in p8, "characters first, full look"
+    assert "Entering the picture during this clip: Lego Man (the most default LEGO minifigure" in p8 and "claw hands" in p8, \
+        "characters first, full look"
     assert "; hat (a red LEGO cap). He walks back in" in p8 and "On screen: soccer ball (a studded LEGO ball)." in p8
     dup = _beat(clips=[_clip(action="A brick-built dog, a squat grey LEGO dog with a stud nose, trots in.", on_screen=["lego_man", "soccer_ball", "hat", "dog"],
                              entity_ops=[EntityOp(op="introduce", entity="dog", description="a squat grey LEGO dog with a stud nose")])])
@@ -457,7 +475,7 @@ def test_compiler_describes_entering_and_returning_entities():
     p10 = _emit(off, w, 10)
     assert "cat" not in p10 and "Entering" not in p10
     w2 = _world()
-    p = compile_clip(_beat(clips=[_clip(on_screen=["lego_man"])]), 0, w2, picture=PLAIN, segment_no=5)
+    p = compile_clip(_beat(clips=[_clip(on_screen=["lego_man"])]), 0, w2, segment_no=5)
     assert "On screen: Lego Man (" in p and "Entering" not in p
 
 

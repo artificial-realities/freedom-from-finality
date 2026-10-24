@@ -44,7 +44,6 @@ class WebPlayer(Player):
         super().__init__(time_scale=time_scale)
         self.host = host
         self.port = port
-        self.title = ""
         self.queued: list[Playable] = []
         self.now: Playable | None = None
         self.started_at: float = 0.0
@@ -56,8 +55,7 @@ class WebPlayer(Player):
 
     # ── Player ──────────────────────────────────────────────────────
 
-    async def start(self, *, title: str, session_id: str) -> None:
-        self.title = title
+    async def start(self, *, session_id: str) -> None:
         app = web.Application()
         app.add_routes([
             web.get("/", self._page),
@@ -183,7 +181,6 @@ class WebPlayer(Player):
 
     def _snapshot(self) -> dict:
         return {
-            "title": self.title,
             "server_time": time.time(),
             "ended": self._ended,
             "queued": [self._item_json(i) for i in self.queued],

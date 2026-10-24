@@ -16,7 +16,7 @@ src/
   runner.py                # run_live: the story loop (just-in-time render, viewer interrupts, the saved film)
   engine.py                # NowEngine: plan a beat, emit its clips, roll back, the Then clock
   agents/                  # now.py (BeatPlan per beat), then.py (ThenUpdate)
-  prompts/                 # now.*.md, then.*.md
+  prompts/                 # now.*.md, then.*.md, policy.md (the content policy, the same in every adventure)
   story/                   # typed world model, schemas, validator (per clip), context assembler, prompt compiler
   state/story_state.py     # StoryState: the runner-facing surface
   models/                  # config (Config, every field commented), story (FrameZero), responses
@@ -28,7 +28,7 @@ src/
   util/                    # media probe, prompt loader, transcript, timing log
 tests/                     # pytest, offline: test_story, test_engine, test_render, test_web, test_setup
 configs/                   # text.yaml · video.yaml
-frame_zero.json            # the story's starting configuration and reference image
+frame_zero.json            # the first frame every adventure starts from: scene, character, location, reference image
 docs/                      # ARCHITECTURE.md (how) · decisions.md (why) · vision.md (the goal)
 server/                    # the LTX-2.5 server for the GPU box, and vast_run.sh to rent one; see server/README.md
 logs/                      # run output (git-ignored): transcripts, sessions/<id>/ (world, events, timing), video/
@@ -55,7 +55,7 @@ python main.py play --config configs/video.yaml        # the film as video (need
 
 - Secrets are environment variables, from the shell or from `.env` in the repo root (`.env.example` is the template). `.env` is git-ignored. `OPENAI_API_KEY` is required for every config; `HF_TOKEN` is for the GPU machine (the gated weights); `VAST_API_KEY` only for `server/vast_run.sh`; `LTXV_SERVER_URL` overrides the config's server address.
 - **Never print, log, commit, echo or paste a key or the contents of `.env`.** `python main.py check` reports only whether a key is set. If one is missing, tell the human where to create it and to put it in `.env` themselves.
-- Everything else is in the config YAML (`Config` in `src/models/config.py`; an unknown key is an error) and the story's `frame_zero.json`. Both roles are `gpt-5.6-luna` at no reasoning; don't switch models without the owner's agreement and a real test.
+- Everything else is in the config YAML (`Config` in `src/models/config.py`; an unknown key is an error) and `frame_zero.json`. Both roles are `gpt-5.6-luna` at no reasoning; don't switch models without the owner's agreement and a real test.
 
 ## Paid calls and rented GPUs: rules
 
@@ -77,7 +77,7 @@ python main.py play --config configs/video.yaml        # the film as video (need
 - **Rendering is opt-out, content is not.** Now writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
 - **The video model's dialect lives in one place**: `src/story/compiler.py`. Schemas do not change when the model does.
 - **Structured outputs are strict**: keep `BeatPlan` and `ThenUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
-- **Prompts, schemas, compiler and engine are story-agnostic.** Anything story-specific lives in the frame zero (`frame_zero.json`).
+- **Prompts, schemas, compiler and engine are story-agnostic.** The opening scene lives in `frame_zero.json` and becomes ordinary world state; nothing in it is a standing rule. What holds in every adventure is the content policy (`src/prompts/policy.md`).
 - **Facts, not thresholds, for story quality.** No code judges pacing, loops or whether the film is moving; give the roles what they need to judge it.
 - **A product, not a research harness.** Experiments, benchmarks and evaluation tooling stay out of the repository; what one decides goes into `docs/decisions.md` in a few lines with its numbers. Comments say why in plain words, without tracker IDs or dates.
 - **Safe by default.** The player and the LTX-2.5 server listen on `127.0.0.1` and have no login; never change that default or document public hosting as safe. The app writes only under `--log-dir`; a value from a request never becomes a path. No telemetry or third-party calls.

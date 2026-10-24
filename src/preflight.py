@@ -41,7 +41,7 @@ def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) 
 
     _check_llm(config, add)
 
-    add("ok", f"story {story.name!r}")
+    add("ok", f"frame zero: {story.character.name} in {story.location.name}")
     if not config.video_enabled:
         add("ok", "video off: the film plays as text, no GPU or ffmpeg needed")
         return found
@@ -53,7 +53,7 @@ def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) 
     else:
         add("ok", "ffmpeg and ffprobe found")
     if not story.reference_image:
-        add("error", "the story has no reference image (`picture.reference`); a video run starts from one")
+        add("error", "the frame zero has no `reference_image`; a video run starts from one")
     if probe_server:
         _check_server(config, story, add)
     return found

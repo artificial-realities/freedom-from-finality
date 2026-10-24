@@ -17,6 +17,7 @@ from src.models.config import Config
 from src.models.story import FrameZero
 from src.playback.player import Player
 from src.runner import run_live
+from src.story.context import format_policy
 from src.story.world import WorldModel
 
 
@@ -83,8 +84,10 @@ async def test_now_engine_end_to_end():
         assert len(state.history) == 7, "every clip produced beat + shot"
         inputs = [h.user_input for h in state.history]
         assert inputs == ["", "", "A soccer ball appears at your feet.", "", "Do a trick with it.", "", ""], inputs
-        assert ('Lego Man says in a quiet, earnest, slightly formal, a little breathless voice, in English, "Hello? Anyone?"'
-                in state.history[0].shot.i2v_prompt), "the line is compiled into its clip, in the character's voice"
+        assert 'Lego Man says in a quiet voice, "Hello? Anyone?"' in state.history[0].shot.i2v_prompt, \
+            "the line is compiled into its clip, in its delivery"
+        assert state.history[0].shot.i2v_prompt.startswith("Setting: The White Void ("), "no style paragraph: the place's look"
+        assert "The shot opens on this picture: Lego Man standing upright" in state.history[0].shot.i2v_prompt
         assert "says" not in state.history[1].shot.i2v_prompt, "clip 2 of the beat is silent"
         assert state.history[0].beat.narration.startswith("Lego Man performs action 1."), "the clip's action is the prose"
         assert state.history[1].beat.narration == "He holds still. Nothing else happens.", "clip 2 of the beat, no LLM call"
@@ -108,6 +111,29 @@ async def test_now_engine_end_to_end():
 
         assert 'Beat 1 "he wakes and looks around" · clip 1 of 2' in transcript and "clip 2 of 2" in transcript
         assert "**World**" in transcript and "**Dialogue**\n\n> Lego Man: Hello? Anyone?" in transcript
+
+
+async def test_the_first_frame_opens_the_story_and_the_policy_holds_throughout():
+    generate = MockBackend.generate_structured
+    calls: list[tuple[str, str, str]] = []
+
+    async def spy(backend, messages, schema, *a, **kw):
+        calls.append((schema.__name__, messages[0]["content"], messages[-1]["content"]))
+        return await generate(backend, messages, schema, *a, **kw)
+
+    fz = FrameZero.from_json("tests/fixtures/lego-void")
+    with tempfile.TemporaryDirectory() as d, mock.patch.object(MockBackend, "generate_structured", spy):
+        await run_live(config=_config(), story=fz, log_dir=d, player=Scripted(), max_segments=3)
+    policy = format_policy()
+    assert policy.startswith("# Content policy") and all(policy in system for _, system, _ in calls), \
+        "both roles read the same policy"
+    assert not any("Lego Man" in system for _, system, _ in calls), "nothing from the frame zero is a standing rule"
+    (then, _, bootstrap), (now, _, opening) = calls[0], calls[1]
+    assert then == "ThenUpdate" and "Its first frame shows: Lego Man standing upright" in bootstrap
+    assert "who: Earnest and game for anything" in bootstrap, "Then's first portrait starts from the personality"
+    assert now == "BeatPlan" and "The first frame shows: Lego Man standing upright" in opening
+    later = next(user for name, _, user in calls[2:] if name == "BeatPlan")
+    assert "first frame" not in later and "who: Earnest" not in later, "after the opening, the world and the notebook"
 
 
 async def test_viewer_line_cuts_a_beat_short():

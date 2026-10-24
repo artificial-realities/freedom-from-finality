@@ -5,28 +5,27 @@ flowing paragraph with the sound, the camera, who is on screen, the
 action, dialogue in quotes and the image the clip ends on. Every clip
 continues the previous one, so the prompt describes the next few seconds
 of motion, not the picture the conditioning frames already carry: the
-full visual style and the full look of a character go only on the
-opening clip of the run, which opens on what the reference image shows;
-an entity's description goes on the clip in which it enters the picture
-(introduced, back after an absence, or on the opening clip without being
-in the reference image), and an entering entity is never listed as
-already on screen, because the conditioning frames do not have it. Later clips carry the blueprint's
-short visual anchor and the short look of each character and prop, which
-hold framing and identity over long chains: a prop named alone gets
-redrawn within a few clips. A clip that cuts (where the story
-allows it) opens on the shot the picture is in and says "The view cuts to
-…" before its action, LTX-2.5's convention for a cut in prose; the clips
-after it open on the new shot. A location with a look in the
-blueprint is named the same way as a character: in full on the opening
-clip and on the clip the picture arrives there (after its cut, or after
-the action that gets it there), by its short look on the clips that
-continue there; a location without a look is never named, and the style
-carries it. When the model changes, this file changes; the schemas do not.
+full look of each character goes only on the opening clip of the run,
+which opens on the frame zero's scene; an entity's description goes on
+the clip in which it enters the picture (introduced, or back after an
+absence), and an entering entity is never listed as already on screen,
+because the conditioning frames do not have it. Later clips carry the
+short look of each character and prop, which holds identity over long
+chains: a prop named alone gets redrawn within a few clips. There is no
+style paragraph: how anything is drawn is in its look, so the picture's
+style changes when looks do. A clip that cuts opens on the shot the
+picture is in and says "The view cuts to …" before its action, LTX-2.5's
+convention for a cut in prose; the clips after it open on the new shot.
+A location with a look is named the same way as a character: in full on
+the opening clip and on the clip the picture arrives there (after its
+cut, or after the action that gets it there), by its short look on the
+clips that continue there. When the model changes, this file changes;
+the schemas do not.
 """
 
 from __future__ import annotations
 
-from src.models.story import Picture, Voice
+from src.models.story import Voice
 from src.story.schemas import BeatPlan
 from src.story.world import Entity, WorldModel
 
@@ -45,15 +44,6 @@ def _tail(text: str) -> str:
     text = " ".join(text.split()).strip()
     if text and text[-1] not in ".!?\"'":
         text += "."
-    return text
-
-
-def _first_sentence(text: str) -> str:
-    text = " ".join(text.split()).strip()
-    for stop in (". ", "; "):
-        cut = text.find(stop)
-        if cut > 0:
-            return text[: cut + 1].strip()
     return text
 
 
@@ -182,9 +172,9 @@ def previous_picture(world: WorldModel, segment_no: int) -> set[str] | None:
     """The entities in the picture at the end of the previous clip: that
     clip's `on_screen` plus whatever entered during it (introduced then),
     so an entity described as entering once is not described as entering
-    again on the next clip. Before the film's first clip it is what the
-    reference image shows. None when the picture before is not known (a
-    run without a reference, or a replay with a gap)."""
+    again on the next clip. Before the film's first clip it is the frame
+    zero's character. None when the picture before is not known (a replay
+    with a gap)."""
     if not world.events:
         first = segment_no <= 1 and world.opening_picture is not None
         return set(world.opening_picture) if first else None
@@ -212,14 +202,13 @@ def compile_clip(
     index: int,
     world: WorldModel,
     *,
-    picture: Picture,
+    scene: str = "",
     opening: bool = False,
     segment_no: int = 0,
 ) -> str:
     """The prompt for clip `index` of `beat`. `opening` marks the first
     clip of a run: the renderer seeds it from the reference image, so it
-    carries the full style and the full looks, and opens on what the
-    reference shows.
+    carries the full looks and opens on `scene`, what that image shows.
     `segment_no` is the clip's segment: an entity introduced in it, or
     on screen now but not in the previous clip's picture (read from the
     world's event log), enters during this clip and is described then."""
@@ -287,9 +276,8 @@ def compile_clip(
     # The first clip starts from the reference image, so it must open from
     # what that image shows; a pose mismatch in the first frames is what
     # drags the picture off the sheet.
-    shows = " ".join(picture.reference.shows.split()).rstrip(".") if picture.reference else ""
-    if opening and shows:
-        parts.append(f"The shot opens with {shows}, then the action begins.")
+    if opening and scene.strip():
+        parts.append(f"The shot opens on this picture: {_sentence(scene)} Then the action begins.")
     if cut:
         parts.append(_sentence(f"The view cuts to {_with_article(cut)}; {camera_clause(clip.camera_motion)}"))
         if arriving:
@@ -307,8 +295,4 @@ def compile_clip(
                             voice=speaker.voice if speaker is not None else None))
     if clip.end_state.strip():
         parts.append("Final frame: " + _tail(clip.end_state))
-    if opening:
-        style = " ".join(picture.style.split())
-    else:
-        style = " ".join(picture.anchor.split()) or _first_sentence(picture.style)
-    return " ".join(p for p in [style, *parts] if p)
+    return " ".join(p for p in parts if p)
