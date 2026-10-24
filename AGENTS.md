@@ -17,7 +17,7 @@ src/
   engine.py                # NowEngine: plan a beat, emit its clips, roll back, the Then clock
   agents/                  # now.py (BeatPlan per beat), then.py (ThenUpdate)
   prompts/                 # now.*.md, then.*.md, policy.md (the content policy, the same in every adventure)
-  story/                   # typed world model, schemas, validator (per clip), context assembler, prompt compiler
+  story/                   # typed world model, viewer's memory, schemas, validator (per clip), context assembler, prompt compiler
   state/story_state.py     # StoryState: the runner-facing surface
   models/                  # config (Config, every field commented), story (FrameZero), responses
   i2v/                     # the renderer boundary, the LTX-2.5 HTTP client, the clip shape
@@ -30,7 +30,7 @@ configs/                   # text.yaml · video.yaml
 frame_zero.json            # the first frame every adventure starts from: scene, character, location, reference image
 docs/                      # ARCHITECTURE.md (how) · decisions.md (why) · vision.md (the goal)
 server/                    # the LTX-2.5 server for the GPU box, and vast_run.sh to rent one; see server/README.md
-logs/                      # run output (git-ignored): transcripts, sessions/<id>/ (world, events, timing), video/
+logs/                      # run output (git-ignored): transcripts, sessions/<id>/ (world, events, viewer, timing), video/
 ```
 
 ## Commands
@@ -69,7 +69,7 @@ python main.py play --config configs/video.yaml        # the film as video (need
 
 ## Conventions
 
-- **State & responses**: Pydantic v2 `BaseModel`, not `TypedDict` or raw dicts. The world model (`src/story/world.py`) is the system of record; prose is never the source of truth.
+- **State & responses**: Pydantic v2 `BaseModel`, not `TypedDict` or raw dicts. The world model (`src/story/world.py`) is the system of record for one timeline; the viewer's memory (`src/story/viewer.py`) is the person's, append-only and outside every timeline. Prose is never the source of truth.
 - **Agents** are async functions, not classes. They read prompt sections from `src/story/context.py` and return schema instances; only `src/story/validator.py` mutates the world.
 - **Workflow, not agent system**: no tool use, no LLM-directed control flow. The engine decides order and triggers; the LLM proposes, code validates and applies.
 - **Rendering is opt-out, content is not.** Now writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.

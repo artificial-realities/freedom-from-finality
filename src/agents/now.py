@@ -1,7 +1,7 @@
 """Now: the one LLM call on the critical path, once per beat.
 
-Reads the assembled context (notebook, world, viewer, summaries,
-recent clips, where the picture is) and returns a `BeatPlan`:
+Reads the assembled context (notebook, world, the viewer and Then's
+understanding of them, summaries, recent clips, where the picture is) and returns a `BeatPlan`:
 one action or state of the story as one to a few clips, each with its
 picture, its lines and the world changes that happen in it, plus the
 viewer disposition. The world validator checks the proposal; a hard
@@ -21,16 +21,17 @@ from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.state.story_state import StoryState
 from src.story.context import (
-    format_interventions,
     format_notebook,
     format_policy,
     format_recent,
     format_summaries,
+    format_viewer,
     format_world_now,
     recalled,
 )
 from src.story.schemas import BeatPlan
 from src.story.validator import check
+from src.story.viewer import ViewerMemory
 from src.story.world import WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
 
@@ -69,6 +70,7 @@ async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: C
 async def run(
     *,
     world: WorldModel,
+    viewer: ViewerMemory,
     state: StoryState,
     llm: LLMBackend,
     config: Config,
@@ -86,13 +88,13 @@ async def run(
         typical_seconds=f"{round(2 * clip_seconds)} to {round(3 * clip_seconds)}",
         max_clips=config.max_clips_per_beat,
     )
-    recall = recalled(world, state.user_input, config.recent_clips)
+    recall = recalled(world, state.user_input, config.recent_clips, viewer)
     user_prompt = load_prompt(
         USER_PATH,
         segment=state.turn_number,
         notebook=format_notebook(world),
         world_now=format_world_now(world, recall),
-        interventions=format_interventions(world, state.user_input, answer_clips=config.answer_max_clips),
+        viewer=format_viewer(world, viewer, state.user_input, answer_clips=config.answer_max_clips, recall=recall),
         summaries=format_summaries(world, recall=recall),
         recent=format_recent(world, config.recent_clips),
         beat_status=beat_status,

@@ -27,6 +27,7 @@ class StoryState(BaseModel):
 
     turn_number: int = 0
     user_input: str = ""
+    user_said: list[int] = Field(default_factory=list)   # the ids of the lines in `user_input`
     current_beat: Beat | None = None
     current_shot: Shot | None = None
     current_intervention: str = "none"

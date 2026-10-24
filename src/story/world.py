@@ -7,6 +7,10 @@ viewer interventions with their disposition, Then's notebook, an
 append-only event log (one record per clip), and the summaries Then
 compacts the log into.
 
+A world is one timeline (`timeline`). What the viewer said and put into
+the story, and Then's understanding of them, belong to the person and
+live outside it, in the viewer's memory (`viewer.py`).
+
 Only validated deltas mutate it (see `validator.py`). It is persisted
 after every clip to `logs/sessions/<session>/` so a run can be
 inspected (resume is not built: every run starts a fresh world).
@@ -24,6 +28,15 @@ from src.models.story import FrameZero, Voice
 from src.story.schemas import Notebook
 
 EntityKind = Literal["character", "prop", "location"]
+
+
+ROOT_TIMELINE = "root"
+
+
+def words(text: str) -> str:
+    """Text as lowercase words between single spaces, padded, so a name
+    can be found in it as whole words."""
+    return " " + re.sub(r"[^a-z0-9]+", " ", text.lower()).strip() + " "
 
 
 def slugify(name: str) -> str:
@@ -101,8 +114,12 @@ class Entity(BaseModel):
 
 
 class Intervention(BaseModel):
+    """A viewer line as the story took it. `said` are the ids of the lines
+    it joins in the viewer's memory."""
+
     segment: int
     text: str
+    said: list[int] = Field(default_factory=list)
     disposition: Literal["pending", "absorbed", "deferred", "declined"] = "pending"
     reason: str = ""
     resolved_at: int | None = None
@@ -141,7 +158,18 @@ class EventRecord(BaseModel):
     duration: float = 0.0
 
 
+class Direction(BaseModel):
+    """The viewer's line Now is still building on, from the clip that
+    took it up until Now closes it or a newer line takes its place."""
+
+    text: str
+    segment: int
+    said: list[int] = Field(default_factory=list)
+    reason: str = ""
+
+
 class WorldModel(BaseModel):
+    timeline: str = ROOT_TIMELINE
     segment: int = 0
     opening_picture: list[str] | None = None
     camera_location: str = ""
@@ -158,8 +186,7 @@ class WorldModel(BaseModel):
     last_compacted: int = 0
     last_then: int = 0
     then_runs: int = 0
-    viewer_momentum: str = ""
-    viewer_momentum_segment: int = 0
+    direction: Direction | None = None
     shot: str = ""
 
     _saved_events: int = PrivateAttr(default=0)
@@ -217,6 +244,11 @@ class WorldModel(BaseModel):
                 return ent
         return None
 
+    def mentions(self, text: str) -> set[str]:
+        """Ids of the entities `text` names, by name or id, as whole words."""
+        said = words(text)
+        return {e.id for e in self.entities.values() if any(words(n) in said for n in (e.name, e.id))}
+
     def by_kind(self, kind: EntityKind) -> list[Entity]:
         return [e for e in self.entities.values() if e.kind == kind]
 
@@ -240,8 +272,8 @@ class WorldModel(BaseModel):
     def unresolved_interventions(self) -> list[Intervention]:
         return [i for i in self.interventions if i.disposition in ("pending", "deferred")]
 
-    def add_intervention(self, segment: int, text: str) -> Intervention:
-        item = Intervention(segment=segment, text=text)
+    def add_intervention(self, segment: int, text: str, said: list[int] = ()) -> Intervention:
+        item = Intervention(segment=segment, text=text, said=list(said))
         self.interventions.append(item)
         return item
 

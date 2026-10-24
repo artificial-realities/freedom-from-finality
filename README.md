@@ -38,7 +38,7 @@ server/vast_run.sh run            # play the film on it; open http://127.0.0.1:8
 server/vast_run.sh down           # stop paying
 ```
 
-`python main.py check --config configs/video.yaml` says what is missing, without paid calls. Every run writes a transcript, the world model, a timing log and the film itself to `logs/`. The player has no login and listens on `127.0.0.1` only: every line typed into it is billed to your OpenAI key.
+`python main.py check --config configs/video.yaml` says what is missing, without paid calls. Every run writes a transcript, the world model, the viewer's memory, a timing log and the film itself to `logs/`. The player has no login and listens on `127.0.0.1` only: every line typed into it is billed to your OpenAI key.
 
 ## How it works
 

@@ -266,11 +266,14 @@ async def run_live(
     # its first clip is emitted (landed) or the beat is cut first (dropped).
     plan_lines: list[int] = []
     beat_lines: list[int] = []
+    # The player's line id → the line's id in the viewer's memory.
+    said_ids: dict[int, int] = {}
 
     def _on_line(line_id: int, text: str) -> None:
         into = time.monotonic() - air["start"] if air["start"] is not None else None
         timing.write("line_received", line=line_id, on_air=air["turn"],
                      into=round(into, 4) if into is not None else None, **_line_fields(text))
+        said_ids[line_id] = engine.heard(text, air["turn"])
 
     player.on_line = _on_line
 
@@ -465,6 +468,7 @@ async def run_live(
             nonlocal state, planned_text, carry_text
             while True:
                 state.user_input = text
+                state.user_said = [said_ids[i] for i in plan_lines if i in said_ids]
                 call = asyncio.create_task(engine.plan(state))
                 waiter = asyncio.create_task(player.wait_input(None))
                 done, _ = await asyncio.wait({call, waiter}, return_when=asyncio.FIRST_COMPLETED)
@@ -656,6 +660,7 @@ async def run_live(
                 air["turn"] = item.turn
                 air["start"] = time.monotonic()
                 air["hold"] = _hold_of(item)
+                engine.on_air(item.turn)
                 timing.write("playing", turn=item.turn, duration=item.duration,
                              hold=round(air["hold"], 4), waited=round(waited, 4), first=not played)
                 played.append(item)

@@ -7,7 +7,7 @@ Segment {segment}
 {world_now}
 
 ## The viewer
-{interventions}
+{viewer}
 
 ## Story so far
 {summaries}

@@ -13,10 +13,13 @@
   the clip that caused it. At most one is in flight and runs are at
   least `then_min_gap` segments apart. Its update lands at the start of
   the first plan that finds it finished; nothing ever waits for it.
-  Compresses the event log and rewrites the notebook.
+  Compresses the event log, rewrites the notebook, and rewrites its
+  understanding of the viewer.
 
 Code owns the rest: the typed `WorldModel`, validation and apply, the
-prompt compiler, and persistence per clip.
+prompt compiler, persistence per clip, and the viewer's memory: each
+line as it arrives, and what the story did with it once that clip is on
+air, never rolled back with the world.
 """
 
 from __future__ import annotations
@@ -38,7 +41,8 @@ from src.state.story_state import StoryState
 from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ClipSpec
 from src.story.validator import Report, apply_clip, apply_then
-from src.story.world import EventRecord, WorldModel
+from src.story.viewer import Answer, DirectionEnd, ViewerMemory
+from src.story.world import ROOT_TIMELINE, Direction, EventRecord, WorldModel
 from src.util.timing_log import TimingLog
 
 logger = logging.getLogger(__name__)
@@ -66,8 +70,12 @@ class NowEngine:
         self.story: FrameZero | None = None
         self.llm_now = OpenAIBackend(model=config.now_model, reasoning_effort=config.now_reasoning_effort)
         self.llm_then = OpenAIBackend(model=config.then_model, reasoning_effort=config.then_reasoning_effort)
+        self.viewer = ViewerMemory.at(self.session_dir / "viewer.jsonl" if self.session_dir else None)
+        # What each emitted clip did with the viewer's lines, recorded in
+        # their memory when that clip goes on air (dropped if it never does).
+        self._on_air: dict[int, list[Answer | DirectionEnd]] = {}
         self._then_task: asyncio.Task | None = None
-        self._then_meta: tuple[int, str] | None = None   # (at_segment, reason)
+        self._then_meta: tuple[int, str, int] | None = None   # (at_segment, reason, records read)
         self._then_notes: list[str] = []
         self._last_spawn: int = 0
         self.last_plan_fallback: bool = False
@@ -123,7 +131,7 @@ class NowEngine:
         world.segment = seg
         text = (state.user_input or "").strip()
         if text:
-            world.add_intervention(seg, text)
+            world.add_intervention(seg, text, said=state.user_said)
 
         bootstrap = world.then_runs == 0
         if bootstrap:
@@ -133,7 +141,7 @@ class NowEngine:
 
         called = time.monotonic()
         beat, dnotes, retried = await now_agent.run(
-            world=world, state=state, llm=self.llm_now, config=self.config,
+            world=world, viewer=self.viewer, state=state, llm=self.llm_now, config=self.config,
             beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
         )
         now_s = time.monotonic() - called
@@ -261,6 +269,7 @@ class NowEngine:
             state = await self._emit(state)
         except Exception as exc:
             logger.exception("Emitting segment %s failed; rolling back", state.turn_number)
+            self._on_air.pop(state.turn_number, None)
             self._restore(snapshot, [])
             self._cut_after_failure(snapshot, f"emitting it failed ({type(exc).__name__})")
             raise EmitFailed(f"segment {state.turn_number}: {type(exc).__name__}: {exc}") from exc
@@ -277,6 +286,7 @@ class NowEngine:
             carry.append(snap["beat_input"])
         if self._beat is not None and self._clip_index == 0 and self._beat_input and self._beat is not snap["beat_ref"]:
             carry.append(self._beat_input)
+        self._on_air.pop(segment, None)
         self._restore(snap, self._landed_since)
         for seg in {segment, self.world.segment}:
             self.world.drop_pending_interventions(seg)
@@ -371,10 +381,24 @@ class NowEngine:
         parent_clip_id = world.last_clip_id
         clip_id = world.next_clip_id()
 
+        before = [(item, item.disposition) for item in world.interventions]
+        direction = world.direction
         report = apply_clip(beat, i, world, segment_no=seg)
+        heard: list[Answer | DirectionEnd] = [
+            Answer(said=item.said, timeline=world.timeline, segment=seg, disposition=item.disposition,
+                   reason=item.reason, beat=beat.intent)
+            for item, was in before if item.disposition != was and item.said
+        ]
+        if direction is not None and world.direction is None:
+            heard.append(DirectionEnd(said=direction.said, timeline=world.timeline, segment=seg, how=beat.direction))
         if first and beat.intervention == "absorbed" and self._beat_input:
-            world.viewer_momentum = self._beat_input
-            world.viewer_momentum_segment = seg
+            if world.direction is not None:
+                heard.append(DirectionEnd(said=world.direction.said, timeline=world.timeline, segment=seg,
+                                          how="superseded"))
+            taken = next((item for item, was in before if was == "pending" and item.disposition == "absorbed"), None)
+            world.direction = Direction(text=self._beat_input, segment=seg, said=taken.said if taken else [],
+                                        reason=beat.intervention_reason.strip())
+        self._on_air[seg] = heard
         prompt = compile_clip(beat, i, world, scene=state.story.scene, opening=(seg == 1), segment_no=seg)
         shape = self.shape
         state.current_shape = shape
@@ -420,6 +444,30 @@ class NowEngine:
             self._clip_index = 0
         return state
 
+    # ── The viewer's memory ─────────────────────────────────────────
+
+    def heard(self, text: str, on_air: int | None) -> int:
+        """Record a viewer line as it arrives, with the clip on air then:
+        what it showed, and who and what was in it or named by the line.
+        Returns the line's id in the viewer's memory."""
+        world = self.world
+        ev = None
+        if world is not None and on_air:
+            ev = next((e for e in reversed(world.events) if e.segment == on_air), None)
+        entities = set(ev.on_screen) if ev is not None else set()
+        if world is not None:
+            entities |= world.mentions(text)
+        line = self.viewer.hear(text, timeline=world.timeline if world is not None else ROOT_TIMELINE,
+                                segment=on_air or 0, during=ev.narration if ev is not None else "",
+                                entities=entities)
+        return line.id
+
+    def on_air(self, turn: int) -> None:
+        """The clip of segment `turn` reached the screen: what it did with
+        the viewer's lines becomes part of their memory."""
+        for record in self._on_air.pop(turn, []):
+            self.viewer.add(record)
+
     async def drain(self, state: StoryState) -> None:
         await self._join_then()
         self._save()
@@ -450,14 +498,15 @@ class NowEngine:
         assert self.world is not None
         snapshot = self.world.model_copy(deep=True)
         state_snapshot = state.model_copy(deep=True)
+        upto = len(self.viewer.records)
 
         async def _task():
             return await then_agent.run(
-                world=snapshot, state=state_snapshot, llm=self.llm_then,
-                config=self.config, reason=reason, mode=mode,
+                world=snapshot, viewer=self.viewer, upto=upto, state=state_snapshot, llm=self.llm_then,
+                config=self.config, reason=reason, mode=mode, clip_seconds=self.shape.delivered_seconds,
             )
 
-        self._then_meta = (at_segment, reason)
+        self._then_meta = (at_segment, reason, upto)
         self._then_task = asyncio.create_task(_task())
         self._last_spawn = at_segment
 
@@ -465,11 +514,12 @@ class NowEngine:
         """The bootstrap: the only synchronous run."""
         assert self.world is not None
         self._last_spawn = at_segment
+        upto = len(self.viewer.records)
         update = await then_agent.run(
-            world=self.world, state=state, llm=self.llm_then,
-            config=self.config, reason=reason, mode=mode,
+            world=self.world, viewer=self.viewer, upto=upto, state=state, llm=self.llm_then,
+            config=self.config, reason=reason, mode=mode, clip_seconds=self.shape.delivered_seconds,
         )
-        self._land(update, at_segment=at_segment, reason=reason)
+        self._land(update, at_segment=at_segment, reason=reason, upto=upto)
 
     def _hold_reason(self, seg: int) -> str | None:
         task = self._then_task
@@ -489,7 +539,7 @@ class NowEngine:
         if task is None:
             return
         seg0 = self.world.segment if self.world else 0
-        at_segment, reason = meta or (seg0, "?")
+        at_segment, reason, upto = meta or (seg0, "?", 0)
         if not task.done():
             self._then_notes.append(
                 f"then ({reason}, spawned at segment {at_segment}): still running; continuing with the current notebook",
@@ -502,7 +552,7 @@ class NowEngine:
             logger.exception("Then task failed; continuing with the current notebook")
             self._then_notes.append("then: task failed; notebook unchanged")
             return
-        self._land(update, at_segment=at_segment, reason=reason, landed_at=seg)
+        self._land(update, at_segment=at_segment, reason=reason, upto=upto, landed_at=seg)
 
     async def _join_then(self) -> None:
         if self._then_task is None:
@@ -516,15 +566,19 @@ class NowEngine:
             self._then_notes.append("then: task failed; notebook unchanged")
             return
         seg0 = self.world.segment if self.world else 0
-        at_segment, reason = meta or (seg0, "?")
-        self._land(update, at_segment=at_segment, reason=reason)
+        at_segment, reason, upto = meta or (seg0, "?", 0)
+        self._land(update, at_segment=at_segment, reason=reason, upto=upto)
 
-    def _land(self, update, *, at_segment: int, reason: str, landed_at: int | None = None) -> None:
+    def _land(self, update, *, at_segment: int, reason: str, upto: int, landed_at: int | None = None) -> None:
+        """Land a Then update: the world's part (re-applied if the world is
+        rolled back) and the viewer's part (landed once: their memory is
+        never rolled back)."""
         assert self.world is not None
         if update is None:
             self._then_notes.append(f"then ({reason}): no update (parse failure)")
             return
         landed = apply_then(self.world, update, at_segment=at_segment)
+        landed += self.viewer.land(update, self.world, at_segment=at_segment, seen=upto)
         self._landed_since.append((update, at_segment))
         self._record_then(update, reason=reason, at_segment=at_segment, landed_at=landed_at)
         line = f"then ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
@@ -584,8 +638,8 @@ class NowEngine:
             out.append("- Dormant: " + ", ".join(f"{e.id} (seg {e.last_seen})" for e in dormant))
         if first and beat.intervention != "none":
             out.append(f"- Viewer: {beat.intervention}" + (f" ({beat.intervention_reason})" if beat.intervention_reason else ""))
-        elif first and world.viewer_momentum:
-            out.append(f"- Viewer momentum (seg {world.viewer_momentum_segment}): \"{world.viewer_momentum}\"")
+        elif first and world.direction is not None:
+            out.append(f"- Viewer direction (seg {world.direction.segment}): \"{world.direction.text}\"")
         clip = beat.clips[index]
         if clip.dialogue:
             out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in clip.dialogue))

@@ -147,7 +147,8 @@ def _cut_lands(world: WorldModel, refs: list[str], cut: str, seg: int):
 def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int) -> Report:
     """Apply clip `index` of `beat` to `world`, in place: its entity ops,
     presence from its `on_screen`, its dialogue filter. The first clip
-    also lands the viewer disposition.
+    also lands the viewer disposition and ends the viewer's direction
+    when Now says it is fulfilled or has run its course.
 
     Normalises the clip: `on_screen` references become entity ids,
     invalid dialogue is dropped, and a cut on the story's first clip (or
@@ -303,6 +304,9 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     ]
 
     if index == 0:
+        if world.direction is not None and beat.direction in ("fulfilled", "ran its course"):
+            r.applied.append(f"viewer direction {beat.direction}: {world.direction.text!r}")
+            world.direction = None
         reason = beat.intervention_reason.strip()
         pending = [i for i in world.interventions if i.disposition == "pending"]
         if pending:

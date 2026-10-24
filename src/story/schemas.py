@@ -11,8 +11,9 @@ happen in it, so a beat can be cut short by the viewer after any clip
 and the world stays true to what was rendered.
 
 Then writes a **notebook update**: compressed memory, the rewritten
-notebook (characters, seeds, intentions, audience), and optionally an
-era recognised retrospectively.
+notebook (characters, seeds, intentions), its understanding of the
+viewer with the lines each reading rests on, the viewer's new marks on
+the story, and optionally an era recognised retrospectively.
 """
 
 from __future__ import annotations
@@ -86,7 +87,9 @@ class ClipSpec(BaseModel):
 
 
 class BeatPlan(BaseModel):
-    """Now's whole output: one beat, one to a few clips."""
+    """Now's whole output: one beat, one to a few clips. `direction` is
+    Now's word on the viewer's active direction: it `continues`, or this
+    beat ends it because it is `fulfilled` or has `ran its course`."""
 
     intent: str
     framing: str
@@ -94,6 +97,7 @@ class BeatPlan(BaseModel):
     intervention: Literal["none", "absorbed", "deferred", "declined"] = "none"
     intervention_reason: str = ""
     delivered_request: int = 0
+    direction: Literal["none", "continues", "fulfilled", "ran its course"] = "none"
 
 
 # ── Then schemas ────────────────────────────────────────────────────
@@ -120,7 +124,30 @@ class Notebook(BaseModel):
     alive: str = ""
     seeds: list[Seed] = Field(default_factory=list)
     intentions: str = ""
-    audience: str = ""
+
+
+class Reading(BaseModel):
+    """One thing Then reads in the viewer, and the ids of the lines
+    (`#n`) it rests on."""
+
+    reading: str
+    grounds: list[int]
+
+
+class ViewerUnderstanding(BaseModel):
+    """Then's understanding of the viewer: a few readings, what they lean
+    toward `lately`, and what is `unknown`."""
+
+    readings: list[Reading] = Field(default_factory=list)
+    lately: str = ""
+    unknown: str = ""
+
+
+class NewMark(BaseModel):
+    """Something the viewer put into the story, and the lines it came from."""
+
+    mark: str
+    said: list[int]
 
 
 class EraOut(BaseModel):
@@ -130,10 +157,13 @@ class EraOut(BaseModel):
 
 
 class ThenUpdate(BaseModel):
-    """Then's output: memory compression plus the rewritten notebook."""
+    """Then's output: memory compression, the rewritten notebook, its
+    understanding of the viewer and the marks it has newly noticed."""
 
     scene_summary: str = ""
     act_summary: str = ""
     notebook: Notebook
+    viewer: ViewerUnderstanding = Field(default_factory=ViewerUnderstanding)
+    marks: list[NewMark] = Field(default_factory=list)
     era: EraOut | None = None
     rationale: str = ""

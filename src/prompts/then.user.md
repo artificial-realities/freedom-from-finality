@@ -1,5 +1,5 @@
 Trigger: {reason}
-Segment: {segment}
+Segment: {segment} (a segment is {clip_seconds} seconds of story)
 
 ## The notebook (as last written)
 {notebook}
@@ -14,7 +14,7 @@ Segment: {segment}
 {world_now}
 
 ## The viewer
-{interventions}
+{viewer}
 
 {instruction}
 

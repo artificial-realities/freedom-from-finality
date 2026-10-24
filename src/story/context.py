@@ -12,8 +12,7 @@ included, goes into the user prompt.
 
 from __future__ import annotations
 
-import re
-
+from src.story.viewer import Answer, DirectionEnd, Said, ViewerMemory
 from src.story.world import Entity, WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
 
@@ -51,8 +50,6 @@ def format_notebook(world: WorldModel) -> str:
             out.append(f"- {s.seed} → {s.potential}")
     if nb.intentions:
         out.append(f"\n**Loose intentions**\n{nb.intentions}")
-    if nb.audience:
-        out.append(f"\n**The audience**\n{nb.audience}")
     return "\n".join(out)
 
 
@@ -94,36 +91,32 @@ def _character(ent: Entity, portrayed: set[str], lead: list[str]) -> str:
     return " · ".join(bits)
 
 
-def _words(text: str) -> str:
-    return " " + re.sub(r"[^a-z0-9]+", " ", text.lower()).strip() + " "
-
-
-def recalled(world: WorldModel, viewer_input: str = "", recent: int = 6) -> list[Entity]:
+def recalled(world: WorldModel, viewer_input: str = "", recent: int = 6,
+             viewer: ViewerMemory | None = None) -> list[Entity]:
     """Absent characters the story is pointing at: left where the picture
     is now, or named, or their place named, in what the roles read this
-    call (the viewer's words, Then's notebook, the characters in the
-    scene, the recent clips). Those are shown in full, with the summary of
-    when they were last seen, so a return is written knowing who comes
-    back; the rest stay one line each. Code only matches names: which
-    mentions matter is the roles' judgment, and Then keeps one in reach by
-    naming it."""
+    call (the viewer's words and Then's understanding of them, Then's
+    notebook, the characters in the scene, the recent clips). Those are
+    shown in full, with the summary of when they were last seen, so a
+    return is written knowing who comes back; the rest stay one line each.
+    Code only matches names: which mentions matter is the roles' judgment,
+    and Then keeps one in reach by naming it."""
     nb = world.notebook
-    texts = [viewer_input, world.viewer_momentum, nb.alive, nb.intentions, nb.audience]
+    texts = [viewer_input, world.direction.text if world.direction else "", nb.alive, nb.intentions]
+    understanding = viewer.understanding() if viewer is not None else None
+    if understanding is not None:
+        texts += [r.reading for r in understanding.readings] + [understanding.lately]
     texts += [i.text for i in world.interventions if i.disposition == "deferred"]
     texts += [f"{s.seed} {s.potential}" for s in nb.seeds]
     texts += [c.lately for c in nb.characters]
     texts += [f"{e.state} {e.lately}" for e in world.present_entities()]
     for ev in world.events[-recent:] if recent > 0 else []:
         texts += [ev.narration, ev.end_state, *ev.dialogue]
-    said = _words(" ".join(t for t in texts if t))
-
-    def named(ent: Entity | None) -> bool:
-        return ent is not None and any(_words(n) in said for n in (ent.name, ent.id))
-
+    named = world.mentions(" ".join(t for t in texts if t))
     here = world.camera_location
     found = [e for e in world.by_kind("character")
              if not e.present and not e.gone
-             and ((here and e.location == here) or named(e) or named(world.entities.get(e.location)))]
+             and ((here and e.location == here) or e.id in named or e.location in named)]
     found.sort(key=lambda e: (e.location != here, -e.last_seen))
     return found[:RECALLED_IN_FULL]
 
@@ -198,7 +191,90 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
     return "\n".join(out)
 
 
-def format_interventions(world: WorldModel, current_input: str, answer_clips: int = 0) -> str:
+# ── The viewer ──────────────────────────────────────────────────────
+
+MARKS_FOR_NOW = 5
+MARKS_FOR_THEN = 10
+EARLIER_LINES_FOR_THEN = 10
+RECENT_MARKS = 2
+
+
+def _in_play(world: WorldModel, recall: list[Entity], text: str = "") -> set[str]:
+    """What the moment touches: everything in the scene, the place, the
+    absent characters recalled, and whatever `text` names."""
+    ids = {e.id for e in world.present_entities()} | {e.id for e in recall} | world.mentions(text)
+    if world.camera_location:
+        ids.add(world.camera_location)
+    return ids
+
+
+def _where(world: WorldModel, timeline: str, segment: int) -> str:
+    where = f"segment {segment}" if segment else "before the first clip"
+    return where if timeline == world.timeline else f"{where} of another timeline (`{timeline}`)"
+
+
+def _evidence(world: WorldModel, lines: dict[int, Said], grounds: list[int], *, ids: bool) -> str:
+    """What a reading rests on, as counted from the lines it cites."""
+    cited = [lines[g] for g in grounds if g in lines]
+    here = sorted(s.segment for s in cited if s.timeline == world.timeline)
+    bits = [f"{len(cited)} line{'s' if len(cited) != 1 else ''}"]
+    if ids:
+        bits[0] += ": " + ", ".join(f"#{s.id}" for s in cited)
+    if here:
+        bits.append(f"segment {here[0]}" if here[0] == here[-1] else f"segments {here[0]}-{here[-1]}")
+    if len(here) < len(cited):
+        bits.append(f"{len(cited) - len(here)} in other timelines")
+    return "; ".join(bits)
+
+
+def _understanding(world: WorldModel, viewer: ViewerMemory, *, ids: bool) -> list[str]:
+    u = viewer.understanding()
+    if u is None:
+        return []
+    lines = {s.id: s for s in viewer.lines()}
+    out = [f"- {r.reading} ({_evidence(world, lines, r.grounds, ids=ids)})" for r in u.readings]
+    if u.lately:
+        out.append(f"Lately: {u.lately}")
+    if u.unknown:
+        out.append(f"Unknown: {u.unknown}")
+    return out
+
+
+def _marks(world: WorldModel, viewer: ViewerMemory, play: set[str], cap: int, *, ids: bool,
+           this_timeline: bool) -> tuple[list[str], int]:
+    """The marks that touch the moment, and the most recent ones, oldest
+    first; and how many others are kept but not shown."""
+    marks = [m for m in viewer.marks() if m.timeline == world.timeline or not this_timeline]
+    chosen = {m.id for m in marks if set(m.entities) & play} | {m.id for m in marks[-RECENT_MARKS:]}
+    shown = [m for m in marks if m.id in chosen][-cap:]
+    out = [f"- {m.mark} ({_where(world, m.timeline, m.segment)}"
+           + (f"; from {', '.join(f'#{i}' for i in m.said)}" if ids else "") + ")" for m in shown]
+    return out, len(marks) - len(shown)
+
+
+def _line(world: WorldModel, viewer: ViewerMemory, said: Said, *, full: bool) -> str:
+    """One of the viewer's lines with what the story did with it; `full`
+    adds what was on screen when they typed it and Now's reasons."""
+    head = f"- #{said.id} ({_where(world, said.timeline, said.segment)}"
+    if full and said.during:
+        head += f", while: {_clip(said.during, 140).rstrip('.')}"
+    head += f'): "{said.text}"'
+    outcomes = []
+    for o in viewer.outcomes():
+        if said.id not in o.said:
+            continue
+        if isinstance(o, Answer):
+            outcomes.append(f"{o.disposition} at segment {o.segment}" + (f" ({o.reason})" if full and o.reason else ""))
+        else:
+            outcomes.append(f"its direction {o.how} at segment {o.segment}")
+    return head + " → " + ("; ".join(outcomes) if outcomes else "not answered on screen yet")
+
+
+def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *, answer_clips: int = 0,
+                  recall: list[Entity] = ()) -> str:
+    """The viewer as Now reads it: this beat's line or their active
+    direction, what is owed, Then's understanding of them, and the marks
+    that touch the moment."""
     out: list[str] = []
     text = (current_input or "").strip()
     if text:
@@ -208,10 +284,17 @@ def format_interventions(world: WorldModel, current_input: str, answer_clips: in
                        "Start the answer now; the next beat continues it.")
     else:
         out.append("No viewer input for this beat.")
-        if world.viewer_momentum:
+        d = world.direction
+        if d is not None:
+            lines = {s.id: s for s in viewer.lines()}
+            during = next((lines[i].during for i in d.said if i in lines and lines[i].during), "")
+            age = world.segment - d.segment
             out.append(
-                f'The viewer\'s direction is still active (said at segment {world.viewer_momentum_segment}): '
-                f'"{world.viewer_momentum}". Keep building on it.'
+                f'Their direction: "{d.text}", taken up at segment {d.segment} '
+                f"({age} segment{'s' if age != 1 else ''} ago)"
+                + (f"; they gave it while: {_clip(during, 140).rstrip('.')}" if during else "")
+                + f". You took it as: {d.reason or '(no reason given)'}. "
+                "Build on it while it has life; say in `direction` when it is fulfilled or has run its course."
             )
     deferred = [i for i in world.interventions if i.disposition == "deferred"]
     if deferred:
@@ -224,17 +307,53 @@ def format_interventions(world: WorldModel, current_input: str, answer_clips: in
     if resolved:
         out.append("Recently handled:")
         out.extend(f'- segment {i.segment}: "{i.text}" → {i.disposition}' for i in resolved[-3:])
+    understanding = _understanding(world, viewer, ids=False)
+    if understanding:
+        out.append("Then's understanding of them (each reading with the lines it rests on):")
+        out.extend(understanding)
+    marks, _ = _marks(world, viewer, _in_play(world, recall, text), MARKS_FOR_NOW, ids=False, this_timeline=True)
+    if marks:
+        out.append("Their marks on this story that touch the moment (what came from them):")
+        out.extend(marks)
     return "\n".join(out)
 
 
-def format_interventions_all(world: WorldModel) -> str:
-    if not world.interventions:
-        return "(no viewer input so far)"
-    lines = []
-    for i in world.interventions[-12:]:
-        suffix = f" ({i.reason})" if i.reason else ""
-        lines.append(f'- segment {i.segment}: "{i.text}" → {i.disposition}{suffix}')
-    return "\n".join(lines)
+def format_viewer_then(world: WorldModel, viewer: ViewerMemory, *, upto: int, recall: list[Entity] = ()) -> str:
+    """The viewer as Then reads it: its understanding as last written, the
+    lines new since then (or newly answered) in full, earlier lines the
+    moment or its readings touch, and the marks that touch the moment.
+    `upto` is how many records the memory holds for this run; everything
+    else stays in the memory, counted."""
+    u = viewer.understanding()
+    lines = [r for r in viewer.records[:upto] if isinstance(r, Said)]
+    fresh = viewer.records[u.seen if u else 0:upto]
+    new_ids = {r.id for r in fresh if isinstance(r, Said)}
+    new_ids |= {i for r in fresh if isinstance(r, (Answer, DirectionEnd)) for i in r.said}
+    new = [s for s in lines if s.id in new_ids]
+
+    understanding = _understanding(world, viewer, ids=True)
+    out = ["Your understanding of them as last written:" if understanding
+           else "(Your understanding of them is empty so far.)"]
+    out.extend(understanding)
+    if new:
+        out.append("Their lines new since then, with what was on screen and what the story did:")
+        out.extend(_line(world, viewer, s, full=True) for s in new)
+    else:
+        out.append("They have said nothing new since." if lines else "They have said nothing yet.")
+    play = _in_play(world, recall, " ".join(s.text for s in new)) | {e for s in new for e in s.entities}
+    cited = {g for r in u.readings for g in r.grounds} if u else set()
+    older = [s for s in lines if s.id not in new_ids]
+    earlier = [s for s in older if s.id in cited or set(s.entities) & play][-EARLIER_LINES_FOR_THEN:]
+    if earlier:
+        out.append("Earlier lines this moment or your readings touch:")
+        out.extend(_line(world, viewer, s, full=False) for s in earlier)
+    marks, unshown = _marks(world, viewer, play, MARKS_FOR_THEN, ids=True, this_timeline=False)
+    if marks:
+        out.append("Their marks (what came from them):")
+        out.extend(marks)
+    if len(older) > len(earlier) or unshown:
+        out.append(f"(Kept but not shown: {len(older) - len(earlier)} earlier lines, {unshown} marks.)")
+    return "\n".join(out)
 
 
 def format_summaries(world: WorldModel, scene_limit: int = 3, recall: list[Entity] = ()) -> str:
