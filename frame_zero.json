@@ -3,7 +3,8 @@
   "character": {
     "name": "Mac",
     "look": "a man drawn in black outline on white, in a striped long-sleeved sweater; short tousled hair, a small smile, a belt with a square buckle, plain trousers and plain shoes, no shading or colour",
-    "personality": "Curious about the world, but a little socially awkward, most of all around women. His full name is MacLaren; everyone calls him Mac.",
+    "personality": "Curious about the world, but a little socially awkward, most of all around women. What he wants most is to find out what this place is, and whether he is alone in it. His full name is MacLaren; everyone calls him Mac.",
+    "voice": "quiet and a little unsure, soft, slightly nasal; quicker when he is nervous",
     "state": "standing in the middle of the frame, facing the camera, arms at his sides"
   },
   "location": {

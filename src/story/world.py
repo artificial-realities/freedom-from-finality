@@ -27,7 +27,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from src.models.frame_zero import FrameZero, Voice
+from src.models.frame_zero import FrameZero
 from src.story.schemas import Notebook
 
 EntityKind = Literal["character", "prop", "location"]
@@ -70,7 +70,10 @@ def short_look(look: str) -> str:
 
 
 class Entity(BaseModel):
-    """`description` is how the entity looked when it was introduced.
+    """`look` is how the entity is drawn, whole, and `look_short` the part
+    restated on every clip it is in (since clip `look_since` when an op
+    replaced it). A `gone` entity left the story for good; its `state` says
+    how, and an update that puts it back in the scene brings it back.
 
     A character also carries who it is, on the entity so that it outlives
     the notebook: `personality` (who it is at heart: the one it came with,
@@ -84,7 +87,6 @@ class Entity(BaseModel):
     id: str
     name: str
     kind: EntityKind
-    description: str = ""
     look: str = ""
     look_short: str = ""
     look_since: int = 0
@@ -94,7 +96,7 @@ class Entity(BaseModel):
     gone: bool = False
     first_seen: int = 0
     last_seen: int = 0
-    voice: Voice | None = None
+    voice: str = ""
     personality: str = ""
     personality_since: int = 0
     personality_because: str = ""
@@ -102,9 +104,7 @@ class Entity(BaseModel):
     lately_at: int = 0
 
     def render_look(self) -> str:
-        if self.look:
-            return self.look
-        return self.name if self.kind == "character" else (self.description or self.name)
+        return self.look or self.name
 
     def line(self) -> str:
         bits = [f"{self.id} ({self.kind}): {self.name}"]
@@ -205,15 +205,15 @@ class WorldModel(BaseModel):
         place, ch = frame_zero.location, frame_zero.character
         lid = slugify(place.name)
         look = " ".join(place.look.split())
-        world.entities[lid] = Entity(id=lid, name=place.name.strip(), kind="location", description=look,
+        world.entities[lid] = Entity(id=lid, name=place.name.strip(), kind="location",
                                      look=look, look_short=short_look(look), present=True)
         world.camera_location = lid
         cid = world._unique_id(slugify(ch.name))
         look = " ".join(ch.look.split())
         world.entities[cid] = Entity(
-            id=cid, name=ch.name.strip(), kind="character", description=look,
+            id=cid, name=ch.name.strip(), kind="character",
             look=look, look_short=short_look(look), personality=" ".join(ch.personality.split()),
-            voice=Voice.coerce(" ".join(ch.voice.split())),
+            voice=" ".join(ch.voice.split()),
             state=" ".join(ch.state.split()), present=True, location=lid,
         )
         # The first frame shows the character, so the opening clip does not
@@ -232,19 +232,26 @@ class WorldModel(BaseModel):
     # ── Lookup ──────────────────────────────────────────────────────
 
     def resolve(self, ref: str) -> Entity | None:
+        """The entity `ref` names: by its id exactly, or else by its name. A
+        name that a gone entity and one still in the story share is the one
+        in the story, the newest first: a gone name introduced again is
+        someone new."""
         if not ref:
             return None
         ref = ref.strip()
         if ref in self.entities:
             return self.entities[ref]
-        sid = slugify(ref)
-        if sid in self.entities:
-            return self.entities[sid]
-        low = ref.lower()
-        for ent in self.entities.values():
-            if ent.name.lower() == low:
-                return ent
-        return None
+        sid, low = slugify(ref), ref.lower()
+        named = [e for e in self.entities.values() if e.id == sid or e.name.lower() == low or slugify(e.name) == sid]
+        live = [e for e in named if not e.gone]
+        if live:
+            return max(live, key=lambda e: e.first_seen)
+        return named[-1] if named else None
+
+    def live(self, ref: str) -> Entity | None:
+        """The entity `ref` names, if it is still in the story."""
+        ent = self.resolve(ref)
+        return ent if ent is not None and not ent.gone else None
 
     def mentions(self, text: str) -> set[str]:
         """Ids of the entities `text` names, by name or id, as whole words."""
@@ -261,8 +268,10 @@ class WorldModel(BaseModel):
     def dormant_props(self) -> list[Entity]:
         return [e for e in self.by_kind("prop") if not e.present and not e.gone]
 
-    def gone_props(self) -> list[Entity]:
-        return [e for e in self.by_kind("prop") if e.gone]
+    def gone(self) -> list[Entity]:
+        """Characters and props that left the story, the most recent first."""
+        return sorted((e for e in self.entities.values() if e.gone and e.kind != "location"),
+                      key=lambda e: -e.last_seen)
 
     def current_location(self) -> Entity | None:
         if self.camera_location:

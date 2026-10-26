@@ -25,7 +25,6 @@ the schemas do not.
 
 from __future__ import annotations
 
-from src.models.frame_zero import Voice
 from src.story.schemas import BeatPlan
 from src.story.world import Entity, WorldModel
 
@@ -91,8 +90,10 @@ def camera_clause(motion: str) -> str:
 
 def _voice_words(text: str) -> str:
     """A voice description as the words between "in a" and "voice":
-    "a deep, gravelly voice" → "deep, gravelly"."""
-    text = " ".join(text.split()).strip().rstrip(".")
+    "a deep, gravelly voice" → "deep, gravelly". What follows a semicolon
+    is a note for the writers ("…; quicker when he is nervous"), which they
+    turn into a line's delivery; the video model gets the qualities."""
+    text = " ".join(text.split()).split(";")[0].strip().rstrip(".")
     low = text.lower()
     for article in ("a ", "an "):
         if low.startswith(article):
@@ -102,43 +103,24 @@ def _voice_words(text: str) -> str:
     return text.strip(" ,")
 
 
-def _language(voice: Voice | None) -> str:
-    """ "in Norwegian with a soft Bergen accent", or ""."""
-    if voice is None:
-        return ""
-    language, accent = voice.language.strip(), voice.accent.strip().rstrip(".")
-    if language and accent:
-        return f"in {language} with {accent}"
-    if language:
-        return f"in {language}"
-    if accent:
-        return f"with {accent}"
-    return ""
-
-
 # Words that only soften a quality: "slightly formal" says nothing "formal" does not.
 _HEDGES = frozenset({"a", "an", "bit", "little", "slightly", "somewhat", "quite", "very", "rather"})
 
 
-def speech(name: str, line: str, *, delivery: str = "", voice: Voice | None = None) -> str:
+def speech(name: str, line: str, *, delivery: str = "", voice: str = "") -> str:
     """One spoken line in LTX-2's form: `Name says in a {delivery} voice,
-    "line"`, the delivery being the line's own, then the speaker's
-    default, then the speaker's vocal characteristics; language and
-    accent follow when the voice gives them. A quality the delivery already
-    names is not said again ("formal, slightly breathless" then "earnest",
-    not "…, slightly formal, a little breathless")."""
-    words = [p for p in (x.strip() for x in _voice_words(delivery or (voice.delivery if voice else "")).split(","))
-             if p]
-    if voice is not None and voice.description.strip():
+    "line"`, the delivery being the line's own, then the speaker's vocal
+    characteristics. A quality the delivery already names is not said
+    again ("formal, slightly breathless" then "earnest", not "…, slightly
+    formal, a little breathless")."""
+    words = [p for p in (x.strip() for x in _voice_words(delivery).split(",")) if p]
+    if voice.strip():
         said = {w for p in words for w in p.lower().split()}
-        for phrase in (x.strip() for x in _voice_words(voice.description).split(",")):
+        for phrase in (x.strip() for x in _voice_words(voice).split(",")):
             if phrase and not {w for w in phrase.lower().split() if w not in _HEDGES} <= said:
                 words.append(phrase)
     how = ", ".join(words)
     lead = f"{name[:1].upper()}{name[1:]} says" + (f" in {'an' if how[:1].lower() in 'aeiou' else 'a'} {how} voice" if how else "")
-    tongue = _language(voice)
-    if tongue:
-        lead += f", {tongue}"
     text = " ".join(line.split()).replace('"', "'")
     return f'{lead}, "{text}"'
 
@@ -292,7 +274,7 @@ def compile_clip(
         speaker = world.resolve(line.speaker)
         name = speaker.name if speaker is not None else line.speaker
         parts.append(speech(name, line.line, delivery=line.delivery.strip(),
-                            voice=speaker.voice if speaker is not None else None))
+                            voice=speaker.voice if speaker is not None else ""))
     if clip.end_state.strip():
         parts.append("Final frame: " + _tail(clip.end_state))
     return " ".join(p for p in parts if p)

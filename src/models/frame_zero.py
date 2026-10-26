@@ -18,23 +18,6 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict
 
 
-class Voice(BaseModel):
-    """How a voice sounds, for the renderer."""
-
-    description: str = ""
-    language: str = ""
-    accent: str = ""
-    delivery: str = ""
-
-    @classmethod
-    def coerce(cls, value):
-        if value is None or value == "":
-            return None
-        if isinstance(value, str):
-            return cls(description=value)
-        return value
-
-
 class StartingCharacter(BaseModel):
     """The character in the first frame, given the way Now introduces any
     character later: `personality` is who it is at heart (only Then

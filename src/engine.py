@@ -308,8 +308,8 @@ class Engine:
             return self._pending_note
         if self._last_beat is not None:
             intent, done, total = self._last_beat
-            return (f'The previous beat "{intent}" ({done} clip{"s" if done != 1 else ""}) played out in full. '
-                    f"The picture ends on: {self._last_end_state}")
+            return (f'The previous beat "{intent}" ({done} clip{"s" if done != 1 else ""}) was written in full; '
+                    f"its last clip ends on: {self._last_end_state}")
         return (f"You are opening the story. The first frame shows: {self._scene()}. Open the action from exactly "
                 "that picture, then move; anyone it does not show enters the picture.")
 

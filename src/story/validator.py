@@ -7,6 +7,10 @@ Hard violations (unknown entities, a new character without a look, a
 line from someone who is not a character) are the ones worth a retry;
 warnings are fixed up silently.
 
+An entity that left the story (`gone`) stays in the world: a name it had
+introduced again is someone new, and an update that puts it back in the
+scene brings it back.
+
 `check` looks at the whole beat before any of it plays. `apply_clip`
 applies one clip when it is emitted, so a beat the viewer cuts short
 leaves the world exactly as far along as the picture.
@@ -17,7 +21,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from src.models.frame_zero import Voice
 from src.story.compiler import shot_before
 from src.story.schemas import BeatPlan, EntityOp, ThenUpdate
 from src.story.history import Checkpoint, History, Summary
@@ -37,6 +40,8 @@ class Report:
 
 
 _LOCATION_PREFIXES = ("at ", "in ", "on ", "inside ", "the ")
+# The notebook's seeds, as Then is told: the ones that matter most.
+SEEDS_KEPT = 8
 
 
 def resolve_location(world: WorldModel, ref: str):
@@ -58,15 +63,18 @@ def resolve_location(world: WorldModel, ref: str):
 def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, where: str) -> None:
     existing = world.resolve(op.entity)
     if op.op == "introduce":
-        if existing is not None:
+        if existing is not None and not existing.gone:
             r.warnings.append(f"{where}: '{op.entity}' already exists as {existing.id}; treated as update")
         elif op.kind == "character":
-            if not op.description.strip():
+            if not op.look.strip():
                 r.violations.append(
-                    f"{where}: new character '{op.entity}' needs a `description` of how it looks, "
+                    f"{where}: new character '{op.entity}' needs a `look`, how it looks, "
                     "so it stays the same character in every later clip",
                 )
                 return
+            if existing is not None:
+                r.warnings.append(f"{where}: '{op.entity}' is someone new: the {existing.name} of clip "
+                                  f"{existing.last_seen} ({existing.id}) left the story")
             if not op.voice.strip():
                 r.warnings.append(f"{where}: new character '{op.entity}' has no `voice`; it will not sound "
                                   "the same from clip to clip")
@@ -78,6 +86,9 @@ def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, 
             f"{where}: {op.op} of unknown entity '{op.entity}'; use an id from "
             "'World now' or introduce it first",
         )
+    elif existing is not None and existing.gone and op.op == "update" and op.present is not True:
+        r.warnings.append(f"{where}: {existing.id} left the story; an update brings it back only with "
+                          "`present: true`")
     if op.location:
         loc = resolve_location(world, op.location)
         if loc is None and slugify(op.location) not in introduced:
@@ -104,12 +115,19 @@ def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
             speaker = world.resolve(line.speaker)
             if (speaker is None or speaker.kind != "character") and slugify(line.speaker) not in introduced:
                 r.violations.append(f"{where}: dialogue speaker '{line.speaker}' is not a known character id")
+        back = {world.resolve(op.entity).id for op in clip.entity_ops
+                if op.op == "update" and op.present is True and world.resolve(op.entity) is not None}
         for ref in clip.on_screen:
-            if world.resolve(ref) is None and slugify(ref) not in introduced:
+            ent = world.resolve(ref)
+            if ent is None and slugify(ref) not in introduced:
                 r.warnings.append(f"{where}: on_screen entity '{ref}' is unknown and was dropped")
+            elif ent is not None and ent.gone and ent.id not in back and slugify(ref) not in introduced:
+                r.warnings.append(f"{where}: on_screen entity '{ref}' left the story and was dropped; "
+                                  "an update with `present: true` brings it back")
 
-    if beat.delivered_input and _owed_item(world.owed(), beat.delivered_input) is None:
-        r.warnings.append(f"delivered_input {beat.delivered_input} names no owed input; ignored")
+    for o in beat.owed:
+        if _owed_item(world.owed(), o.input) is None:
+            r.warnings.append(f"owed input #{o.input} is not owed; ignored")
 
     return r
 
@@ -150,12 +168,32 @@ def _cut_lands(world: WorldModel, refs: list[str], cut: str, clip_no: int):
     return None
 
 
+def _alias(beat: BeatPlan, index: int, introduce: EntityOp, gone_id: str, new_id: str) -> None:
+    """A gone name introduced again: in the rest of the beat, the name and
+    the gone one's id mean the new one, since Now wrote them before it
+    could know the new id."""
+    names = {slugify(introduce.entity), introduce.entity.strip().lower(), gone_id}
+
+    def means(ref: str) -> bool:
+        return ref.strip().lower() in names or slugify(ref) in names
+
+    for clip in beat.clips[index:]:
+        clip.on_screen = [new_id if means(ref) else ref for ref in clip.on_screen]
+        for line in clip.dialogue:
+            if means(line.speaker):
+                line.speaker = new_id
+        for op in clip.entity_ops:
+            if op is not introduce and op.op != "introduce" and means(op.entity):
+                op.entity = new_id
+
+
 def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -> Report:
     """Apply clip `index` of `beat` to `world`, in place: its entity ops,
     presence from its `on_screen`, its dialogue filter. The first clip
     also lands how the beat takes the viewer's input (one it absorbs
-    becomes the direction), delivers an owed input, and ends the viewer's
-    direction when Now says it is fulfilled or has run its course.
+    becomes the direction), resolves the owed inputs Now names, and ends
+    the viewer's direction when Now says it is fulfilled or has run its
+    course.
 
     Normalises the clip: `on_screen` references become entity ids,
     invalid dialogue is dropped, and a cut on the story's first clip (or
@@ -170,23 +208,28 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
 
     for op in clip.entity_ops:
         ent = world.resolve(op.entity)
-        if op.op == "introduce" and ent is None:
-            if op.kind == "character" and not op.description.strip():
+        if op.op == "introduce" and (ent is None or ent.gone):
+            if op.kind == "character" and not op.look.strip():
                 continue
+            namesake = ent
             eid = world._unique_id(slugify(op.entity))
+            if namesake is not None:
+                r.applied.append(f"{op.entity.strip()} is someone new ({eid}); {namesake.id} left the story "
+                                 f"at clip {namesake.last_seen}")
+                _alias(beat, index, op, namesake.id, eid)
             name = op.entity.strip()
             if "_" in name and " " not in name:
                 name = name.replace("_", " ")
-            look = " ".join(op.description.split())
+            look = " ".join(op.look.split())
             # A new place keeps its look too: the video model draws it from that.
             ent = Entity(
                 id=eid, name=name, kind=op.kind,
-                description=look, look=look, look_short=short_look(look),
+                look=look, look_short=short_look(look),
                 first_seen=clip_no,
             )
             if ent.kind == "character":
                 ent.personality = " ".join(op.personality.split())
-                ent.voice = Voice.coerce(" ".join(op.voice.split()))
+                ent.voice = " ".join(op.voice.split())
             if ent.kind == "prop":
                 here = world.current_location()
                 ent.location = here.id if here else ""
@@ -206,18 +249,28 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
             continue
 
         changes: list[str] = []
+        if ent.gone:
+            if op.present is not True:
+                continue
+            # Back in the story: the update that puts it in the scene.
+            ent.gone = False
+            changes.append("back in the story")
         was_present = ent.present
-        look = " ".join(op.description.split())
+        look = " ".join(op.look.split())
         if op.op == "update" and look and look != ent.look:
+            # The new look is restated whole on every clip, not cut short:
+            # a costume change has to win over the picture, and a short look
+            # cut from the new one lets the old appearance back. With the
+            # whole new look on every clip a helmet stayed on in 20 of 22
+            # (decisions.md, "A costume changes the wearer's look").
             ent.look = ent.look_short = look
             ent.look_since = clip_no
             changes.append(f"look={look}")
         # A character may get its voice when it first speaks, or a new one
         # when its voice changes for good.
         voice = " ".join(op.voice.split())
-        if (op.op == "update" and voice and ent.kind == "character"
-                and (ent.voice is None or voice != ent.voice.description)):
-            ent.voice = Voice(description=voice)
+        if op.op == "update" and voice and ent.kind == "character" and voice != ent.voice:
+            ent.voice = voice
             changes.append(f"voice={voice}")
         state = " ".join(op.state.split())
         if state and state != ent.state:
@@ -333,23 +386,25 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
                 world.direction = Direction(text=" ".join(i.text for i in pending), clip=clip_no,
                                             inputs=[n for i in pending for n in i.inputs], reason=reason)
             r.applied.append(f"viewer input {beat.input}" + (f": {reason}" if reason else ""))
-        item = None
-        outcome = "delivered"
-        if beat.delivered_input:
-            item = _owed_item(owed, beat.delivered_input)
-            if item is None:
-                r.warnings.append(f"delivered_input {beat.delivered_input} names no owed input; ignored")
-        elif not pending and beat.input in ("absorbed", "declined") and owed:
-            if len(owed) == 1:
-                item, outcome = owed[0], "delivered" if beat.input == "absorbed" else "let go"
-            else:
-                r.warnings.append(
-                    f"{beat.input} beat with {len(owed)} inputs owed and no delivered_input; none resolved",
-                )
-        if item is not None:
+        # Owed inputs Now resolves by id: delivered (the first becomes the
+        # direction, unless this beat took up a new input) or let go.
+        # Nothing resolves an owed input but Now saying so.
+        directed = bool(pending) and beat.input == "absorbed"
+        for o in beat.owed:
+            item = _owed_item(owed, o.input)
+            if item is None or item not in world.inputs:
+                r.warnings.append(f"owed input #{o.input} is not owed; ignored")
+                continue
+            why = " ".join(o.reason.split())
             world.inputs.remove(item)
-            r.outcomes.append((item.inputs, outcome, reason))
-            r.applied.append(f"owed input #{item.id} (clip {item.clip}) {outcome}: {item.text!r}")
+            r.outcomes.append((item.inputs, o.outcome, why))
+            r.applied.append(f"owed input #{item.id} (clip {item.clip}) {o.outcome}: {item.text!r}"
+                             + (f" ({why})" if why else ""))
+            if o.outcome == "delivered" and not directed:
+                if world.direction is not None:
+                    r.outcomes.append((world.direction.inputs, "superseded", ""))
+                world.direction = Direction(text=item.text, clip=clip_no, inputs=list(item.inputs), reason=why)
+                directed = True
 
     return r
 
@@ -430,6 +485,9 @@ def apply_then(world: WorldModel, history: History, update: ThenUpdate, *, at_cl
     # A copy, so the raw update recorded in then.jsonl stays as Then wrote it.
     world.notebook = update.notebook.model_copy(deep=True)
     notes.append("notebook updated")
+    if len(world.notebook.seeds) > SEEDS_KEPT:
+        notes.append(f"{len(world.notebook.seeds)} seeds; the first {SEEDS_KEPT} kept")
+        del world.notebook.seeds[SEEDS_KEPT:]
     for portrait in world.notebook.characters:
         ent = world.resolve(portrait.entity)
         if ent is None or ent.kind != "character":

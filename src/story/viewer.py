@@ -31,6 +31,9 @@ from src.util.durable import append_line, read_jsonl
 
 logger = logging.getLogger(__name__)
 
+# Then's readings of the viewer, as it is told: a few.
+READINGS_KEPT = 6
+
 # What became of an input: how the beat that answered it took it; a
 # deferred one later delivered or let go; or, for the direction it became,
 # how that ended.
@@ -66,7 +69,9 @@ class Outcome(BaseModel):
 class Mark(BaseModel):
     """Something the viewer put into the story, as Then noticed it: a name,
     a decision, a relationship, a change. `clip` is where it entered the
-    story; `entities` what it touches, for finding it again."""
+    story; `entities` what it touches, for finding it again; `replaces`
+    the mark it takes the place of, when the viewer changed their mind
+    (that one stays in the memory, no longer shown)."""
 
     kind: Literal["mark"] = "mark"
     id: int
@@ -74,6 +79,7 @@ class Mark(BaseModel):
     mark: str
     inputs: list[int]
     entities: list[str] = Field(default_factory=list)
+    replaces: int = 0
 
 
 class Understanding(ViewerUnderstanding):
@@ -130,8 +136,14 @@ class ViewerMemory(BaseModel):
     def outcomes(self) -> list[Outcome]:
         return [r for r in self.records if isinstance(r, Outcome)]
 
-    def marks(self) -> list[Mark]:
+    def all_marks(self) -> list[Mark]:
         return [r for r in self.records if isinstance(r, Mark)]
+
+    def marks(self) -> list[Mark]:
+        """The marks that stand: not replaced by a later one."""
+        marks = self.all_marks()
+        replaced = {m.replaces for m in marks if m.replaces}
+        return [m for m in marks if m.id not in replaced]
 
     def understanding(self) -> Understanding | None:
         return next((r for r in reversed(self.records) if isinstance(r, Understanding)), None)
@@ -156,7 +168,9 @@ class ViewerMemory(BaseModel):
         reading must cite an input it rests on and a mark the inputs it came
         from: ids that name no input are dropped, and a reading or mark left
         citing none is not kept. A mark already recorded is not recorded
-        again."""
+        again; one that replaces a standing mark retires it. A mark touches
+        what it and its inputs name, and what the clip that first answered
+        those inputs showed, when the world still holds that clip."""
         notes: list[str] = []
         inputs = {line.id: line for line in self.inputs()}
         readings: list[Reading] = []
@@ -167,11 +181,15 @@ class ViewerMemory(BaseModel):
                 readings.append(Reading(reading=text, grounds=grounds))
             elif text:
                 notes.append(f"viewer reading not kept, it cites no input: {text}")
+        if len(readings) > READINGS_KEPT:
+            notes.append(f"{len(readings)} readings; the first {READINGS_KEPT} kept")
+            del readings[READINGS_KEPT:]
         self.add(Understanding(readings=readings, lately=" ".join(update.viewer.lately.split()),
                                unknown=" ".join(update.viewer.unknown.split()), clip=at_clip, seen=seen))
         notes.append(f"understanding of the viewer: {len(readings)} reading(s)")
 
         recorded = {words(m.mark) for m in self.marks()}
+        standing = {m.id for m in self.marks()}
         for m in update.marks:
             text = " ".join(m.mark.split())
             cited = sorted({i for i in m.inputs if i in inputs})
@@ -184,12 +202,21 @@ class ViewerMemory(BaseModel):
             # its inputs did.
             entered = min((o for o in self.outcomes() if set(o.inputs) & set(cited)),
                           key=lambda o: o.clip, default=None)
-            self.add(Mark(
-                id=max((m.id for m in self.marks()), default=0) + 1,
+            entities = world.mentions(" ".join([text, *(inputs[i].text for i in cited)]))
+            shown = next((c for c in world.clips if entered is not None and c.clip == entered.clip), None)
+            if shown is not None:
+                entities |= set(shown.on_screen)
+                entities |= {e.id for e in world.entities.values() if e.first_seen == shown.clip}
+            replaces = m.replaces if m.replaces in standing else 0
+            if m.replaces and not replaces:
+                notes.append(f"mark {m.replaces} is not a standing mark; nothing replaced")
+            mark = self.add(Mark(
+                id=max((m.id for m in self.all_marks()), default=0) + 1,
                 clip=entered.clip if entered else at_clip,
-                mark=text, inputs=cited,
-                entities=sorted(world.mentions(" ".join([text, *(inputs[i].text for i in cited)]))),
+                mark=text, inputs=cited, entities=sorted(entities), replaces=replaces,
             ))
             recorded.add(words(text))
-            notes.append(f"viewer's mark recorded: {text}")
+            standing.discard(replaces)
+            standing.add(mark.id)
+            notes.append(f"viewer's mark recorded: {text}" + (f" (replacing mark {replaces})" if replaces else ""))
         return notes

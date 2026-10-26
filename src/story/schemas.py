@@ -32,20 +32,20 @@ class EntityOp(BaseModel):
 
     `entity` is an existing entity id for `update`/`remove`, or the name
     of a new thing for `introduce`. Empty strings mean "unchanged".
-    `description` is how a new thing looks (introduce), or the whole new
-    look of an existing character, prop or place whose appearance changes
-    for good (update); a new character also gives its `personality`, as
-    Frame Zero gives its character's, and how its `voice` sounds, so
-    it is registered once and stays the same. An update may give a
-    character the voice it lacks, or a new one; personality is Then's to
-    rewrite. `state` is the entity at the end of the clip, in prose,
-    replacing its last one.
+    `look` is how a new thing looks (introduce), or the whole new look of
+    an existing character, prop or place whose appearance changes for good
+    (update); a new character also gives its `personality`, as Frame Zero
+    gives its character's, and how its `voice` sounds, so it is registered
+    once and stays the same. An update may give a character the voice it
+    lacks, or a new one; personality is Then's to rewrite. `state` is the
+    entity at the end of the clip, in prose, replacing its last one. An
+    update with `present: true` brings back one that left the story.
     """
 
     op: Literal["introduce", "update", "remove"]
     entity: str
     kind: EntityKind = "prop"
-    description: str = ""
+    look: str = ""
     personality: str = ""
     voice: str = ""
     state: str = ""
@@ -88,19 +88,29 @@ class ClipSpec(BaseModel):
         return text
 
 
+class OwedOutcome(BaseModel):
+    """An owed input this beat resolves, by its id: `delivered` (this beat
+    delivers it) or `let go` (the story has moved past it, or the viewer
+    changed their mind), and why."""
+
+    input: int
+    outcome: Literal["delivered", "let go"]
+    reason: str
+
+
 class BeatPlan(BaseModel):
     """Now's whole output: one beat, one to a few clips. `input` is how the
-    beat takes the viewer's input, `delivered_input` the id of an owed
-    input it delivers (0: none), and `direction` Now's word on the
-    viewer's active direction: it `continues`, or this beat ends it
-    because it is `fulfilled` or has `ran its course`."""
+    beat takes the viewer's input, `owed` the owed inputs it resolves, and
+    `direction` Now's word on the viewer's active direction: it
+    `continues`, or this beat ends it because it is `fulfilled` or has
+    `ran its course`."""
 
     intent: str
     framing: str
     clips: list[ClipSpec]
     input: Literal["none", "absorbed", "deferred", "declined"] = "none"
     input_reason: str = ""
-    delivered_input: int = 0
+    owed: list[OwedOutcome] = Field(default_factory=list)
     direction: Literal["none", "continues", "fulfilled", "ran its course"] = "none"
 
 
@@ -148,10 +158,13 @@ class ViewerUnderstanding(BaseModel):
 
 
 class NewMark(BaseModel):
-    """Something the viewer put into the story, and the inputs it came from."""
+    """Something the viewer put into the story, the inputs it came from,
+    and the id of a recorded mark it replaces (0: none), when the viewer
+    changed their mind."""
 
     mark: str
     inputs: list[int]
+    replaces: int
 
 
 class CheckpointOut(BaseModel):

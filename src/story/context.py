@@ -97,9 +97,18 @@ def _character(ent: Entity, portrayed: set[str], lead: list[str]) -> str:
         bits.append(f"looks: {ent.look}")
     if ent.id not in portrayed:
         bits += _who(ent, dated=True)
-    if ent.voice and ent.voice.description:
-        bits.append(f"voice: {ent.voice.description}")
+    if ent.voice:
+        bits.append(f"voice: {ent.voice}")
     return " · ".join(bits)
+
+
+def _first_sentence(text: str, n: int = STATE_CHARS) -> str:
+    text = " ".join(text.split())
+    for stop in (". ", "! ", "? "):
+        cut = text.find(stop)
+        if cut > 0:
+            text = text[: cut + 1]
+    return _clip(text, n)
 
 
 def named_now(world: WorldModel, viewer_input: str = "", recent: int = 6,
@@ -186,12 +195,19 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
             out.append(_character(e, portrayed, [b for b in lead if b]))
     rest = sorted((e for e in away if e.id not in full_ids), key=lambda e: -e.last_seen)
     if rest:
+        # Who each one is, at a glance, so the story can bring back someone
+        # it has rather than invent someone like them.
         def about(e) -> str:
-            bits = [f"last seen clip {e.last_seen}", e.state, where(e)]
-            return " (" + ", ".join(b for b in bits if b) + ")"
-        out.append(("Other characters" if full else "Characters") + " not in the scene: "
-                   + "; ".join(f"`{e.id}`{about(e)}" for e in rest[:AWAY_LISTED])
-                   + _more(rest, AWAY_LISTED, "seen longer ago"))
+            bits = [f"last seen clip {e.last_seen}", where(e), e.state and f"then: {_clip(e.state, STATE_CHARS)}",
+                    e.personality and _first_sentence(e.personality),
+                    e.lately and f"lately (clip {e.lately_at}): {_first_sentence(e.lately)}"]
+            return " · ".join(b for b in bits if b)
+        out.append(("Other characters" if full else "Characters") + " not in the scene (the most recently seen first):")
+        out.extend(f"- `{e.id}` {e.name}: {about(e)}" for e in rest[:AWAY_LISTED])
+        if len(rest) > AWAY_LISTED:
+            out.append(f"- and {len(rest) - AWAY_LISTED} more, seen longer ago: "
+                       + ", ".join(f"`{e.id}`" for e in rest[AWAY_LISTED:AWAY_LISTED * 3])
+                       + (" …" if len(rest) > AWAY_LISTED * 3 else ""))
     dormant = sorted(world.dormant_props(), key=lambda e: -e.last_seen)
     if dormant:
         out.append(
@@ -200,11 +216,13 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
                         + (f", left at `{elsewhere(e)}`" if elsewhere(e) else "") + ")" for e in dormant[:AWAY_LISTED])
             + _more(dormant, AWAY_LISTED, "seen longer ago")
         )
-    gone = world.gone_props()
+    gone = world.gone()
     if gone:
-        shown = gone[-GONE_LISTED:]
-        more = f" (+{len(gone) - len(shown)} more)" if len(gone) > len(shown) else ""
-        out.append("Gone for good: " + ", ".join(f"`{e.id}`" for e in shown) + more)
+        out.append("Gone from the story (an update with `present: true` brings one back; introducing a name of "
+                   "theirs makes someone new): "
+                   + "; ".join(f"`{e.id}` {e.name} ({e.kind}, clip {e.last_seen}: {_clip(e.state, 80)})"
+                               for e in gone[:GONE_LISTED])
+                   + _more(gone, GONE_LISTED, "earlier"))
     return "\n".join(out)
 
 
@@ -214,6 +232,8 @@ MARKS_FOR_NOW = 5
 MARKS_FOR_THEN = 10
 EARLIER_INPUTS_FOR_THEN = 10
 RECENT_MARKS = 2
+# Owed inputs shown, the newest; the older ones are named by id.
+OWED_SHOWN = 12
 
 
 def _at(clip: int) -> str:
@@ -245,14 +265,17 @@ def _understanding(viewer: ViewerMemory, *, ids: bool) -> list[str]:
     return out
 
 
-def _marks(viewer: ViewerMemory, play: set[str], cap: int, *, ids: bool) -> tuple[list[str], int]:
-    """The marks that touch the moment, and the most recent ones, oldest
-    first; and how many others are kept but not shown."""
+def _marks(viewer: ViewerMemory, play: set[str], cap: int, *, ids: bool,
+           cited: set[int] = frozenset()) -> tuple[list[str], int]:
+    """The standing marks that touch the moment or cite one of the inputs
+    `cited`, and the most recent ones, oldest first; and how many others
+    are kept but not shown. With `ids`, each with its id and its inputs."""
     marks = viewer.marks()
-    chosen = {m.id for m in marks if set(m.entities) & play} | {m.id for m in marks[-RECENT_MARKS:]}
+    chosen = {m.id for m in marks if set(m.entities) & play or set(m.inputs) & cited}
+    chosen |= {m.id for m in marks[-RECENT_MARKS:]}
     shown = [m for m in marks if m.id in chosen][-cap:]
-    out = [f"- {m.mark} ({_at(m.clip)}" + (f"; from {', '.join(f'#{i}' for i in m.inputs)}" if ids else "") + ")"
-           for m in shown]
+    out = [(f"- [mark {m.id}] " if ids else "- ") + f"{m.mark} ({_at(m.clip)}"
+           + (f"; from {', '.join(f'#{i}' for i in m.inputs)}" if ids else "") + ")" for m in shown]
     return out, len(marks) - len(shown)
 
 
@@ -302,9 +325,14 @@ def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *
             )
     owed = world.owed()
     if owed:
-        out.append("Earlier inputs still owed (deferred):")
-        out.extend(f'- #{i.id} (clip {i.clip}): "{i.text}" (deferred: {i.reason or "no reason given"})'
-                   for i in owed[-4:])
+        out.append("Earlier inputs still owed (deferred), each until a beat delivers it or lets it go:")
+        older = owed[:-OWED_SHOWN]
+        if older:
+            out.append(f"- {len(older)} older: " + ", ".join(f"#{i.id} (clip {i.clip})" for i in older))
+        for i in owed[-OWED_SHOWN:]:
+            age = world.clip - i.clip
+            out.append(f'- #{i.id} ({age} clip{"s" if age != 1 else ""} ago): "{_clip(i.text, 200)}" '
+                       f'(deferred: {i.reason or "no reason given"})')
     handled = [o for o in viewer.outcomes() if o.outcome in ("absorbed", "declined", "delivered", "let go")]
     if handled:
         inputs = {s.id: s for s in viewer.inputs()}
@@ -351,9 +379,10 @@ def format_viewer_then(world: WorldModel, viewer: ViewerMemory, *, upto: int, re
     if earlier:
         out.append("Earlier inputs this moment or your readings touch:")
         out.extend(_input(viewer, s, full=False) for s in earlier)
-    marks, unshown = _marks(viewer, play, MARKS_FOR_THEN, ids=True)
+    marks, unshown = _marks(viewer, play, MARKS_FOR_THEN, ids=True,
+                            cited={s.id for s in new} | {s.id for s in earlier})
     if marks:
-        out.append("Their marks (what came from them):")
+        out.append("Their marks (what came from them), each with its id:")
         out.extend(marks)
     if len(older) > len(earlier) or unshown:
         out.append(f"(Kept but not shown: {len(older) - len(earlier)} earlier inputs, {unshown} marks.)")
