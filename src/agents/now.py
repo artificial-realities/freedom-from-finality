@@ -24,14 +24,20 @@ from src.i2v.shape import seconds_label
 from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.story.context import (
+    PAST_FOR_NOW,
+    SUMMARIES_FOR_NOW,
+    coming_back,
+    format_memory,
     format_notebook,
     format_policy,
     format_recent,
-    format_summaries,
     format_viewer,
     format_world_now,
+    in_play,
+    named_now,
     recalled,
 )
+from src.story.history import History
 from src.story.schemas import BeatPlan
 from src.story.validator import check
 from src.story.viewer import ViewerMemory
@@ -81,6 +87,7 @@ async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: C
 async def run(
     *,
     world: WorldModel,
+    history: History,
     viewer: ViewerMemory,
     text: str,
     llm: LLMBackend,
@@ -101,14 +108,16 @@ async def run(
         typical_seconds=f"{round(2 * clip_seconds)} to {round(3 * clip_seconds)}",
         max_clips=config.max_clips_per_beat,
     )
-    recall = recalled(world, text, config.recent_clips, viewer)
+    named = named_now(world, text, config.recent_clips, viewer)
+    recall = recalled(world, named)
+    back = coming_back(world, history, in_play(world, named, recall), shown=SUMMARIES_FOR_NOW)
     user_prompt = load_prompt(
         USER_PATH,
         clip=world.clip,
         notebook=format_notebook(world),
         world_now=format_world_now(world, recall),
         viewer=format_viewer(world, viewer, text, answer_clips=config.answer_max_clips, recall=recall),
-        summaries=format_summaries(world, recall=recall),
+        summaries=format_memory(world, history, back, recent=SUMMARIES_FOR_NOW, caps=PAST_FOR_NOW),
         recent=format_recent(world, config.recent_clips),
         beat_status=beat_status,
     )

@@ -9,16 +9,19 @@ and holds what the story needs to continue, never the rendered video:
     frame_zero/           the Frame Zero it began from, copied once
     viewer.jsonl          the viewer's memory (`src/story/viewer.py`)
     clips.jsonl           every clip the viewer saw, one per line
+    history.jsonl         Then's summaries and checkpoints, one per line
+                          (`src/story/history.py`)
     state/<clip>/         the saved state, the newest only
         world.json        the world as of that clip
         last_frames.mp4   the frames the renderer continues the picture
                           from (a video story)
 
 It is saved as of the last clip the viewer saw. When a clip goes on air
-its state is written under `state/<clip>.tmp/`, synced and renamed into
-place (the commit), the state before it is let go and the clip is
-appended to the clip log; what the producer prepared beyond it is never
-saved. Opening takes the newest complete state and makes the clip log
+the history records its world has seen are appended, its state is
+written under `state/<clip>.tmp/`, synced and renamed into place (the
+commit), the state before it is let go and the clip is appended to the
+clip log; what the producer prepared beyond it is never saved. Opening
+takes the newest complete state and makes the clip log and the history
 agree with it, so a crash anywhere costs at most the clips not yet seen.
 """
 
@@ -35,6 +38,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.models.frame_zero import FrameZero
+from src.story.history import History
 from src.story.viewer import ViewerMemory
 from src.story.world import ClipRecord, WorldModel
 from src.util.durable import append_line, read_jsonl, replace, sync_dir, write_synced
@@ -79,6 +83,7 @@ class StoryFolder:
         self.frame_zero = frame_zero
         self.viewer = viewer
         self.world = WorldModel()
+        self.history = History(root / "history.jsonl")
         self.last: ClipRecord | None = None
         self.last_frames: Path | None = None
 
@@ -123,6 +128,8 @@ class StoryFolder:
             state, self.world = newest
             self.last_frames = state / "last_frames.mp4" if (state / "last_frames.mp4").exists() else None
         _reconcile(self.root / "clips.jsonl", self.world)
+        self.history = History.load(self.root / "history.jsonl", seen=self.world.history_count)
+        self.world.history_count = len(self.history.records)
         self.last = self.world.clips[-1] if self.world.clips else None
 
     def frame_zero_image(self) -> Path | None:
@@ -131,11 +138,14 @@ class StoryFolder:
         path = self.root / "frame_zero" / Path(name).name if name else None
         return path if path is not None and path.exists() else None
 
-    def commit(self, clip_no: int, world_json: str, clip_json: str, last_frames: Path | None) -> None:
+    def commit(self, clip_no: int, world_json: str, clip_json: str, last_frames: Path | None, *,
+               history_upto: int) -> None:
         """Save the story as of clip `clip_no`, the newest the viewer has
-        seen: the world then and, for video, the frames that continue it
+        seen: the history records its world has seen (`history_upto`), the
+        world then and, for video, the frames that continue it
         (`last_frames`, a file this takes over). A clip whose frames could
         not be cut keeps the last ones the picture can continue from."""
+        self.history.save(history_upto)
         states = self.root / "state"
         tmp, final = states / f"{clip_no:06d}.tmp", states / f"{clip_no:06d}"
         shutil.rmtree(tmp, ignore_errors=True)

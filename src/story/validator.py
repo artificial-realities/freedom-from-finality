@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 from src.models.frame_zero import Voice
 from src.story.compiler import shot_before
 from src.story.schemas import BeatPlan, EntityOp, ThenUpdate
-from src.story.world import Checkpoint, Direction, Entity, OpenInput, Summary, WorldModel, short_look, slugify
+from src.story.history import Checkpoint, History, Summary
+from src.story.world import Direction, Entity, OpenInput, WorldModel, short_look, slugify
 
 
 @dataclass
@@ -353,28 +354,78 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
     return r
 
 
-def apply_then(world: WorldModel, update: ThenUpdate, *, at_clip: int) -> list[str]:
-    """Land a Then update: summaries, the rewritten notebook, and a
-    checkpoint. Each portrait also lands on its character, so who a
-    character is survives the notebook dropping it. An empty personality
-    keeps the one the character has; a new one replaces it only with a
-    `because` (what in the story changed it), so a core change is a
-    recorded development, never a rewording. A first personality needs
-    none.
+def involved(world: WorldModel, first: int, last: int) -> set[str]:
+    """The entities clips `first`-`last` involve: who and what was on
+    screen, the places the picture was in, what entered, and who or what
+    their action and lines name."""
+    ids: set[str] = set()
+    for c in world.clips:
+        if first <= c.clip <= last:
+            ids |= set(c.on_screen)
+            if c.location:
+                ids.add(c.location)
+            ids |= world.mentions(" ".join([c.action, c.end_state, *c.dialogue]))
+    ids |= {e.id for e in world.entities.values() if first <= e.first_seen <= last}
+    return ids
+
+
+def apply_then(world: WorldModel, history: History, update: ThenUpdate, *, at_clip: int) -> list[str]:
+    """Land a Then update: its summary and checkpoint into the story's
+    history, each with the entities it involves; the story so far and
+    since the last checkpoint; the rewritten notebook. Each portrait also
+    lands on its character, so who a character is survives the notebook
+    dropping it. An empty personality keeps the one the character has; a
+    new one replaces it only with a `because` (what in the story changed
+    it), so a core change is a recorded development, never a rewording. A
+    first personality needs none.
 
     A checkpoint names a clip after the last checkpoint, up to the one
-    Then read up to (`at_clip`)."""
+    Then read up to (`at_clip`). With it, the story so far is replaced
+    when Then rewrote it (else the old one stands, up to the checkpoint it
+    was written at, and the roles read the checkpoints after it), and
+    since the last checkpoint starts again from what Then wrote."""
     notes: list[str] = []
+    history.truncate(world.history_count)
 
-    text = update.scene_summary.strip()
+    text = " ".join(update.summary.split())
     if text and at_clip > world.last_summary:
         first = world.last_summary + 1
-        world.summaries.append(Summary(first_clip=first, last_clip=at_clip, text=text))
+        history.records.append(Summary(first_clip=first, last_clip=at_clip, text=text,
+                                       entities=sorted(involved(world, first, at_clip))))
         world.last_summary = at_clip
         notes.append(f"summarised clips {first}-{at_clip}")
-    if update.act_summary.strip():
-        world.act_summary = update.act_summary.strip()
-        notes.append("act summary updated")
+
+    cp = update.checkpoint
+    name = " ".join(cp.name.split()) if cp is not None else ""
+    turned = False
+    if cp is not None and name:
+        last = history.last_checkpoint()
+        after = last.at if last is not None else 0
+        if not after < cp.at <= at_clip:
+            notes.append(f"checkpoint {name!r} not kept: clip {cp.at} is not after the last checkpoint "
+                         f"(clip {after}) and up to clip {at_clip}")
+        else:
+            first = after + 1
+            ids = involved(world, first, cp.at) | world.mentions(cp.summary)
+            for s in history.summaries():
+                if s.last_clip >= first and s.first_clip <= cp.at:
+                    ids |= set(s.entities)
+            history.records.append(Checkpoint(name=name, first_clip=first, at=cp.at,
+                                              summary=" ".join(cp.summary.split()), noticed_at=at_clip,
+                                              entities=sorted(ids)))
+            turned = True
+            notes.append(f"checkpoint: {name} (clips {first}-{cp.at})")
+            so_far = " ".join(update.story_so_far.split())
+            if so_far:
+                world.story_so_far, world.story_so_far_at = so_far, cp.at
+                notes.append("the story so far rewritten")
+            else:
+                notes.append("the story so far kept: the checkpoint came without it")
+    since = " ".join(update.since_checkpoint.split())
+    if since or turned:
+        world.since_checkpoint = since
+        notes.append("since the last checkpoint " + ("rewritten" if since else "begins again"))
+    world.history_count = len(history.records)
 
     # A copy, so the raw update recorded in then.jsonl stays as Then wrote it.
     world.notebook = update.notebook.model_copy(deep=True)
@@ -397,18 +448,6 @@ def apply_then(world: WorldModel, update: ThenUpdate, *, at_clip: int) -> list[s
         portrait.personality = ent.personality
         ent.lately = " ".join(portrait.lately.split())
         ent.lately_at = at_clip
-
-    cp = update.checkpoint
-    name = " ".join(cp.name.split()) if cp is not None else ""
-    if cp is not None and name:
-        after = world.checkpoints[-1].at if world.checkpoints else 0
-        if not after < cp.at <= at_clip:
-            notes.append(f"checkpoint {name!r} not kept: clip {cp.at} is not after the last checkpoint "
-                         f"and up to clip {at_clip}")
-        else:
-            world.checkpoints.append(Checkpoint(name=name, at=cp.at, summary=" ".join(cp.summary.split()),
-                                                noticed_at=at_clip))
-            notes.append(f"checkpoint: {name} (at clip {cp.at})")
 
     world.then_runs += 1
     world.last_then = at_clip

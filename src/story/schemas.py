@@ -10,10 +10,12 @@ few clips. Each clip carries its own picture and the world changes that
 happen in it, so a beat can be cut short by the viewer after any clip
 and the world stays true to what was rendered.
 
-Then writes a **notebook update**: compressed memory, the rewritten
-notebook (characters, seeds, intentions), its understanding of the
-viewer with the inputs each reading rests on, the viewer's new marks on
-the story, and optionally a checkpoint where it sees the story turned.
+Then writes a **notebook update**: a summary of the clips since its last
+run, the story since the last checkpoint, the rewritten notebook
+(characters, seeds, intentions), its understanding of the viewer with
+the inputs each reading rests on, the viewer's new marks on the story,
+and, where it sees the story turned, a checkpoint with the story so far
+rewritten.
 """
 
 from __future__ import annotations
@@ -154,7 +156,7 @@ class NewMark(BaseModel):
 
 class CheckpointOut(BaseModel):
     """Where Then sees the story turned: the clip `at`, a `name` for it and
-    a `summary` of the story up to there."""
+    a `summary` of the story from the checkpoint before up to there."""
 
     at: int
     name: str
@@ -162,13 +164,18 @@ class CheckpointOut(BaseModel):
 
 
 class ThenUpdate(BaseModel):
-    """Then's output: memory compression, the rewritten notebook, its
-    understanding of the viewer and the marks it has newly noticed."""
+    """Then's output, in the order it writes it: `summary` of the clips
+    since its last run; a `checkpoint` where the story turned, with
+    `story_so_far`, everything up to it, rewritten (only with a
+    checkpoint); `since_checkpoint`, the story since the last checkpoint
+    rewritten ("": keep it); the rewritten notebook, its understanding of
+    the viewer and the marks it has newly noticed."""
 
-    scene_summary: str = ""
-    act_summary: str = ""
+    summary: str = ""
+    checkpoint: CheckpointOut | None = None
+    story_so_far: str = ""
+    since_checkpoint: str = ""
     notebook: Notebook
     viewer: ViewerUnderstanding = Field(default_factory=ViewerUnderstanding)
     marks: list[NewMark] = Field(default_factory=list)
-    checkpoint: CheckpointOut | None = None
     rationale: str = ""

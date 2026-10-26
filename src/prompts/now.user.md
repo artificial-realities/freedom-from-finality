@@ -9,7 +9,7 @@ Clip {clip}
 ## The viewer
 {viewer}
 
-## Story so far
+## The story's past (oldest first)
 {summaries}
 
 ## Recent clips (newest last)

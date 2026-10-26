@@ -4,8 +4,11 @@ Everything the story has established lives here: entities (characters,
 props, locations) with what code needs in structure (kind, presence,
 location, whether they are gone) and their state in one line of prose,
 the viewer's inputs the story has not finished with, Then's notebook, the
-recent clips (one record per clip), the summaries Then writes of them and
-the checkpoints it names where the story turned.
+recent clips (one record per clip), and Then's two rolling summaries:
+the story so far (everything up to the last checkpoint) and since the
+last checkpoint. Its summaries and checkpoints themselves are the
+story's long memory, kept outside it (`history.py`); the world counts how
+many of them it has seen (`history_count`).
 
 What the viewer said and put into the story, and Then's understanding of
 them, belong to the person and live outside it, in the viewer's memory
@@ -132,23 +135,6 @@ class OpenInput(BaseModel):
         return self.inputs[0] if self.inputs else 0
 
 
-class Checkpoint(BaseModel):
-    """A checkpoint: Then saw the story turn at clip `at`, which it named
-    `name`, and summarised the story up to there. `noticed_at` is the clip
-    Then had read up to."""
-
-    name: str
-    at: int
-    summary: str
-    noticed_at: int = 0
-
-
-class Summary(BaseModel):
-    first_clip: int
-    last_clip: int
-    text: str
-
-
 class ClipRecord(BaseModel):
     """One clip of the story as it was emitted: the `beat_clip`th of the
     `beat_clips` clips of beat `beat`, the viewer's input on its first clip
@@ -190,9 +176,12 @@ class WorldModel(BaseModel):
     entities: dict[str, Entity] = Field(default_factory=dict)
     inputs: list[OpenInput] = Field(default_factory=list)
     notebook: Notebook = Field(default_factory=Notebook)
-    checkpoints: list[Checkpoint] = Field(default_factory=list)
-    act_summary: str = ""
-    summaries: list[Summary] = Field(default_factory=list)
+    # The story up to the checkpoint at clip `story_so_far_at`, rewritten
+    # only at a checkpoint; and since the last checkpoint, rewritten each run.
+    story_so_far: str = ""
+    story_so_far_at: int = 0
+    since_checkpoint: str = ""
+    history_count: int = 0
     clips: list[ClipRecord] = Field(default_factory=list)
 
     beats: int = 0

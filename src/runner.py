@@ -395,11 +395,13 @@ async def run_live(
                              error=f"{failures} clips failed in a row ({reason}); stopping")
                 raise RuntimeError(f"{failures} clips failed in a row: {reason}")
 
-        def _roll_back(failed: int, reason: str) -> None:
+        def _roll_back(failed: int, reason: str, carry: str | None = None) -> None:
             """The last emitted clip never reached the viewer: take it back
-            and have the next plan start from the clip before."""
+            (unless the engine did, handing back `carry`) and have the next
+            plan start from the clip before, the inputs it answered again."""
             nonlocal carry_text
-            carry = engine.rollback_clip(failed, reason)
+            if carry is None:
+                carry = engine.rollback_clip(failed, reason)
             requeued = list(last_landed[1]) if last_landed and last_landed[0] == failed else []
             requeued += beat_inputs
             beat_inputs.clear()
@@ -564,7 +566,7 @@ async def run_live(
                     emitted = await engine.emit(clip_no)
                 except EmitFailed as exc:
                     timing.write("emit_failed", clip=clip_no, error=str(exc))
-                    transcript.note(f"Clip {clip_no} could not be emitted ({exc}); replanned.")
+                    _roll_back(clip_no, "emitting it failed", carry=exc.carry)
                     _fail(clip_no, "emit failed")
                     clip_no -= 1
                     continue

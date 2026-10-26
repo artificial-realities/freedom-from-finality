@@ -20,15 +20,21 @@ from src.i2v.shape import seconds_label
 from src.llm.base import LLMBackend
 from src.models.config import Config
 from src.story.context import (
+    PAST_FOR_THEN,
+    SUMMARIES_FOR_THEN,
+    coming_back,
     format_checkpoints,
     format_clips,
+    format_memory,
     format_notebook,
     format_policy,
-    format_summaries,
     format_viewer_then,
     format_world_now,
+    in_play,
+    named_now,
     recalled,
 )
+from src.story.history import History
 from src.story.schemas import ThenUpdate
 from src.story.viewer import ViewerMemory
 from src.story.world import WorldModel
@@ -47,18 +53,20 @@ INSTRUCTIONS = {
         "gives it) and a `lately` from the first frame and nothing more, since "
         "nothing has happened yet; your initial sense of what is alive; any "
         "seeds you notice in the first frame; and your opening intentions. The "
-        "viewer has said nothing yet: no readings and no marks."
+        "viewer has said nothing yet: no readings and no marks. There is no "
+        "past yet either: leave `summary`, `story_so_far` and `since_checkpoint` "
+        "empty, and `checkpoint` null."
     ),
     "summary": (
-        "Summarise the clips since your last run into `scene_summary`. "
-        "Update the act summary if the current phase has changed meaningfully. "
-        "Then rewrite the notebook: how each character has been lately, and "
+        "Summarise the clips since your last run into `summary`. Notice whether "
+        "the story has turned since its last checkpoint; if it has, name the "
+        "checkpoint and rewrite the story so far. Rewrite the story since the "
+        "last checkpoint. Then rewrite the notebook: how each character has been lately, and "
         "whether the story has changed who any of them is at heart; who the "
         "story is following and who else is pulling at it; what is alive, "
         "which seeds remain or are new, and where the story might go. Then "
         "rewrite your understanding of the viewer from their inputs, and record "
-        "any new mark they have put on the story. Notice whether the story has "
-        "turned since its last checkpoint."
+        "any new mark they have put on the story."
     ),
 }
 
@@ -66,6 +74,7 @@ INSTRUCTIONS = {
 async def run(
     *,
     world: WorldModel,
+    history: History,
     viewer: ViewerMemory,
     upto: int,
     scene: str,
@@ -80,17 +89,19 @@ async def run(
     story's first clip, "summary" for every other."""
     system_prompt = load_prompt(SYSTEM_PATH, policy=format_policy())
     scene = " ".join(scene.split()).rstrip(".")
-    recall = recalled(world, recent=config.recent_clips, viewer=viewer)
+    named = named_now(world, recent=config.recent_clips, viewer=viewer)
+    recall = recalled(world, named)
+    back = coming_back(world, history, in_play(world, named, recall), shown=SUMMARIES_FOR_THEN)
     user_prompt = load_prompt(
         USER_PATH,
         clip=world.clip,
         clip_seconds=seconds_label(clip_seconds),
         notebook=format_notebook(world),
-        summaries=format_summaries(world, recent=6, recall=recall),
+        summaries=format_memory(world, history, back, recent=SUMMARIES_FOR_THEN, caps=PAST_FOR_THEN),
         clips=format_clips(world, world.last_summary),
         world_now=format_world_now(world, recall),
         viewer=format_viewer_then(world, viewer, upto=upto, recall=recall),
-        checkpoints=format_checkpoints(world),
+        checkpoints=format_checkpoints(world, history),
         instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["summary"]).format(scene=scene),
     )
     parsed, _ = await call_llm_structured(

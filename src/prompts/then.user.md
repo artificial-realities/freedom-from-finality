@@ -3,7 +3,7 @@ Clip: {clip} (a clip is {clip_seconds} seconds of story)
 ## The notebook (as last written)
 {notebook}
 
-## Story so far
+## The story's past (oldest first)
 {summaries}
 
 ## Clips since your last run (newest last)

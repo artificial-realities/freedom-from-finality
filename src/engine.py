@@ -43,7 +43,7 @@ from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ThenUpdate
 from src.story.validator import Report, apply_clip, apply_then
 from src.story.viewer import Outcome
-from src.story.world import ClipRecord
+from src.story.world import ClipRecord, WorldModel
 from src.story_folder import StoryFolder
 from src.util.timing_log import TimingLog
 
@@ -52,7 +52,12 @@ logger = logging.getLogger(__name__)
 
 class EmitFailed(RuntimeError):
     """Emitting a clip raised; the engine restored the world and cut the beat,
-    and the loop replans the clip."""
+    and the loop replans the clip. `carry` is the viewer's input the beat
+    was answering, for the next plan."""
+
+    def __init__(self, message: str, carry: str = "") -> None:
+        super().__init__(message)
+        self.carry = carry
 
 
 class Emitted(BaseModel):
@@ -92,6 +97,7 @@ class Engine:
         self.timing = timing or TimingLog(None)
         self.folder = folder
         self.world = folder.world
+        self.history = folder.history
         self.frame_zero = folder.frame_zero
         self.viewer = folder.viewer
         # Now's own attempts are its retries (`now_agent.ATTEMPTS`); Then
@@ -101,9 +107,10 @@ class Engine:
         self.llm_then = OpenAIBackend(model=config.then_model, reasoning_effort=config.then_reasoning_effort,
                                       timeout_s=config.then_timeout_s, retries=config.then_retries)
         # Each emitted clip until it goes on air: the world as of it, its
-        # record, what it did with the viewer's inputs, and which of those
-        # were staged before it. Committed then, dropped if it never airs.
-        self._on_air: dict[int, tuple[str, str, list[Outcome], list[Outcome]]] = {}
+        # record, what it did with the viewer's inputs, which of those were
+        # staged before it, and how many history records its world has
+        # seen. Committed then, dropped if it never airs.
+        self._on_air: dict[int, tuple[str, str, list[Outcome], list[Outcome], int]] = {}
         # What the viewer's memory is owed before anything new happened:
         # the inputs found unanswered at resume, deferred, written with
         # the first clip that airs (so a film that never gets that far
@@ -116,7 +123,12 @@ class Engine:
         self._last_spawn: int = 0
         self._pending_spawn: str | None = None
         self._emit_snapshot: dict | None = None
-        self._landed_since: list[tuple[ThenUpdate, int]] = []
+        # The world as of the last clip emitted, as the JSON its commit
+        # saves, and the Then updates landed since: together what a clip
+        # that never airs rolls back to, so the world is written out once
+        # per clip and never deep-copied.
+        self._base_json = ""
+        self._base_landed: list[tuple[ThenUpdate, int]] = []
         self._beat: BeatPlan | None = None
         self._clip_index: int = 0
         self._beat_no: int = 0
@@ -129,6 +141,7 @@ class Engine:
         self._reseed_note: str = ""
         self._last_spawn = self.world.last_then
         self._resume()
+        self._base_json = self.world.model_dump_json()
 
     def _resume(self) -> None:
         """Pick up where the viewer left off: the picture ends on the last
@@ -200,7 +213,8 @@ class Engine:
         called = time.monotonic()
         try:
             beat, dnotes, calls = await now_agent.run(
-                world=world, viewer=self.viewer, text=text, llm=self.llm_now, config=self.config,
+                world=world, history=self.history, viewer=self.viewer, text=text, llm=self.llm_now,
+                config=self.config,
                 beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
             )
         except BaseException:
@@ -307,29 +321,31 @@ class Engine:
             emitted = await self._emit(clip_no)
         except Exception as exc:
             logger.exception("Emitting clip %s failed; rolling back", clip_no)
-            self._take_back(clip_no)
-            self._restore(snapshot, [])
-            self._cut_after_failure(snapshot, f"emitting it failed ({type(exc).__name__})")
-            raise EmitFailed(f"clip {clip_no}: {type(exc).__name__}: {exc}") from exc
-        self._emit_snapshot, self._landed_since = snapshot, []
+            carry = self._roll_back(snapshot, f"emitting it failed ({type(exc).__name__})")
+            raise EmitFailed(f"clip {clip_no}: {type(exc).__name__}: {exc}", carry=carry) from exc
+        self._emit_snapshot = snapshot
         return emitted
 
     def rollback_clip(self, clip_no: int, reason: str) -> str:
+        """Clip `clip_no`, the last emitted, never reached the viewer: the
+        world goes back to before it, the beat is dropped, and the viewer's
+        input it answered is returned for the next plan."""
         snap = self._emit_snapshot
         if snap is None or snap["clip"] != clip_no:
             logger.warning("No snapshot for clip %s; cannot roll back", clip_no)
             return ""
+        self._emit_snapshot = None
+        return self._roll_back(snap, reason)
+
+    def _roll_back(self, snap: dict, reason: str) -> str:
         carry = []
         if snap["clip_index"] == 0 and snap["beat_input"]:
             carry.append(snap["beat_input"])
         if self._beat is not None and self._clip_index == 0 and self._beat_input and self._beat is not snap["beat_ref"]:
             carry.append(self._beat_input)
-        self._take_back(clip_no)
-        self._restore(snap, self._landed_since)
-        for n in {clip_no, self.world.clip}:
-            self.world.drop_pending_inputs(n)
+        self._take_back(snap["clip"])
+        self._restore(snap)
         self._cut_after_failure(snap, reason)
-        self._emit_snapshot, self._landed_since = None, []
         return " ".join(carry)
 
     def _take_back(self, clip_no: int) -> None:
@@ -342,7 +358,7 @@ class Engine:
     def _snapshot(self, clip_no: int) -> dict:
         return {
             "clip": clip_no,
-            "world": self.world.model_copy(deep=True),
+            "world_json": self._base_json, "landed": list(self._base_landed),
             "beat": self._beat.model_copy(deep=True) if self._beat is not None else None,
             "beat_ref": self._beat,
             "clip_index": self._clip_index, "beat_no": self._beat_no, "beat_input": self._beat_input,
@@ -378,17 +394,23 @@ class Engine:
         except OSError:
             logger.exception("Could not write then record to %s", path)
 
-    def _restore(self, snap: dict, landings: list[tuple[ThenUpdate, int]]) -> None:
+    def _restore(self, snap: dict) -> None:
+        """The world as of the clip before `snap`'s, with every Then update
+        landed since applied again (their viewer part landed once, and
+        stays), and the beat as it was."""
         # Clip ids are never reused, not even a rolled-back clip's.
         clip_counter = self.world.clip_counter
-        self.world = snap["world"]
+        self.world = WorldModel.model_validate_json(snap["world_json"])
         self.world.clip_counter = max(clip_counter, self.world.clip_counter)
+        self.history.truncate(self.world.history_count)
+        landed = snap["landed"] + (self._base_landed if self._base_json is not snap["world_json"] else [])
+        for update, at_clip in landed:
+            apply_then(self.world, self.history, update, at_clip=at_clip)
+        self._base_json, self._base_landed = snap["world_json"], landed
         self._beat, self._clip_index, self._beat_no = snap["beat"], snap["clip_index"], snap["beat_no"]
         self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
         self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
         self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
-        for update, at_clip in landings:
-            apply_then(self.world, update, at_clip=at_clip)
 
     def _cut_after_failure(self, snap: dict, reason: str) -> None:
         beat = self._beat
@@ -444,8 +466,10 @@ class Engine:
             duration=duration,
         ))
         world.trim_clips()
-        self._on_air[clip_no] = (world.model_dump_json(), world.clips[-1].model_dump_json(), heard, staged)
+        world_json = world.model_dump_json()
+        self._on_air[clip_no] = (world_json, world.clips[-1].model_dump_json(), heard, staged, world.history_count)
         self._staged = []
+        self._base_json, self._base_landed = world_json, []
         if first and self._pending_spawn is not None:
             reason, self._pending_spawn = self._pending_spawn, None
             self._spawn_then(reason=reason, at_clip=clip_no)
@@ -490,8 +514,9 @@ class Engine:
         pending = self._on_air.pop(clip_no, None)
         if pending is None:
             return False
-        world_json, clip_json, heard, _ = pending
-        await asyncio.to_thread(self.folder.commit, clip_no, world_json, clip_json, last_frames)
+        world_json, clip_json, heard, _, history_count = pending
+        await asyncio.to_thread(self.folder.commit, clip_no, world_json, clip_json, last_frames,
+                                history_upto=history_count)
         for record in heard:
             self.viewer.add(record)
         return True
@@ -512,13 +537,15 @@ class Engine:
         return None
 
     def _spawn_then(self, *, reason: str, at_clip: int) -> None:
-        snapshot = self.world.model_copy(deep=True)
+        snapshot = WorldModel.model_validate_json(self._on_air[at_clip][0]) if at_clip in self._on_air \
+            else self.world.model_copy(deep=True)
+        history = self.history.view(snapshot.history_count)
         upto = len(self.viewer.records)
 
         async def _task():
             return await then_agent.run(
-                world=snapshot, viewer=self.viewer, upto=upto, scene=self.frame_zero.scene, llm=self.llm_then,
-                config=self.config, mode="summary", clip_seconds=self.shape.delivered_seconds,
+                world=snapshot, history=history, viewer=self.viewer, upto=upto, scene=self.frame_zero.scene,
+                llm=self.llm_then, config=self.config, mode="summary", clip_seconds=self.shape.delivered_seconds,
             )
 
         self._then_meta = (at_clip, reason, upto)
@@ -530,8 +557,9 @@ class Engine:
         self._last_spawn = at_clip
         upto = len(self.viewer.records)
         update = await then_agent.run(
-            world=self.world, viewer=self.viewer, upto=upto, scene=self.frame_zero.scene, llm=self.llm_then,
-            config=self.config, mode="opening", clip_seconds=self.shape.delivered_seconds,
+            world=self.world, history=self.history.view(self.world.history_count), viewer=self.viewer, upto=upto,
+            scene=self.frame_zero.scene, llm=self.llm_then, config=self.config, mode="opening",
+            clip_seconds=self.shape.delivered_seconds,
         )
         self._land(update, at_clip=at_clip, reason=reason, upto=upto)
 
@@ -575,9 +603,9 @@ class Engine:
         if update is None:
             self._then_notes.append(f"then ({reason}): no update (parse failure)")
             return
-        landed = apply_then(self.world, update, at_clip=at_clip)
+        landed = apply_then(self.world, self.history, update, at_clip=at_clip)
         landed += self.viewer.land(update, self.world, at_clip=at_clip, seen=upto)
-        self._landed_since.append((update, at_clip))
+        self._base_landed.append((update, at_clip))
         self._record_then(update, reason=reason, at_clip=at_clip, landed_at=landed_at)
         line = f"then ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
         if landed_at is not None and landed_at > at_clip + 1:

@@ -3,8 +3,11 @@
 Everything Now and Then read comes through here, so the prompt budget
 is decided in one place: active entities in full with each character's
 current state, dormant ones by name (except absent characters the story
-is pointing at, recalled in full), recent clips verbatim, older history
-as summaries. The system prompts (each role's craft, the
+is pointing at, recalled in full), recent clips verbatim, and the past at
+decreasing detail: the most recent summaries, since the last checkpoint,
+the story so far, and the part of the past each thing coming back into
+the story was in (`coming_back`). Every list is capped, so a prompt does
+not grow with the story. The system prompts (each role's craft, the
 content policy, the output contract) never change during a run so the
 API's prompt cache hits; everything that moves, every character
 included, goes into the user prompt.
@@ -12,6 +15,7 @@ included, goes into the user prompt.
 
 from __future__ import annotations
 
+from src.story.history import Checkpoint, History, Summary
 from src.story.viewer import Input, Outcome, ViewerMemory
 from src.story.world import Entity, WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
@@ -56,12 +60,19 @@ def format_notebook(world: WorldModel) -> str:
 PRESENT_IN_FULL = 12
 RECALLED_IN_FULL = 6
 STATE_CHARS = 160
+# Absent characters and props not in the scene listed one line each, the
+# most recently seen first; the rest are counted.
+AWAY_LISTED = 12
 GONE_LISTED = 12
 
 
 def _clip(text: str, n: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= n else text[: n - 1].rstrip() + "…"
+
+
+def _more(items: list, shown: int, what: str) -> str:
+    return f" (+{len(items) - shown} more, {what})" if len(items) > shown else ""
 
 
 def _who(ent: Entity, *, dated: bool) -> list[str]:
@@ -91,16 +102,13 @@ def _character(ent: Entity, portrayed: set[str], lead: list[str]) -> str:
     return " · ".join(bits)
 
 
-def recalled(world: WorldModel, viewer_input: str = "", recent: int = 6,
-             viewer: ViewerMemory | None = None) -> list[Entity]:
-    """Absent characters the story is pointing at: left where the picture
-    is now, or named, or their place named, in what the roles read this
-    call (the viewer's input and Then's understanding of them, Then's
-    notebook, the characters in the scene, the recent clips). Those are
-    shown in full, with the summary of when they were last seen, so a
-    return is written knowing who comes back; the rest stay one line each.
-    Code only matches names: which mentions matter is the roles' judgment,
-    and Then keeps one in reach by naming it."""
+def named_now(world: WorldModel, viewer_input: str = "", recent: int = 6,
+              viewer: ViewerMemory | None = None) -> set[str]:
+    """The entities named in what the roles read this call: the viewer's
+    input, their direction and owed inputs, Then's understanding of them,
+    Then's notebook, the state of what is in the scene, the recent clips.
+    Code only matches names: which mentions matter is the roles'
+    judgment, and Then keeps something in reach by naming it."""
     nb = world.notebook
     texts = [viewer_input, world.direction.text if world.direction else "", nb.alive, nb.intentions]
     understanding = viewer.understanding() if viewer is not None else None
@@ -112,7 +120,14 @@ def recalled(world: WorldModel, viewer_input: str = "", recent: int = 6,
     texts += [f"{e.state} {e.lately}" for e in world.present_entities()]
     for c in world.clips[-recent:] if recent > 0 else []:
         texts += [c.action, c.end_state, *c.dialogue]
-    named = world.mentions(" ".join(t for t in texts if t))
+    return world.mentions(" ".join(t for t in texts if t))
+
+
+def recalled(world: WorldModel, named: set[str]) -> list[Entity]:
+    """Absent characters the story is pointing at: left where the picture
+    is now, or named, or their place named (`named`, from `named_now`).
+    Those are shown in full, so a return is written knowing who comes
+    back; the rest stay one line each."""
     here = world.camera_location
     found = [e for e in world.by_kind("character")
              if not e.present and not e.gone
@@ -169,19 +184,21 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
             if e.state:
                 lead.append(f"then: {_clip(e.state, STATE_CHARS)}")
             out.append(_character(e, portrayed, [b for b in lead if b]))
-    rest = [e for e in away if e.id not in full_ids]
+    rest = sorted((e for e in away if e.id not in full_ids), key=lambda e: -e.last_seen)
     if rest:
         def about(e) -> str:
             bits = [f"last seen clip {e.last_seen}", e.state, where(e)]
             return " (" + ", ".join(b for b in bits if b) + ")"
         out.append(("Other characters" if full else "Characters") + " not in the scene: "
-                   + "; ".join(f"`{e.id}`{about(e)}" for e in rest))
-    dormant = world.dormant_props()
+                   + "; ".join(f"`{e.id}`{about(e)}" for e in rest[:AWAY_LISTED])
+                   + _more(rest, AWAY_LISTED, "seen longer ago"))
+    dormant = sorted(world.dormant_props(), key=lambda e: -e.last_seen)
     if dormant:
         out.append(
             "Dormant props (introduced earlier, not in the scene; fair game for callbacks): "
             + ", ".join(f"`{e.id}` (last seen clip {e.last_seen}"
-                        + (f", left at `{elsewhere(e)}`" if elsewhere(e) else "") + ")" for e in dormant)
+                        + (f", left at `{elsewhere(e)}`" if elsewhere(e) else "") + ")" for e in dormant[:AWAY_LISTED])
+            + _more(dormant, AWAY_LISTED, "seen longer ago")
         )
     gone = world.gone_props()
     if gone:
@@ -197,15 +214,6 @@ MARKS_FOR_NOW = 5
 MARKS_FOR_THEN = 10
 EARLIER_INPUTS_FOR_THEN = 10
 RECENT_MARKS = 2
-
-
-def _in_play(world: WorldModel, recall: list[Entity], text: str = "") -> set[str]:
-    """What the moment touches: everything in the scene, the place, the
-    absent characters recalled, and whatever `text` names."""
-    ids = {e.id for e in world.present_entities()} | {e.id for e in recall} | world.mentions(text)
-    if world.camera_location:
-        ids.add(world.camera_location)
-    return ids
 
 
 def _at(clip: int) -> str:
@@ -307,7 +315,7 @@ def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *
     if understanding:
         out.append("Then's understanding of them (each reading with the inputs it rests on):")
         out.extend(understanding)
-    marks, _ = _marks(viewer, _in_play(world, recall, text), MARKS_FOR_NOW, ids=False)
+    marks, _ = _marks(viewer, in_play(world, world.mentions(text), recall), MARKS_FOR_NOW, ids=False)
     if marks:
         out.append("Their marks on this story that touch the moment (what came from them):")
         out.extend(marks)
@@ -336,7 +344,7 @@ def format_viewer_then(world: WorldModel, viewer: ViewerMemory, *, upto: int, re
         out.extend(_input(viewer, s, full=True) for s in new)
     else:
         out.append("They have said nothing new since." if inputs else "They have said nothing yet.")
-    play = _in_play(world, recall, " ".join(s.text for s in new)) | {e for s in new for e in s.entities}
+    play = in_play(world, world.mentions(" ".join(s.text for s in new)), recall) | {e for s in new for e in s.entities}
     cited = {g for r in u.readings for g in r.grounds} if u else set()
     older = [s for s in inputs if s.id not in new_ids]
     earlier = [s for s in older if s.id in cited or set(s.entities) & play][-EARLIER_INPUTS_FOR_THEN:]
@@ -352,26 +360,111 @@ def format_viewer_then(world: WorldModel, viewer: ViewerMemory, *, upto: int, re
     return "\n".join(out)
 
 
-def format_summaries(world: WorldModel, recent: int = 3, recall: list[Entity] = ()) -> str:
-    """The act summary, the opening, the most recent summaries, and the
-    one in which each recalled character was last seen."""
+# ── The story's past ────────────────────────────────────────────────
+
+SUMMARIES_FOR_NOW = 3
+SUMMARIES_FOR_THEN = 6
+# The part of the past shown for what comes back into the story, at most.
+PAST_FOR_NOW = (2, 3)          # checkpoints, summaries
+PAST_FOR_THEN = (4, 4)
+# The rolling summaries are Then's prose, asked to stay short; a longer
+# one is cut where Now reads it, and Then is told its length.
+STORY_SO_FAR_WORDS = 500
+SINCE_WORDS = 300
+CHECKPOINTS_NAMED = 10
+
+
+def _words(text: str, n: int) -> str:
+    words = text.split()
+    return text if len(words) <= n else " ".join(words[:n]) + " …"
+
+
+def in_play(world: WorldModel, named: set[str], recall: list[Entity] = ()) -> set[str]:
+    """What the moment touches: what is on screen, the place the picture is
+    in, the absent characters recalled, and everything `named`."""
+    ids = {e.id for e in world.present_entities()} | {e.id for e in recall} | named
+    if world.camera_location:
+        ids.add(world.camera_location)
+    return ids
+
+
+def coming_back(world: WorldModel, history: History, play: set[str], *, shown: int) -> list[str]:
+    """What is in play now whose past the roles do not see: it is part of
+    the story's history, but of none of the `shown` most recent summaries.
+    Something that never left (the place the story lives in, a character
+    in every stretch) is in those and never comes back; something that
+    returns after an hour brings its past with it. In story order of when
+    each was last part of it, most recent first."""
+    summaries = history.summaries()
+    visible = {e for s in summaries[-shown:] for e in s.entities} if shown > 0 else set()
+    last: dict[str, int] = {}
+    for r in history.records:
+        for e in r.entities:
+            last[e] = max(last.get(e, 0), r.last_clip if isinstance(r, Summary) else r.at)
+    back = [e for e in play if e in last and e not in visible and e in world.entities]
+    return sorted(back, key=lambda e: -last[e])
+
+
+def _past(history: History, back: list[str], *, shown: int, caps: tuple[int, int]) -> list[tuple[Summary | Checkpoint, list[str]]]:
+    """For each entity coming back, the most recent checkpoint and the
+    most recent summary it was part of (outside the `shown` ones), within
+    `caps`; each record once, with the entities it is shown for, in story
+    order."""
+    summaries = history.summaries()
+    older = summaries[:-shown] if shown > 0 else summaries
+    checkpoints = history.checkpoints()
+    chosen: dict[int, list[str]] = {}
+    left = {"checkpoint": caps[0], "summary": caps[1]}
+    for e in back:
+        for kind, pool in (("checkpoint", checkpoints), ("summary", older)):
+            r = next((r for r in reversed(pool) if e in r.entities), None)
+            if r is None:
+                continue
+            if id(r) in chosen:
+                chosen[id(r)].append(e)
+            elif left[kind] > 0:
+                left[kind] -= 1
+                chosen[id(r)] = [e]
+    by_id = {id(r): r for r in history.records}
+    picked = sorted(chosen, key=lambda i: (by_id[i].first_clip, isinstance(by_id[i], Summary)))
+    return [(by_id[i], chosen[i]) for i in picked]
+
+
+def _span(r: Summary | Checkpoint) -> str:
+    return f'"{r.name}" (clips {r.first_clip}-{r.at})' if isinstance(r, Checkpoint) else \
+        f"Clips {r.first_clip}-{r.last_clip}"
+
+
+def format_memory(world: WorldModel, history: History, back: list[str], *, recent: int,
+                  caps: tuple[int, int]) -> str:
+    """The story's past as a role reads it, oldest first: the story so far
+    (up to the checkpoint it was written at), any checkpoint since that it
+    does not yet hold, the story since the last checkpoint, the part of
+    the past each thing in `back` was in, and the `recent` most recent
+    summaries."""
     out: list[str] = []
-    summaries = world.summaries
-    if summaries:
-        first = summaries[0]
-        out.append(f"Opening (clips {first.first_clip}-{first.last_clip}): {first.text}")
-    shown = summaries[:1] + summaries[-recent:]
-    for s in summaries:
-        last_here = [f"`{e.id}`" for e in recall if s.first_clip <= e.last_seen <= s.last_clip]
-        if last_here and not any(s is x for x in shown):
-            out.append(f"Clips {s.first_clip}-{s.last_clip} (when {', '.join(last_here)} "
-                       f"{'was' if len(last_here) == 1 else 'were'} last seen): {s.text}")
-    if world.act_summary:
-        out.append(f"Act so far: {world.act_summary}")
-    for s in summaries[-recent:]:
-        if s is summaries[0]:
-            continue
-        out.append(f"Clips {s.first_clip}-{s.last_clip}: {s.text}")
+    checkpoints = history.checkpoints()
+    if world.story_so_far:
+        at = world.story_so_far_at
+        name = next((c.name for c in checkpoints if c.at == at), "")
+        out.append(f'The story so far (up to "{name}", clip {at}):\n'
+                   f"{_words(world.story_so_far, STORY_SO_FAR_WORDS)}")
+    for c in checkpoints:
+        if c.at > world.story_so_far_at:
+            out.append(f"{_span(c)}: {c.summary}")
+    last = checkpoints[-1] if checkpoints else None
+    if world.since_checkpoint:
+        first = last.at + 1 if last else 1
+        span = f" (clips {first}-{world.last_summary})" if world.last_summary >= first else ""
+        since = f'Since "{last.name}"' if last else "From the beginning"
+        out.append(f"{since}{span}:\n{_words(world.since_checkpoint, SINCE_WORDS)}")
+    for r, ents in _past(history, back, shown=recent, caps=caps):
+        who = ", ".join(f"`{e}`" for e in ents)
+        out.append(f"{_span(r)}, when {who} {'was' if len(ents) == 1 else 'were'} last part of the story: "
+                   + (r.summary if isinstance(r, Checkpoint) else r.text))
+    summaries = history.summaries()
+    for s in summaries[-recent:] if recent > 0 else []:
+        out.append(f"{_span(s)}: {s.text}")
     return "\n\n".join(out) if out else "(nothing summarised yet; the recent clips are the whole story)"
 
 
@@ -394,11 +487,25 @@ def format_recent(world: WorldModel, count: int) -> str:
     return "\n\n".join(lines)
 
 
-def format_checkpoints(world: WorldModel) -> str:
-    """The checkpoints so far, and the clips a new one can be named at."""
-    out = [f'- "{c.name}" at clip {c.at}' for c in world.checkpoints]
-    out = ["So far:", *out] if out else ["None so far."]
-    first = (world.checkpoints[-1].at if world.checkpoints else 0) + 1
+def format_checkpoints(world: WorldModel, history: History) -> str:
+    """For Then: the checkpoints so far, how long ago the last was, how
+    long the two rolling summaries are, and the clips a new one can be
+    named at."""
+    checkpoints = history.checkpoints()
+    if checkpoints:
+        named = "; ".join(f'"{c.name}" at clip {c.at}' for c in checkpoints[-CHECKPOINTS_NAMED:])
+        earlier = len(checkpoints) - CHECKPOINTS_NAMED
+        out = [f"So far ({len(checkpoints)}): " + (f"{earlier} earlier, then " if earlier > 0 else "") + named + "."]
+        last = checkpoints[-1]
+        out.append(f"The last one is {world.clip - last.at} clips ago.")
+    else:
+        last = None
+        out = [f"None so far: the story has run {world.clip} clips without one."]
+    so_far = len(world.story_so_far.split())
+    out.append((f'The story so far is {so_far} words, written at "{next((c.name for c in checkpoints if c.at == world.story_so_far_at), "")}". '
+                if so_far else "There is no story so far yet. ")
+               + f"Since the last checkpoint is {len(world.since_checkpoint.split())} words.")
+    first = (last.at if last else 0) + 1
     if first <= world.clip:
         out.append(f"A new one can be named at clips {first}-{world.clip}.")
     else:
