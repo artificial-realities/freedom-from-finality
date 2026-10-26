@@ -1,5 +1,4 @@
-Trigger: {reason}
-Segment: {segment} (a segment is {clip_seconds} seconds of story)
+Clip: {clip} (a clip is {clip_seconds} seconds of story)
 
 ## The notebook (as last written)
 {notebook}
@@ -7,8 +6,8 @@ Segment: {segment} (a segment is {clip_seconds} seconds of story)
 ## Story so far
 {summaries}
 
-## Events since the last compaction (newest last)
-{events}
+## Clips since your last run (newest last)
+{clips}
 
 ## World now
 {world_now}
@@ -16,8 +15,8 @@ Segment: {segment} (a segment is {clip_seconds} seconds of story)
 ## The viewer
 {viewer}
 
-## Turning points
-{turning}
+## Checkpoints
+{checkpoints}
 
 {instruction}
 

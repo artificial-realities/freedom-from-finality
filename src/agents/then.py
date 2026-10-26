@@ -1,11 +1,11 @@
 """Then: the slow-clock LLM call, off the critical path.
 
-Runs on triggers (bootstrap or every `compaction_interval` segments)
-and does four things in one call: compresses the event log into
-summaries, rewrites the notebook (characters, seeds, intentions),
+Runs once before the story's first clip and then every `then_every`
+clips, and does four things in one call: summarises the clips since its
+last run, rewrites the notebook (characters, seeds, intentions),
 rewrites its understanding of the viewer and notes their new marks on
-the story, and may name a turning point (an era), which becomes a story
-checkpoint. Its update is applied deterministically at the next join.
+the story, and may name a checkpoint where the story turned. Its update
+is applied deterministically at the first plan that finds it finished.
 """
 
 from __future__ import annotations
@@ -19,13 +19,12 @@ from src.agents._common import call_llm_structured
 from src.i2v.shape import seconds_label
 from src.llm.base import LLMBackend
 from src.models.config import Config
-from src.state.story_state import StoryState
 from src.story.context import (
-    format_events,
+    format_checkpoints,
+    format_clips,
     format_notebook,
     format_policy,
     format_summaries,
-    format_turning_points,
     format_viewer_then,
     format_world_now,
     recalled,
@@ -41,7 +40,7 @@ SYSTEM_PATH: Path = prompt_path("then.system.md")
 USER_PATH: Path = prompt_path("then.user.md")
 
 INSTRUCTIONS = {
-    "bootstrap": (
+    "opening": (
         "The story has not started; there is nothing to summarize. Its first "
         "frame shows: {scene}. Write the opening notebook: for each character "
         "who is present, an empty `personality` (it keeps the one World now "
@@ -50,16 +49,16 @@ INSTRUCTIONS = {
         "seeds you notice in the first frame; and your opening intentions. The "
         "viewer has said nothing yet: no readings and no marks."
     ),
-    "compact": (
-        "Compress the events since the last compaction into `scene_summary`. "
+    "summary": (
+        "Summarise the clips since your last run into `scene_summary`. "
         "Update the act summary if the current phase has changed meaningfully. "
         "Then rewrite the notebook: how each character has been lately, and "
         "whether the story has changed who any of them is at heart; who the "
         "story is following and who else is pulling at it; what is alive, "
         "which seeds remain or are new, and where the story might go. Then "
-        "rewrite your understanding of the viewer from their lines, and record "
+        "rewrite your understanding of the viewer from their inputs, and record "
         "any new mark they have put on the story. Notice whether the story has "
-        "turned since its last turning point."
+        "turned since its last checkpoint."
     ),
 }
 
@@ -69,33 +68,30 @@ async def run(
     world: WorldModel,
     viewer: ViewerMemory,
     upto: int,
-    state: StoryState,
+    scene: str,
     llm: LLMBackend,
     config: Config,
-    reason: str,
     mode: str,
     clip_seconds: float,
-    kept_from: int | None = None,
 ) -> ThenUpdate | None:
     """`viewer` is the viewer's memory and `upto` how many of its records
-    this run reads (what came after is for the next). `kept_from` is the
-    oldest clip whose moment the adventure still keeps, so a turning point
-    can be named there or later (None: nothing kept yet)."""
+    this run reads (what came after is for the next). `scene` is what Frame
+    Zero's first frame shows; `mode` is "opening" for the run before the
+    story's first clip, "summary" for every other."""
     system_prompt = load_prompt(SYSTEM_PATH, policy=format_policy())
-    scene = " ".join(state.story.scene.split()).rstrip(".")
+    scene = " ".join(scene.split()).rstrip(".")
     recall = recalled(world, recent=config.recent_clips, viewer=viewer)
     user_prompt = load_prompt(
         USER_PATH,
-        reason=reason,
-        segment=world.segment,
+        clip=world.clip,
         clip_seconds=seconds_label(clip_seconds),
         notebook=format_notebook(world),
-        summaries=format_summaries(world, scene_limit=6, recall=recall),
-        events=format_events(world, world.last_compacted),
+        summaries=format_summaries(world, recent=6, recall=recall),
+        clips=format_clips(world, world.last_summary),
         world_now=format_world_now(world, recall),
         viewer=format_viewer_then(world, viewer, upto=upto, recall=recall),
-        turning=format_turning_points(world, kept_from),
-        instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["compact"]).format(scene=scene),
+        checkpoints=format_checkpoints(world),
+        instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["summary"]).format(scene=scene),
     )
     parsed = await call_llm_structured(
         agent="then",
@@ -103,7 +99,7 @@ async def run(
         user_prompt=user_prompt,
         llm=llm,
         config=config,
-        turn=world.segment,
+        clip_no=world.clip,
         schema=ThenUpdate,
         max_tokens=config.max_tokens_then,
     )
@@ -112,5 +108,5 @@ async def run(
     try:
         return ThenUpdate(**parsed)
     except ValidationError as exc:
-        logger.warning("Then update validation failed at segment %s: %s", world.segment, exc)
+        logger.warning("Then update validation failed at clip %s: %s", world.clip, exc)
         return None

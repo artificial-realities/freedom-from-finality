@@ -22,12 +22,15 @@ ENV/
 .env.*
 !.env.example
 
-# The viewer's adventure: personal data, never committed (adventure.previous,
-# .incoming and .creating are its copies during a swap or a beginning)
+# The viewer's story: personal data, never committed (story.previous,
+# .incoming and .creating are its copies during a swap or a beginning), and
+# an older FFF's adventure folder
+/story/
+/story.*/
 /adventure/
 /adventure.*/
 
-# Run output: transcripts, timing logs, raw model outputs, the test adventure
+# Run output: each film's transcript, timing log and raw model outputs, the test story
 logs/
 *.log
 

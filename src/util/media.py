@@ -1,5 +1,5 @@
 """Media helpers on ffmpeg: a rendered clip's real length, checked against
-its clip shape, and the still a story checkpoint keeps."""
+its clip shape, and the still of the frames the story stopped on."""
 
 from __future__ import annotations
 
@@ -39,16 +39,8 @@ async def probe_duration(path: str) -> float | None:
         return None
 
 
-def last_frame(video: Path | str, dest: Path | str) -> Path:
-    """The video's last frame as a lossless PNG at `dest`: for the frames a
-    continuation keeps, exactly the picture the next clip goes on from."""
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-an", "-update", "1", "-f", "image2",
-                    str(dest)], capture_output=True, check=True)
-    return Path(dest)
-
-
 def last_frame_png(video: Path | str) -> bytes:
     """The video's last frame as PNG bytes, without writing a file: cheap
-    for the few frames a continuation keeps (they are reversed to reach it)."""
+    for the few frames a saved state keeps (they are reversed to reach it)."""
     return subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-an", "-vf", "reverse", "-frames:v", "1",
                            "-f", "image2pipe", "-c:v", "png", "-"], capture_output=True, check=True).stdout

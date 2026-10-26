@@ -20,7 +20,7 @@ async def call_llm_structured(
     user_prompt: str,
     llm: LLMBackend,
     config: Config,
-    turn: int,
+    clip_no: int,
     schema: type[BaseModel],
     max_tokens: int,
 ) -> dict | None:
@@ -39,6 +39,6 @@ async def call_llm_structured(
     except ValueError:
         parsed = None
     if not isinstance(parsed, dict):
-        logger.warning("agent=%s turn=%s: no structured reply, skipping update", agent, turn)
+        logger.warning("agent=%s clip=%s: no structured reply, skipping update", agent, clip_no)
         return None
     return parsed

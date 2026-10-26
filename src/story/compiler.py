@@ -5,8 +5,8 @@ flowing paragraph with the sound, the camera, who is on screen, the
 action, dialogue in quotes and the image the clip ends on. Every clip
 continues the previous one, so the prompt describes the next few seconds
 of motion, not the picture the conditioning frames already carry: the
-full look of each character goes only on the opening clip of the run,
-which opens on the frame zero's scene; an entity's description goes on
+full look of each character goes only on the opening clip, which opens
+on Frame Zero's scene; an entity's description goes on
 the clip in which it enters the picture (introduced, or back after an
 absence), and an entering entity is never listed as already on screen,
 because the conditioning frames do not have it. Later clips carry the
@@ -25,7 +25,7 @@ the schemas do not.
 
 from __future__ import annotations
 
-from src.models.story import Voice
+from src.models.frame_zero import Voice
 from src.story.schemas import BeatPlan
 from src.story.world import Entity, WorldModel
 
@@ -168,31 +168,31 @@ def _with_article(shot: str) -> str:
     return ("an " if first[0] in "aeiou" else "a ") + shot
 
 
-def previous_picture(world: WorldModel, segment_no: int) -> set[str] | None:
+def previous_picture(world: WorldModel, clip_no: int) -> set[str] | None:
     """The entities in the picture at the end of the previous clip: that
     clip's `on_screen` plus whatever entered during it (introduced then),
     so an entity described as entering once is not described as entering
-    again on the next clip. Before the film's first clip it is the frame
-    zero's character. None when the picture before is not known (a replay
+    again on the next clip. Before the story's first clip it is Frame
+    Zero's character. None when the picture before is not known (a replay
     with a gap)."""
-    if not world.events:
-        first = segment_no <= 1 and world.opening_picture is not None
+    if not world.clips:
+        first = clip_no <= 1 and world.opening_picture is not None
         return set(world.opening_picture) if first else None
-    prev = world.events[-1]
-    if prev.segment != segment_no - 1:
+    prev = world.clips[-1]
+    if prev.clip != clip_no - 1:
         return None
     picture = set(prev.on_screen)
-    picture |= {e.id for e in world.entities.values() if e.first_seen == prev.segment}
+    picture |= {e.id for e in world.entities.values() if e.first_seen == prev.clip}
     return picture
 
 
-def previous_location(world: WorldModel, segment_no: int) -> str | None:
+def previous_location(world: WorldModel, clip_no: int) -> str | None:
     """The location the previous clip ended in, or None when it is not
     known (the opening clip, or a replay with a gap)."""
-    if not world.events:
+    if not world.clips:
         return None
-    prev = world.events[-1]
-    if prev.segment != segment_no - 1 or not prev.location:
+    prev = world.clips[-1]
+    if prev.clip != clip_no - 1 or not prev.location:
         return None
     return prev.location
 
@@ -204,20 +204,20 @@ def compile_clip(
     *,
     scene: str = "",
     opening: bool = False,
-    segment_no: int = 0,
+    clip_no: int = 0,
 ) -> str:
-    """The prompt for clip `index` of `beat`. `opening` marks the first
-    clip of a run: the renderer seeds it from the reference image, so it
+    """The prompt for clip `index` of `beat`. `opening` marks the story's
+    first clip: the renderer seeds it from the reference image, so it
     carries the full looks and opens on `scene`, what that image shows.
-    `segment_no` is the clip's segment: an entity introduced in it, or
-    on screen now but not in the previous clip's picture (read from the
-    world's event log), enters during this clip and is described then."""
+    `clip_no` is the clip's number: an entity introduced in it, or on
+    screen now but not in the previous clip's picture (read from the
+    world's recent clips), enters during this clip and is described then."""
     clip = beat.clips[index]
     parts: list[str] = []
     here = world.current_location()
     place = here if here is not None and here.look.strip() else None
     arriving = (place is not None and not opening
-                and previous_location(world, segment_no) not in (None, place.id))
+                and previous_location(world, clip_no) not in (None, place.id))
     if place is not None and not arriving:
         parts.append(f"Setting: {describe(place, full=opening)}.")
     if clip.ambient_sound.strip():
@@ -238,18 +238,18 @@ def compile_clip(
         if e is not None and e.kind != "location" and e.id not in seen:
             seen.add(e.id)
             ents.append(e)
-    # Who enters the picture during this clip: introduced in this segment
+    # Who enters the picture during this clip: introduced in this clip
     # (listed by Now or not: the world has it present), or on
     # screen now without having been in the previous clip's picture.
-    previous = previous_picture(world, segment_no)
+    previous = previous_picture(world, clip_no)
     entering: list[Entity] = []
     staying: list[Entity] = []
     for e in ents:
-        new = (segment_no > 0 and e.first_seen == segment_no) or (previous is not None and e.id not in previous)
+        new = (clip_no > 0 and e.first_seen == clip_no) or (previous is not None and e.id not in previous)
         (entering if new else staying).append(e)
-    if segment_no > 0:
+    if clip_no > 0:
         for e in world.entities.values():
-            if (e.first_seen == segment_no and e.present and not e.gone
+            if (e.first_seen == clip_no and e.present and not e.gone
                     and e.kind != "location" and e.id not in seen):
                 entering.append(e)
     entering.sort(key=lambda e: e.kind != "character")  # characters first

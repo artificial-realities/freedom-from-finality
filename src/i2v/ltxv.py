@@ -5,16 +5,16 @@ sliding window: it keeps the tail of each generated clip in memory and
 conditions the next one on it. This backend sends a prompt and downloads
 the returned MP4, which already carries its sound.
 
-A run's first call starts a session on the server from one of two
-things: the reference image, when the adventure is new, or the frames the
+A film's first call starts a session on the server from one of two
+things: the reference image, when the story is new, or the frames the
 picture continues from (`resume_from`), when it resumes. After that only
 prompts go over the wire. If the server restarts and loses its session,
 the client starts it again from the last clip's tail, so the picture
 continues; only with no tail to read does it re-seed from the reference.
 
 Clips are temporary: each is written under `output_dir`, named by its clip
-id, for the player to show and the adventure to cut its last frames from
-(`cut_window`); the runner deletes it once it has played.
+id, for the player to show and the story to cut its last frames from
+(`cut_last_frames`); the runner deletes it once it has played.
 """
 
 from __future__ import annotations
@@ -76,8 +76,8 @@ class LtxvI2V(I2VBackend):
         self._last_clip: str | None = None
         self.continuity_strength = continuity_strength
         self.continuity_frames = WINDOW_FRAMES
-        # Every clip's seed is derived from this key (the adventure id) and
-        # its segment (`derive_seed`); "" → the server draws one.
+        # Every clip's noise seed is derived from this key (the story's id)
+        # and its clip number (`derive_seed`); "" → the server draws one.
         self.seed_key = seed_key
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -88,10 +88,10 @@ class LtxvI2V(I2VBackend):
         self._frame_rate: float | None = None
         self._size: tuple[int, int] | None = None
 
-    def resume_from(self, window: Path | str) -> None:
-        """Continue the picture from `window` (frames saved by `cut_window`)
-        instead of starting from the reference image."""
-        self._last_clip = str(window)
+    def resume_from(self, last_frames: Path | str) -> None:
+        """Continue the picture from `last_frames` (saved by
+        `cut_last_frames`) instead of starting from the reference image."""
+        self._last_clip = str(last_frames)
 
     def _tail_frames(self, path: str, count: int) -> list[str]:
         try:
@@ -187,25 +187,25 @@ class LtxvI2V(I2VBackend):
         *,
         image_path: Path | str,
         prompt: str,
-        turn: int,
+        clip_no: int,
         shape: ClipShape,
         clip_id: int | None = None,
         parent_clip_id: int | None = None,
     ) -> str | None:
         try:
             return await asyncio.to_thread(
-                self._synthesize_sync, image_path, prompt, turn, shape,
+                self._synthesize_sync, image_path, prompt, clip_no, shape,
                 clip_id=clip_id, parent_clip_id=parent_clip_id,
             )
         except Exception as exc:
-            logger.exception("LTX-2.5 render failed on turn %s: %s", turn, exc)
+            logger.exception("LTX-2.5 render failed on clip %s: %s", clip_no, exc)
             return None
 
     def _synthesize_sync(
         self,
         image_path: Path | str,
         prompt: str,
-        turn: int,
+        clip_no: int,
         shape: ClipShape,
         *,
         clip_id: int | None = None,
@@ -223,11 +223,11 @@ class LtxvI2V(I2VBackend):
             "num_frames": shape.render_frames,
         }
         if self.seed_key:
-            payload["seed"] = derive_seed(self.seed_key, turn)
+            payload["seed"] = derive_seed(self.seed_key, clip_no)
         window: list[str] = []
         if not self._initialized:
             # A new session: from the frames the picture continues from when
-            # the adventure resumes, from the reference when it is new (or
+            # the story resumes, from the reference when it is new (or
             # those frames cannot be read, which resets the picture).
             payload["start"] = True
             window = self._tail_frames(self._last_clip, self.continuity_frames) if self._last_clip else []
@@ -285,8 +285,8 @@ class LtxvI2V(I2VBackend):
                             **render_headers(resp.headers)}
         if resp.status_code != 200:
             logger.warning(
-                "LTX-2.5 server returned %s on turn %s: %s",
-                resp.status_code, turn, resp.text[:300],
+                "LTX-2.5 server returned %s on clip %s: %s",
+                resp.status_code, clip_no, resp.text[:300],
             )
             return None
 
@@ -295,13 +295,13 @@ class LtxvI2V(I2VBackend):
         if clip_id is not None:
             out_path = self.output_dir / f"clip_{clip_id:06d}.mp4"
         else:
-            out_path = self.output_dir / f"turn_{turn:04d}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+            out_path = self.output_dir / f"n{clip_no:06d}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         out_path.write_bytes(resp.content)
         self._last_clip = str(out_path)
 
         logger.info(
-            "LTX-2.5 turn %d rendered in %ss + %ss encode (%ss clip, audio=%s) → %s",
-            turn,
+            "LTX-2.5 clip %d rendered in %ss + %ss encode (%ss clip, audio=%s) → %s",
+            clip_no,
             resp.headers.get("X-Latency-S", "?"),
             resp.headers.get("X-Encode-S", "?"),
             resp.headers.get("X-Duration-S", "?"),
@@ -311,7 +311,7 @@ class LtxvI2V(I2VBackend):
         return str(out_path)
 
 
-def cut_window(clip: Path | str, dest: Path | str, *, fps: float, frames: int = WINDOW_FRAMES) -> Path:
+def cut_last_frames(clip: Path | str, dest: Path | str, *, fps: float, frames: int = WINDOW_FRAMES) -> Path:
     """The clip's last `frames` frames, exactly as they decode, in a small
     lossless file: all the renderer needs to continue the picture, since
     each clip is conditioned on the previous one's last WINDOW_FRAMES
@@ -361,12 +361,12 @@ def render_headers(headers) -> dict:
     return out
 
 
-def derive_seed(key: str, segment: int) -> int:
-    """The render seed of `segment` under `key` (the session id): a stable
-    32-bit hash, the same in every process, different for every segment
-    and every key. Never one fixed seed for every clip (repeated noise
+def derive_seed(key: str, clip_no: int) -> int:
+    """The noise seed of clip `clip_no` under `key` (the story's id): a
+    stable 32-bit hash, the same in every process, different for every
+    clip and every key. Never one fixed seed for every clip (repeated noise
     texture); never random (irreproducible)."""
-    digest = hashlib.sha256(f"{key}:{segment}".encode("utf-8")).digest()
+    digest = hashlib.sha256(f"{key}:{clip_no}".encode("utf-8")).digest()
     return int.from_bytes(digest[:4], "big")
 
 

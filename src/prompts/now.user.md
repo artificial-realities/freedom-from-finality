@@ -1,4 +1,4 @@
-Segment {segment}
+Clip {clip}
 
 ## The notebook
 {notebook}
@@ -18,4 +18,4 @@ Segment {segment}
 ## Where the picture is
 {beat_status}
 
-Continue the story now, starting at segment {segment}, as a single JSON object.
+Continue the story now, starting at clip {clip}, as a single JSON object.

@@ -44,7 +44,7 @@ class I2VBackend(ABC):
         *,
         image_path: Path | str,
         prompt: str,
-        turn: int,
+        clip_no: int,
         shape: ClipShape,
         clip_id: int | None = None,
         parent_clip_id: int | None = None,

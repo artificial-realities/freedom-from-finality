@@ -4,17 +4,17 @@
 #
 #   server/vast_run.sh up [OFFER_ID]               rent (the cheapest matching H100 unless given), install,
 #                                                  start the server, open the tunnel, wait until it is ready
-#   server/vast_run.sh run [config] [args...]      your adventure ON the box; its story map comes back on localhost:8765
-#   server/vast_run.sh pull [local_dir]            bring your adventure home, and fetch the run's logs
+#   server/vast_run.sh run [config] [args...]      your story ON the box; its page comes back on localhost:8765
+#   server/vast_run.sh pull [local_dir]            bring your story home, and fetch the run's logs
 #   server/vast_run.sh restart                     restart the server on the same box and wait until it is ready
 #   server/vast_run.sh status                      instance state and server health
-#   server/vast_run.sh down                        bring your adventure home, close the tunnel, destroy the instance
+#   server/vast_run.sh down                        bring your story home, close the tunnel, destroy the instance
 #
-# The film runs on the box, but your adventure lives here: `run` copies it
-# to the box first, brings it back every minute and when the film stops,
-# and `down` brings it back before the box is destroyed. A copy coming back
-# replaces yours only if it is the same adventure and not behind it
-# (`main.py adopt`); the one it replaces is kept as adventure.previous.
+# The film runs on the box, but your story lives here: `run` copies it to
+# the box first, brings it back every minute and when the film stops, and
+# `down` brings it back before the box is destroyed. A copy coming back
+# replaces yours only if it is the same story and not behind it
+# (`main.py adopt`); the one it replaces is kept as story.previous.
 #
 # Needs VAST_API_KEY, HF_TOKEN and OPENAI_API_KEY in .env, the `vastai` CLI,
 # and your ssh public key registered on Vast (`vastai create ssh-key "$(cat ~/.ssh/id_ed25519.pub)"`).
@@ -31,7 +31,7 @@ need() {
 }
 STATE=logs/vast; mkdir -p "$STATE"
 CONFIG=configs/video.yaml
-ADVENTURE=adventure
+STORY=story
 PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 IMAGE=pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel
 # H100 SXM and NVL: cheaper than the PCIe on Vast and ~1.3x faster on this compute-bound model.
@@ -46,29 +46,30 @@ field() { instance_json | python3 -c "import json,sys; print(json.load(sys.stdin
 ssh_cmd() { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" "$@"; }
 box_rsync() { rsync -a --exclude .lock -e "ssh -p $(cat "$STATE/port") -o StrictHostKeyChecking=no -o ConnectTimeout=15" "$@"; }
 
-# Bring the box's copy of the adventure home: it lands next to yours and
-# replaces it only if it is the same adventure and not behind. Fails when
-# the box cannot be reached or the copy is refused; nothing on the box is fine.
-pull_adventure() {
+# Bring the box's copy of the story home: it lands next to yours and
+# replaces it only if it is the same story and not behind. Fails when the
+# box cannot be reached or the copy is refused; nothing on the box is fine.
+pull_story() {
   local code=0
-  ssh_cmd "test -f /root/film/$ADVENTURE/adventure.json" || code=$?
+  ssh_cmd "test -f /root/film/$STORY/story.json" || code=$?
   [ "$code" = 1 ] && return 0
-  [ "$code" = 0 ] || { echo "the box cannot be reached; your adventure was not brought home" >&2; return "$code"; }
-  rm -rf "$ADVENTURE.incoming"
-  # Files yours already has are linked from it, not sent again: only what
-  # changed crosses the network, however many checkpoints the adventure keeps.
-  local link=()
-  [ -d "$ADVENTURE" ] && link=(--link-dest "$PWD/$ADVENTURE")
-  box_rsync ${link[@]+"${link[@]}"} "root@$(cat "$STATE/host"):/root/film/$ADVENTURE/" "$ADVENTURE.incoming/"
-  "$PY" main.py adopt "$ADVENTURE.incoming" --adventure "$ADVENTURE"
+  [ "$code" = 0 ] || { echo "the box cannot be reached; your story was not brought home" >&2; return "$code"; }
+  rm -rf "$STORY.incoming"
+  # Yours is the basis for the transfer: only what changed crosses the
+  # network (the logs that grow are sent as their new lines). Copied, not
+  # linked, so the story that is replaced keeps files of its own.
+  local basis=()
+  [ -d "$STORY" ] && basis=(--copy-dest "$PWD/$STORY")
+  box_rsync ${basis[@]+"${basis[@]}"} "root@$(cat "$STATE/host"):/root/film/$STORY/" "$STORY.incoming/"
+  "$PY" main.py adopt "$STORY.incoming" --story "$STORY"
 }
-# Your adventure to the box, so the film there resumes it (it begins a new
-# one only when you have none).
-push_adventure() {
-  [ -f "$ADVENTURE/adventure.json" ] || return 0
+# Your story to the box, so the film there resumes it (it begins a new one
+# only when you have none).
+push_story() {
+  [ -f "$STORY/story.json" ] || return 0
   ssh_cmd "mkdir -p /root/film"
-  box_rsync --delete "$ADVENTURE/" "root@$(cat "$STATE/host"):/root/film/$ADVENTURE/"
-  echo "your adventure is on the box"
+  box_rsync --delete "$STORY/" "root@$(cat "$STATE/host"):/root/film/$STORY/"
+  echo "your story is on the box"
 }
 # The frame counts the server warms come from the client's clip shape, so they are never typed twice.
 server_env() { echo "HF_TOKEN=$HF_TOKEN LTX2_WARMUP_FRAMES=$(python3 -W ignore::RuntimeWarning -m src.i2v.shape "$CONFIG")"; }
@@ -127,8 +128,8 @@ run() {
   # The film runs on the GPU box next to the server, so no clip crosses the
   # internet (an MP4 through the tunnel cost 1.5-4.6 s per clip). The working
   # tree goes over with git archive (tracked files, committed or not), the
-  # OpenAI key from .env, and the story map comes back through ssh on localhost:8765.
-  # Extra arguments reach main.py (e.g. --segments 8). Ctrl+C stops the film.
+  # OpenAI key from .env, and the film page comes back through ssh on localhost:8765.
+  # Extra arguments reach main.py (e.g. --clips 8). Ctrl+C ends the session.
   local config=${1:-$CONFIG}; shift $(( $# > 0 ? 1 : 0 ))
   local tree; tree=$(git stash create); git archive --format=tar "${tree:-HEAD}" | ssh_cmd "mkdir -p /root/film && tar -x -C /root/film"
   # Only the client's key goes over (the box is someone else's machine).
@@ -137,18 +138,18 @@ run() {
   # Anything a run before this one left on the box comes home first (a copy
   # behind yours is refused, and yours replaces it); then yours goes over.
   # Without it on the box the film would begin anew.
-  pull_adventure || true
-  push_adventure
-  ( while sleep 60; do pull_adventure >/dev/null 2>&1 || true; done ) &
+  pull_story || true
+  push_story
+  ( while sleep 60; do pull_story >/dev/null 2>&1 || true; done ) &
   local syncer=$!
-  trap 'kill '"$syncer"' 2>/dev/null; wait '"$syncer"' 2>/dev/null; pull_adventure && echo "your adventure is home"' EXIT
-  echo "your adventure runs on the box: open its story map at http://127.0.0.1:8765/  (Ctrl+C ends the session; fetch its logs with: $0 pull)"
+  trap 'kill '"$syncer"' 2>/dev/null; wait '"$syncer"' 2>/dev/null; pull_story && echo "your story is home"' EXIT
+  echo "your story runs on the box: open http://127.0.0.1:8765/  (Ctrl+C ends the session; fetch its logs with: $0 pull)"
   ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -L 8765:localhost:8765 -p "$(cat "$STATE/port")" "root@$(cat "$STATE/host")" \
     "cd /root/film && python main.py play --config $config $*"
 }
 pull() {
-  # Bring the adventure home, and fetch the box's logs (transcripts, timing logs).
-  pull_adventure
+  # Bring the story home, and fetch the box's logs (transcripts, timing logs).
+  pull_story
   local local_dir=${1:-logs/box}
   mkdir -p "$local_dir"
   rsync -az -e "ssh -p $(cat "$STATE/port") -o StrictHostKeyChecking=no" "root@$(cat "$STATE/host"):/root/film/logs/" "$local_dir/"
@@ -160,8 +161,8 @@ status() {
 }
 down() {
   need VAST_API_KEY
-  if [ -f "$STATE/id" ] && ! pull_adventure; then
-    read -r -p "Your adventure could not be brought home from the box. Destroy the box anyway? [y/N] " answer
+  if [ -f "$STATE/id" ] && ! pull_story; then
+    read -r -p "Your story could not be brought home from the box. Destroy the box anyway? [y/N] " answer
     [ "$answer" = y ] || { echo "the box keeps running (and billing): try $0 pull, then $0 down" >&2; exit 1; }
   fi
   pkill -f "ssh -f -N .* -L 8000:localhost:8000" 2>/dev/null || true

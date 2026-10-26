@@ -4,7 +4,7 @@ A `ClipShape` is a clip's length in frames, fixed before the clip is
 planned: the frames the server renders, the frames at its head that
 repeat the previous clip's tail (the continuity window), and the frames
 the viewer is given. Everything that needs a clip's length reads the
-run's shape: Now's prompt, the engine's event record and story
+run's shape: Now's prompt, the engine's clip record and story
 clock, the render request, the player's hold. Nothing derives a length
 from seconds anywhere else.
 

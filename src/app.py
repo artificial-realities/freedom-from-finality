@@ -1,13 +1,12 @@
-"""The app: the story map first, then a film from where the viewer chooses.
+"""The app: the film page, and a film each time the viewer begins or
+continues the story.
 
-`python main.py play` opens the adventure and serves its story map.
-Nothing renders and no model is called until the viewer picks where the
-story goes on: a timeline's latest position, a story checkpoint (a new
-timeline from that moment) or the frame zero (a new timeline from the
-first frame; the first time, the adventure itself begins there). The
-film plays until the viewer goes back to the map, it has played
-`--segments` clips or it fails, and the map is shown again, up to date.
-Ctrl+C ends the session; the adventure is saved as of the clip on air.
+`python main.py play` opens the viewer's story and serves the film page.
+Nothing renders and no model is called until the viewer presses Begin
+(the first time) or Continue. The film plays until the viewer stops it,
+no page has been open for PAGELESS_STOP_S seconds, it has played
+`--clips` clips or it fails; then the page offers Continue again. Ctrl+C
+ends the session; the story is saved as of the clip on air.
 """
 
 from __future__ import annotations
@@ -17,128 +16,128 @@ import logging
 import mimetypes
 from pathlib import Path
 
-from src import story_map
-from src.adventure import ORIGIN, Adventure, AdventureError
 from src.i2v.ltxv import ReferenceRefused
 from src.i2v.shape import RendererNotReady
 from src.models.config import Config
 from src.preflight import check_setup
 from src.runner import run_live
+from src.story_folder import StoryFolder, StoryFolderError
 from src.util.media import last_frame_png
 from src.web import WebPlayer
 
 logger = logging.getLogger(__name__)
 
+# A film nobody is watching stops after this long without a page open, so
+# a closed tab does not keep it running (and calling Now). It says nothing
+# about the viewer: nothing of it reaches the story or their memory.
+PAGELESS_STOP_S = 60.0
+
 
 class App:
-    """One session of one adventure. `state` is where the viewer is: on
-    the `map`, a film `starting` (set up, checked) or `playing`; `notice`
-    what the map says about the last attempt (empty: nothing to say)."""
+    """One session of the viewer's story. `film` is where it is: `stopped`
+    (the page offers Begin or Continue), `starting` (set up, checked) or
+    `playing`; `notice` what the page says about the last film (empty:
+    nothing to say)."""
 
-    def __init__(self, *, config: Config, adventure: Adventure, log_dir: Path | str,
-                 host: str, port: int, max_segments: int | None = None) -> None:
+    def __init__(self, *, config: Config, folder: StoryFolder, log_dir: Path | str,
+                 host: str, port: int, max_clips: int | None = None) -> None:
         self.config = config
-        self.adventure = adventure
+        self.folder = folder
         self.log_dir = Path(log_dir)
-        self.max_segments = max_segments
+        self.max_clips = max_clips
         self.player = WebPlayer(host=host, port=port, app=self)
-        self.state = "map"
+        self.film = "stopped"
         self.notice = ""
-        self._choices: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        self._requests: asyncio.Queue[None] = asyncio.Queue()
         self._film: asyncio.Task | None = None
         self._stop_asked = False
-        # The last still drawn for each timeline's latest position, by its frames' file and time.
-        self._heads: dict[str, tuple[tuple[str, float], bytes]] = {}
+        self._pageless: asyncio.TimerHandle | None = None
+        self._pageless_stop = False
+        # The still last drawn from the saved frames, by their file and time.
+        self._still: tuple[tuple[str, float], bytes] | None = None
 
     async def run(self) -> None:
         await self.player.serve()
-        print("That is your story map: continue a timeline, or go back to a moment and take another way. "
-              "Ctrl+C ends the session.", flush=True)
+        print("Press Begin (or Continue) on that page to play your story. Ctrl+C ends the session.", flush=True)
         try:
             while True:
-                how, target = await self._choices.get()
-                await self._play(how, target)
+                await self._requests.get()
+                await self._play()
         finally:
             await self.player.close()
 
     # ── What the page asks ──────────────────────────────────────────
 
     def status(self) -> dict:
-        return {"state": self.state, "notice": self.notice, "timeline": self.adventure.manifest.timeline}
+        last = self.folder.last
+        return {"film": self.film, "notice": self.notice, "clip": last.clip if last else 0,
+                "still": self.config.video_enabled, "last": last.action if last else ""}
 
-    def map(self) -> dict:
-        return story_map.build(self.adventure, playing=self.state != "map",
-                               clip_seconds=self.config.clip_seconds).model_dump(mode="json")
-
-    def still(self, key: str) -> tuple[Path | bytes, str] | None:
-        """The picture at /still/`key`, found among the adventure's own;
-        nothing from the request becomes a path."""
-        if key == ORIGIN:
-            path = self.adventure.origin_image()
-            return (path, mimetypes.guess_type(path.name)[0] or "image/jpeg") if path is not None else None
-        known = {t.id for t in self.adventure.timelines()}
-        what, _, rest = key.partition("/")
-        if what == "head" and rest in known:
-            return self._head_still(rest)
-        if what in known and rest.isdigit():
-            for folder, cp in self.adventure.checkpoints(what):
-                if cp.segment == int(rest) and (folder / "still.png").exists():
-                    return folder / "still.png", "image/png"
-        return None
-
-    def _head_still(self, timeline: str) -> tuple[bytes, str] | None:
-        head = self.adventure.head(timeline)
-        window = head[0] / "window.mp4" if head is not None else None
+    def still(self) -> tuple[Path | bytes, str] | None:
+        """The picture the story stopped on: the last of the frames saved
+        with the last clip seen, or Frame Zero's image before the first."""
+        if not self.config.video_enabled:
+            return None
+        frames = self.folder.last_frames
+        if frames is None:
+            path = self.folder.frame_zero_image()
+            return (path, mimetypes.guess_type(path.name)[0] or "image/png") if path is not None else None
         try:
-            key = (str(window), window.stat().st_mtime) if window is not None else None
+            key = (str(frames), frames.stat().st_mtime)
         except OSError:
             return None
-        if key is None:
-            return None
-        cached = self._heads.get(timeline)
-        if cached is None or cached[0] != key:
+        if self._still is None or self._still[0] != key:
             try:
-                cached = (key, last_frame_png(window))
+                self._still = (key, last_frame_png(frames))
             except Exception as exc:
-                logger.warning("No still for the latest position of %s: %s", timeline, exc)
+                logger.warning("No still of the saved frames: %s", exc)
                 return None
-            self._heads[timeline] = cached
-        return cached[1], "image/png"
+        return self._still[1], "image/png"
 
-    def choose(self, how: str, target: str) -> tuple[int, str] | None:
-        """The viewer picked where the story goes on: refused (a status and
-        why) unless the map is showing and the place is the adventure's."""
-        if self.state != "map":
-            return 409, "the story is already playing; go back to the map first"
-        timelines = self.adventure.timelines()
-        if how == "continue" and target not in {t.id for t in timelines}:
-            return 404, "there is no such timeline"
-        if how == "branch" and target != ORIGIN and target not in {
-                f"{t.id}/{cp.segment}" for t in timelines for _, cp in self.adventure.checkpoints(t.id)}:
-            return 404, "there is no such checkpoint"
-        self.state, self.notice, self._stop_asked = "starting", "", False
-        self._choices.put_nowait((how, target))
+    def play(self) -> tuple[int, str] | None:
+        """The viewer pressed Begin or Continue: refused (a status and why)
+        while a film is already on."""
+        if self.film != "stopped":
+            return 409, "the film is already playing"
+        self.film, self.notice, self._stop_asked, self._pageless_stop = "starting", "", False, False
+        self._requests.put_nowait(None)
         self.player.status_changed()
         return None
 
     def stop(self) -> None:
-        """Back to the map: the film ends, saved as of the clip on air."""
+        """The film ends, saved as of the clip on air."""
         self._stop_asked = True
         if self._film is not None:
             self._film.cancel()
 
+    def pages_changed(self, pages: int) -> None:
+        """A film page connected or went away. With none left the film
+        stops after PAGELESS_STOP_S, unless one comes back first."""
+        if pages > 0 or self.film == "stopped":
+            if self._pageless is not None:
+                self._pageless.cancel()
+                self._pageless = None
+            return
+        if self._pageless is None:
+            self._pageless = asyncio.get_running_loop().call_later(PAGELESS_STOP_S, self._nobody_watching)
+
+    def _nobody_watching(self) -> None:
+        self._pageless = None
+        if self.film != "stopped":
+            logger.info("No page has been open for %.0f s; stopping the film", PAGELESS_STOP_S)
+            self._pageless_stop = True
+            self.stop()
+
     # ── A film ──────────────────────────────────────────────────────
 
-    async def _play(self, how: str, target: str) -> None:
+    async def _play(self) -> None:
         try:
-            if how == "branch":
-                self.adventure.branch(target)
-            else:
-                self.adventure.enter(target)
-        except (AdventureError, OSError, ValueError) as exc:
-            self._back(f"Could not go there: {exc}")
+            # From disk: nothing a film prepared beyond the screen carries over.
+            self.folder.reload()
+        except (StoryFolderError, OSError, ValueError) as exc:
+            self._back(f"Could not open your story: {exc}")
             return
-        errors = [f.message for f in check_setup(self.config, self.adventure.origin, probe_server=False)
+        errors = [f.message for f in check_setup(self.config, self.folder.frame_zero, probe_server=False)
                   if f.level == "error"]
         if errors:
             self._back("The film cannot start: " + " ".join(errors))
@@ -146,10 +145,11 @@ class App:
         if self._stop_asked:
             self._back("")
             return
-        self.state = "playing"
+        self.film = "playing"
         self.player.status_changed()
-        film = asyncio.create_task(run_live(config=self.config, adventure=self.adventure, log_dir=self.log_dir,
-                                            player=self.player, max_segments=self.max_segments))
+        self.pages_changed(self.player.pages)
+        film = asyncio.create_task(run_live(config=self.config, folder=self.folder, log_dir=self.log_dir,
+                                            player=self.player, max_clips=self.max_clips))
         self._film = film
         try:
             await asyncio.wait({film})
@@ -166,11 +166,15 @@ class App:
         elif exc is not None:
             logger.error("The film stopped", exc_info=exc)
             self._back(f"The film stopped: {exc}")
+        elif self._pageless_stop:
+            self._back(f"The film stopped after {PAGELESS_STOP_S:.0f} s with no page open; "
+                       "your story is saved as of the clip on air.")
         else:
             self._back("")
 
     def _back(self, notice: str) -> None:
-        self.state, self.notice = "map", notice
+        self.film, self.notice = "stopped", notice
         if notice:
             print(notice, flush=True)
+        self.pages_changed(self.player.pages)
         self.player.status_changed()

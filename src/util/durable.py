@@ -1,4 +1,4 @@
-"""Writes that survive a crash: the adventure is meant to last a lifetime.
+"""Writes that survive a crash: the story is meant to last a lifetime.
 
 Append-only logs get one record per line, synced before the call returns,
 each on a line of its own, so a write cut off by a crash damages only

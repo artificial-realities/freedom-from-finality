@@ -14,7 +14,7 @@ A man drawn in black lines stands alone in an empty white world. Two LLM roles â
 ```
 
 - **A story with a life of its own.** Two LLM roles write the film over a typed world model (characters, props, locations, an event log) that only code changes. Now writes one beat per call; Then keeps the story's memory in the background, never holding up the picture. The story keeps moving when nobody types.
-- **Suggestions, not commands.** A typed line is taken up in the story's own way, maybe with a twist, a character who resists, or a consequence that comes later. It reaches the screen about two clips after you type it.
+- **Suggestions, not commands.** What you type is taken up in the story's own way, maybe with a twist, a character who resists, or a consequence that comes later. It reaches the screen about two clips after you type it.
 - **One continuous picture.** [LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5-Diffusers) renders every clip just in time on a GPU you host, each one conditioned on the last frames of the one before, so the film never cuts back to a fresh start. All the sound, the characters' voices included, comes from the video model.
 
 ## Run it
@@ -33,21 +33,21 @@ With a [Vast.ai](https://vast.ai) key it is three commands:
 
 ```bash
 server/vast_run.sh up             # rent an H100, start the server (5-20 min the first time)
-server/vast_run.sh run            # your story map on it: open http://127.0.0.1:8765/
-server/vast_run.sh down           # bring your adventure home and stop paying
+server/vast_run.sh run            # your story on it: open http://127.0.0.1:8765/ and press Begin
+server/vast_run.sh down           # bring your story home and stop paying
 ```
 
-On a machine with its own GPU, start the server there and run `python main.py play`, then open http://127.0.0.1:8765/. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: every line typed into it is billed to your OpenAI key.
+On a machine with its own GPU, start the server there and run `python main.py play`, then open http://127.0.0.1:8765/. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: everything typed into it is billed to your OpenAI key.
 
-## Your adventure
+## Your story
 
-There is one adventure, and it never ends. Every session opens on its story map, with nothing rendering until you choose where the story goes on. The first time, the map holds only the first frame, and the adventure begins there. After that the map shows the journey so far: the moments where the story turned (story checkpoints, recognised by Then), each timeline and where it stands now. Continue a timeline from the last moment you saw, with its world, its characters, everything that has happened and what the story has learned about you; or go back to a checkpoint, or to the first frame, and take the story another way in a new timeline. Nothing is lost: every timeline stays on the map and can be continued. The film has a Map button that brings you back. It lives in the `adventure/` folder on your computer (never in git): copy the folder to back it up or move it to another computer. When the film runs on a rented GPU, `server/vast_run.sh` copies it there before the session and brings it home every minute and when the session ends.
+There is one story, and it never ends. The page opens on the picture it stopped on: press **Begin** the first time, and **Continue** after that, and it goes on from the last clip you saw, with its world, its characters, everything that has happened and what the story has learned about you. **Stop** ends the film and saves it; so does closing the page (after a minute) or Ctrl+C. The story lives in the `story/` folder on your computer (never in git): copy the folder to back it up or move it to another computer. When the film runs on a rented GPU, `server/vast_run.sh` copies it there before the session and brings it home every minute and when the session ends.
 
-The film itself is not kept: each clip is deleted once it has played, and only the few frames the next clip continues from are saved. Nothing is ever replayed; the story only goes on. `logs/` holds technical records of each run (transcripts, timing, the models' raw outputs), none of which the adventure needs.
+The film itself is not kept: each clip is deleted once it has played, and only the few frames the next clip continues from are saved. Nothing is ever replayed; the story only goes on. `logs/films/` holds technical records of each film (transcripts, timing, the models' raw outputs), none of which the story needs.
 
 ## How it works
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, and [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence. Every adventure begins from the first frame in [frame_zero.json](frame_zero.json), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, and [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence. Every story begins from the first frame in [frame_zero.json](frame_zero.json) (Frame Zero), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
 
 `pip install -r requirements-dev.txt`, then `ruff check .`. There is no test suite, by choice. Issues and pull requests are welcome.
 

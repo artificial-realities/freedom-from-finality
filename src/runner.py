@@ -2,9 +2,9 @@
 
 `run_live` is a producer emitting and rendering clips just in time and a
 `Player` (the web player) showing them while the viewer steers mid-stream.
-It plays one adventure on from where the viewer left it: every clip that
-goes on air is committed to the adventure, and its file is deleted once
-it has played, so nothing of the film is kept but the story and the
+It plays the viewer's story on from where they left it: every clip that
+goes on air is committed to the story folder, and its file is deleted
+once it has played, so nothing of the film is kept but the story and the
 frames that continue it.
 """
 
@@ -18,23 +18,22 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from src.adventure import Adventure
-from src.engine import NowEngine, EmitFailed
+from src.engine import EmitFailed, Emitted, Engine
 from src.i2v import LtxvI2V
 from src.i2v.base import I2VBackend
-from src.i2v.ltxv import cut_window
+from src.i2v.ltxv import cut_last_frames
 from src.i2v.shape import DEFAULT_FPS, ClipShape
 from src.models.config import Config
-from src.models.story import FrameZero
+from src.models.frame_zero import FrameZero
 from src.playback import Playable, Player
-from src.state.story_state import HistoryEntry, StoryState
+from src.story_folder import StoryFolder
 from src.util.media import probe_duration
-from src.util.story_log import StoryLogger
+from src.util.transcript import Transcript
 from src.util.timing_log import TimingLog, git_revision
 
 # A failed render is retried once only if the retry can still finish
 # before its clip is due (the p95 of the last RENDER_WINDOW renders plus
-# JIT_MARGIN_S); this many failed segments in a row stop the film instead
+# JIT_MARGIN_S); this many failed clips in a row stop the film instead
 # of looping on a renderer that is down.
 JIT_MARGIN_S = 0.5
 RENDER_WINDOW = 20
@@ -45,17 +44,17 @@ FIRE_DUE_STEP_S = 0.2
 logger = logging.getLogger(__name__)
 
 
-def _make_session_id(config_name: str) -> str:
-    """The run's id: its transcript's name and its session directory."""
+def _make_film_id(config_name: str) -> str:
+    """The film's id: the name of its folder under `logs/films/`."""
     return f"{config_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 
-def _start_timing(config: Config, story: FrameZero, session_id: str, session_dir: Path, *,
+def _start_timing(config: Config, frame_zero: FrameZero, film_id: str, film_dir: Path, *,
                   shape: ClipShape, **fields) -> TimingLog:
-    timing = TimingLog(session_dir / "timing.jsonl")
+    timing = TimingLog(film_dir / "timing.jsonl")
     revision, dirty = git_revision()
     timing.write(
-        "session_start", session=session_id, config=config.name, first_frame=story.scene,
+        "film_start", film=film_id, config=config.name, first_frame=frame_zero.scene,
         revision=revision, dirty=dirty,
         now_model=config.now_model,
         now_reasoning_effort=config.now_reasoning_effort or None,
@@ -66,19 +65,19 @@ def _start_timing(config: Config, story: FrameZero, session_id: str, session_dir
     return timing
 
 
-def _line_fields(text: str) -> dict:
-    """A viewer line as the timing log keeps it: its length and a short
+def _input_fields(text: str) -> dict:
+    """A viewer input as the timing log keeps it: its length and a short
     hash (the transcript has the words)."""
     return {"chars": len(text), "sha": hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]}
 
 
-def _log_emit(timing: TimingLog, engine: NowEngine, turn: int) -> None:
-    """The clip the engine just emitted, from its event record."""
-    ev = engine.world.events[-1] if engine.world is not None and engine.world.events else None
-    if ev is None or ev.segment != turn:
+def _log_emit(timing: TimingLog, engine: Engine, clip_no: int) -> None:
+    """The clip the engine just emitted, from its record."""
+    last = engine.world.clips[-1] if engine.world.clips else None
+    if last is None or last.clip != clip_no:
         return
-    timing.write("emit", turn=turn, clip_id=ev.clip_id, beat=ev.beat, clip=ev.clip_index, of=ev.clip_count,
-                 seconds=ev.duration, speech=bool(ev.dialogue))
+    timing.write("emit", clip=clip_no, clip_id=last.clip_id, beat=last.beat, beat_clip=last.beat_clip,
+                 of=last.beat_clips, seconds=last.duration, speech=bool(last.dialogue))
 
 
 def _check_shape(i2v: I2VBackend | None, shape: ClipShape, timing: TimingLog) -> None:
@@ -98,14 +97,14 @@ def _check_shape(i2v: I2VBackend | None, shape: ClipShape, timing: TimingLog) ->
 def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog) -> None:
     """Validate the reference against the render frame before anything
     renders; the verdict goes to the timing log. A refusal stops the run
-    here, not at the first render, and so does a story without a
-    reference: the renderer starts every film from one."""
+    here, not at the first render, and so does a Frame Zero without a
+    reference: the renderer starts every story from one."""
     if i2v is None:
         return
     try:
         if not seed_image:
-            raise ValueError("the frame zero has no `reference_image`; the renderer starts "
-                             "the film from one, so a video run needs it")
+            raise ValueError("Frame Zero has no `reference_image`; the renderer starts "
+                             "the story from one, so a video run needs it")
         verdict = i2v.check_reference(seed_image)
     except Exception as exc:
         timing.write("reference", image=seed_image, refused=str(exc))
@@ -116,8 +115,7 @@ def _check_reference(i2v: I2VBackend | None, seed_image: str, timing: TimingLog)
 
 def _maybe_i2v(config: Config, clips_dir: Path, seed_key: str) -> I2VBackend | None:
     """The run's renderer: its clips go to `clips_dir` until they have
-    played, and its seeds derive from `seed_key` (the adventure, and the
-    timeline of a branch)."""
+    played, and its noise seeds derive from `seed_key` (the story's id)."""
     if not config.video_enabled:
         return None
     return LtxvI2V(
@@ -128,99 +126,72 @@ def _maybe_i2v(config: Config, clips_dir: Path, seed_key: str) -> I2VBackend | N
     )
 
 
-def _commit_history(state: StoryState) -> None:
-    """Append the committed turn to history, if both views exist."""
-    if state.current_beat is None or state.current_shot is None:
-        logger.warning("Turn %s skipped history commit — missing beat or shot", state.turn_number)
-        return
-    state.history.append(HistoryEntry(
-        turn=state.turn_number, user_input=state.user_input, beat=state.current_beat, shot=state.current_shot,
-    ))
-
-
-def _log_story_turn(story_logger: StoryLogger, state: StoryState) -> None:
-    story_logger.log_turn(
-        turn=state.turn_number,
-        user_input=state.user_input,
-        beat=state.current_beat,
-        shot=state.current_shot,
-        dialogue=state.current_dialogue,
-        world_state=state.world_state,
-        extra=state.turn_notes,
-    )
-
-
 async def run_live(
     *,
     config: Config,
-    adventure: Adventure,
+    folder: StoryFolder,
     player: Player,
     log_dir: Path | str = "logs",
-    max_segments: int | None = None,
-) -> StoryState:
+    max_clips: int | None = None,
+) -> None:
     """Live loop: a producer generating clips, a player showing them.
 
-    The producer emits one clip per segment from Now's current beat and
+    The producer emits one clip at a time from Now's current beat and
     pushes each rendered clip onto a bounded queue (size =
     `startup_clips + 1`). The consumer hands them to the player one at a
     time; the player holds each for its duration, so the server is the
-    clock. `max_segments` stops the producer after that many clips;
-    otherwise it runs until Ctrl+C.
+    clock. `max_clips` stops the producer after that many clips;
+    otherwise it runs until the film is stopped.
 
     Just in time: once playback runs, a clip's render is fired as late as
     it safely can be (the render estimate plus `buffer_seconds` before the
     clip is due on air), and Now is asked for the next beat as soon as
     the current one has no clip left. Until the fire the producer listens
-    for the viewer. A line cuts the beat in progress short (its unrendered
-    clips are dropped), cancels a Now call in flight, and Now writes
-    the next beat from that line at once, so the line reaches the earliest
-    clip that is not yet rendering. Before playback starts the producer
-    runs flat out to build the lead.
+    for the viewer. An input cuts the beat in progress short (its
+    unrendered clips are dropped), cancels a Now call in flight, and Now
+    writes the next beat from that input at once, so the input reaches the
+    earliest clip that is not yet rendering. Before playback starts the
+    producer runs flat out to build the lead.
 
     With a video backend each item is a rendered clip. Without one it is
     the clip's text, held for the clip's duration.
 
-    The run's timing (fires, renders, the queue, air time, viewer lines,
-    Now calls) goes to `logs/sessions/<id>/timing.jsonl`; see
-    `src.util.timing_log`. The adventure itself is committed as each clip
-    goes on air (`NowEngine.commit`), so a run stopped or killed anywhere
-    resumes from the last clip the viewer saw.
+    The film's records go to `logs/films/<id>/`: the transcript, the
+    models' raw outputs and the timing log (fires, renders, the queue, air
+    time, viewer inputs, Now calls; see `src.util.timing_log`). The story
+    itself is committed as each clip goes on air (`Engine.commit`), so a
+    film stopped or killed anywhere resumes from the last clip the viewer
+    saw.
     """
-    story: FrameZero = adventure.origin
-    state = StoryState.initialize(story, config_name=config.name)
-    session_id = _make_session_id(config.name)
-    story_logger = StoryLogger(
-        session_id=session_id,
-        config_name=config.name,
-        first_frame=story.scene,
-        log_dir=log_dir,
-    )
+    frame_zero = folder.frame_zero
+    film_id = _make_film_id(config.name)
+    film_dir = Path(log_dir) / "films" / film_id
+    transcript = Transcript(film_dir / "transcript.md", film_id=film_id, config_name=config.name,
+                            first_frame=frame_zero.scene)
 
     queue_size = max(1, config.startup_clips + 1)
-    session_dir = Path(log_dir) / "sessions" / session_id
-    clips_dir = session_dir / "clips"
-    i2v = _maybe_i2v(config, clips_dir, adventure.seed_key)
+    clips_dir = film_dir / "clips"
+    i2v = _maybe_i2v(config, clips_dir, folder.id)
     shape = ClipShape.from_config(config, fps=i2v.frame_rate if i2v is not None else DEFAULT_FPS)
     timing = _start_timing(
-        config, story, session_id, session_dir, shape=shape,
+        config, frame_zero, film_id, film_dir, shape=shape,
         startup_clips=config.startup_clips, queue_size=queue_size,
         buffer_seconds=config.buffer_seconds, jit_margin=JIT_MARGIN_S,
     )
-    _check_reference(i2v, story.reference_image, timing)
+    _check_reference(i2v, frame_zero.reference_image, timing)
     _check_shape(i2v, shape, timing)
-    engine = NowEngine(config=config, adventure=adventure, session_dir=session_dir, timing=timing, shape=shape)
-    resumed_at = engine.world.segment
+    engine = Engine(config=config, folder=folder, film_dir=film_dir, timing=timing, shape=shape)
+    resumed_at = engine.world.clip
     if i2v is not None and resumed_at:
-        if adventure.window is not None:
-            i2v.resume_from(adventure.window)
+        if folder.last_frames is not None:
+            i2v.resume_from(folder.last_frames)
         else:
             # Nothing saved to continue the picture from: it starts again
             # from the first frame, and Now hears so.
             engine.note_reseed(resumed_at + 1)
-    timing.write("adventure", id=adventure.id, timeline=adventure.manifest.timeline, resumed_at=resumed_at,
-                 window=adventure.window is not None)
-    print(("Your adventure continues from segment %d." % resumed_at if resumed_at else "Your adventure begins.")
-          + f" It plays as {'video' if i2v is not None else 'text'}. Ctrl+C stops it.", flush=True)
+    timing.write("story", id=folder.id, resumed_at=resumed_at, last_frames=folder.last_frames is not None)
+    print(("Your story continues from clip %d." % resumed_at if resumed_at else "Your story begins.")
+          + f" It plays as {'video' if i2v is not None else 'text'}.", flush=True)
 
     queue: asyncio.Queue[Playable | None] = asyncio.Queue(maxsize=queue_size)
     stop_event = asyncio.Event()
@@ -234,52 +205,52 @@ async def run_live(
     aired: dict[int, str] = {}
 
     async def _commit(item: Playable, before: asyncio.Task | None) -> None:
-        """Save the adventure as of `item`, now on air: the world then and,
-        for a clip, its last frames. Then the clips two before it, which no
-        page needs any more, are deleted."""
+        """Save the story as of `item`, now on air: the world then and, for
+        a clip, its last frames. Then the clips two before it, which no page
+        needs any more, are deleted."""
         if before is not None:
             await asyncio.gather(before, return_exceptions=True)
-        window = None
+        last_frames = None
         try:
             if item.path:
-                window = await asyncio.to_thread(cut_window, item.path, clips_dir / f"window_{item.turn:06d}.mp4",
-                                                 fps=shape.fps)
+                last_frames = await asyncio.to_thread(cut_last_frames, item.path,
+                                                      clips_dir / f"last_frames_{item.clip:06d}.mp4", fps=shape.fps)
         except Exception as exc:
-            logger.warning("Could not cut the last frames of segment %s (%s); the adventure keeps the previous ones",
-                           item.turn, exc)
-            timing.write("window_failed", turn=item.turn, error=repr(exc))
+            logger.warning("Could not cut the last frames of clip %s (%s); the story keeps the previous ones",
+                           item.clip, exc)
+            timing.write("last_frames_failed", clip=item.clip, error=repr(exc))
         try:
-            await engine.commit(item.turn, window)
+            await engine.commit(item.clip, last_frames)
         except Exception as exc:
-            logger.exception("Could not save the adventure as of segment %s", item.turn)
-            timing.write("commit_failed", turn=item.turn, error=repr(exc))
+            logger.exception("Could not save the story as of clip %s", item.clip)
+            timing.write("commit_failed", clip=item.clip, error=repr(exc))
         finally:
-            if window is not None:
-                window.unlink(missing_ok=True)
+            if last_frames is not None:
+                last_frames.unlink(missing_ok=True)
         if item.path:
-            aired[item.turn] = item.path
-        for turn in [t for t in aired if t <= item.turn - 2]:
-            Path(aired.pop(turn)).unlink(missing_ok=True)
+            aired[item.clip] = item.path
+        for n in [n for n in aired if n <= item.clip - 2]:
+            Path(aired.pop(n)).unlink(missing_ok=True)
     # The player's clock as the producer sees it: which clip is on air,
     # when it started (monotonic) and how long it holds, plus the rendered
     # clips waiting behind it.
-    air: dict = {"turn": None, "start": None, "hold": 0.0}
+    air: dict = {"clip": None, "start": None, "hold": 0.0}
     queued_holds: list[float] = []
-    # Viewer lines as the timing log follows them, by the player's line id:
-    # taken into a Now call, then carried by the planned beat until
-    # its first clip is emitted (landed) or the beat is cut first (dropped).
-    plan_lines: list[int] = []
-    beat_lines: list[int] = []
-    # The player's line id → the line's id in the viewer's memory.
-    said_ids: dict[int, int] = {}
+    # Viewer inputs as the timing log follows them, by the player's input
+    # id: taken into a Now call, then carried by the planned beat until its
+    # first clip is emitted (landed) or the beat is cut first (dropped).
+    plan_inputs: list[int] = []
+    beat_inputs: list[int] = []
+    # The player's input id → the input's id in the viewer's memory.
+    memory_ids: dict[int, int] = {}
 
-    def _on_line(line_id: int, text: str) -> None:
+    def _on_input(input_id: int, text: str) -> None:
         into = time.monotonic() - air["start"] if air["start"] is not None else None
-        timing.write("line_received", line=line_id, on_air=air["turn"],
-                     into=round(into, 4) if into is not None else None, **_line_fields(text))
-        said_ids[line_id] = engine.heard(text, air["turn"])
+        timing.write("input_received", input=input_id, on_air=air["clip"],
+                     into=round(into, 4) if into is not None else None, **_input_fields(text))
+        memory_ids[input_id] = engine.heard(text, air["clip"])
 
-    player.on_line = _on_line
+    player.on_input = _on_input
 
     def _hold_of(item: Playable) -> float:
         return float(item.duration)
@@ -302,7 +273,7 @@ async def run_live(
         margin = (air["start"] + air["hold"] + sum(queued_holds) - time.monotonic()
                   if air["start"] is not None else None)
         queued_holds.append(_hold_of(item))
-        timing.write("enqueued", turn=item.turn, duration=item.duration, queued=queue.qsize(),
+        timing.write("enqueued", clip=item.clip, duration=item.duration, queued=queue.qsize(),
                      margin=round(margin, 4) if margin is not None else None)
         if queue.qsize() >= queue_size:
             lead_ready.set()
@@ -330,11 +301,11 @@ async def run_live(
         for attempt in (1, 2):
             t0 = time.monotonic()
             video_path = await i2v.synthesize(
-                image_path=seed_image, prompt=prompt, turn=item.turn, shape=shape,
+                image_path=seed_image, prompt=prompt, clip_no=item.clip, shape=shape,
                 clip_id=clip_id, parent_clip_id=parent_clip_id,
             )
             render_s = time.monotonic() - t0
-            timing.write("render_done", turn=item.turn, ok=bool(video_path), render_s=round(render_s, 4),
+            timing.write("render_done", clip=item.clip, ok=bool(video_path), render_s=round(render_s, 4),
                          server=dict(i2v.last_render), attempt=attempt)
             if video_path:
                 _learn_render(render_s)
@@ -348,76 +319,73 @@ async def run_live(
             needs = _render_p95() + JIT_MARGIN_S
             left = due - time.monotonic() if due is not None else None
             retry = left is None or needs <= left
-            timing.write("render_retry", turn=item.turn, retry=retry, needs_s=round(needs, 4),
+            timing.write("render_retry", clip=item.clip, retry=retry, needs_s=round(needs, 4),
                          left_s=round(left, 4) if left is not None else None)
             if not retry:
                 return False
         item.path = video_path
         # The clip's head repeats the previous clip's tail, over which the
         # page cuts and crossfades, unless the clip was seeded from the
-        # reference (the run's first, or a server restart's), which repeats
-        # nothing.
+        # reference (the story's first, or a server restart's), which
+        # repeats nothing.
         if not i2v.last_render.get("reference"):
             item.overlap_seconds = shape.overlap_seconds
         if i2v.last_render.get("reseeded"):
             # A restart the client could not restore from the last clip's
             # tail: Now hears the picture was reset.
-            timing.write("reseeded", turn=item.turn)
-            engine.note_reseed(item.turn)
+            timing.write("reseeded", clip=item.clip)
+            engine.note_reseed(item.clip)
         item.duration = shape.delivered_seconds
         measured = await probe_duration(item.path)
         if measured is not None and abs(measured - shape.render_seconds) > 1.5 / shape.fps:
-            timing.write("shape_mismatch", turn=item.turn, frames=shape.render_frames,
+            timing.write("shape_mismatch", clip=item.clip, frames=shape.render_frames,
                          expected_s=round(shape.render_seconds, 4), measured_s=round(measured, 4))
         await _enqueue(item)
         return True
 
     async def producer() -> None:
-        nonlocal state
-        seed_image = story.reference_image
-        turn = resumed_at
+        seed_image = frame_zero.reference_image
+        clip_no = resumed_at
         # Background render task for pipelining, and the hold of the clip it
         # renders (the shape's delivered seconds on the player's clock).
         _prev_render: asyncio.Task | None = None
         _prev_hold = 0.0
         # The viewer text the last plan answered ("" when it answered none),
-        # while its beat has not emitted a clip: a line arriving then is
+        # while its beat has not emitted a clip: an input arriving then is
         # joined to it.
         planned_text = ""
         # Viewer text whose answer was rolled back, for the next plan; the
-        # lines that landed on the last clip; failed segments in a row.
+        # inputs that landed on the last clip; failed clips in a row.
         carry_text = ""
         last_landed: tuple[int, list[int]] | None = None
         failures = 0
 
-        def _fail(turn_failed: int, reason: str) -> None:
-            """Count a failed segment; stop the film after too many in a row."""
+        def _fail(failed: int, reason: str) -> None:
+            """Count a failed clip; stop the film after too many in a row."""
             nonlocal failures
             failures += 1
             if failures >= MAX_CONSECUTIVE_FAILURES:
-                timing.write("error", where="producer", turn=turn_failed,
-                             error=f"{failures} segments failed in a row ({reason}); stopping")
-                raise RuntimeError(f"{failures} segments failed in a row: {reason}")
+                timing.write("error", where="producer", clip=failed,
+                             error=f"{failures} clips failed in a row ({reason}); stopping")
+                raise RuntimeError(f"{failures} clips failed in a row: {reason}")
 
-        def _roll_back(turn_failed: int, reason: str) -> None:
+        def _roll_back(failed: int, reason: str) -> None:
             """The last emitted clip never reached the viewer: take it back
             and have the next plan start from the clip before."""
             nonlocal carry_text
-            carry = engine.rollback_clip(turn_failed, reason)
-            if state.history and state.history[-1].turn == turn_failed:
-                state.history.pop()
-            requeued = list(last_landed[1]) if last_landed and last_landed[0] == turn_failed else []
-            requeued += beat_lines
-            beat_lines.clear()
+            carry = engine.rollback_clip(failed, reason)
+            requeued = list(last_landed[1]) if last_landed and last_landed[0] == failed else []
+            requeued += beat_inputs
+            beat_inputs.clear()
             if requeued:
-                plan_lines[:0] = requeued
-                timing.write("line_requeued", turn=turn_failed, lines=requeued,
+                plan_inputs[:0] = requeued
+                timing.write("input_requeued", clip=failed, inputs=requeued,
                              reason="the clip that answered them never reached the screen")
             if carry:
                 carry_text = " ".join(x for x in (carry, carry_text) if x)
-            timing.write("rollback", turn=turn_failed, reason=reason)
-            story_logger.log_note(f"Segment {turn_failed} never reached the viewer ({reason}); "
-                                  "the world was rolled back to before it and the segment replanned.")
+            timing.write("rollback", clip=failed, reason=reason)
+            transcript.note(f"Clip {failed} never reached the viewer ({reason}); "
+                            "the world was rolled back to before it and the clip replanned.")
 
         async def _drain_prev() -> bool:
             """Wait for the render in flight; whether its clip was queued."""
@@ -443,54 +411,53 @@ async def run_live(
             return due
 
         async def _take() -> str:
-            """Everything the viewer typed since the last call, after any line
-            whose answer never reached the screen (a rolled-back clip). The
-            lines join the next plan."""
+            """Everything the viewer typed since the last call, after any
+            input whose answer never reached the screen (a rolled-back
+            clip). The inputs join the next plan."""
             nonlocal carry_text
             text = await player.next_input()
             if player.taken:
-                plan_lines.extend(player.taken)
-                timing.write("line_taken", turn=state.turn_number, lines=list(player.taken))
+                plan_inputs.extend(player.taken)
+                timing.write("input_taken", clip=clip_no, inputs=list(player.taken))
             if carry_text:
                 text = " ".join(x for x in (carry_text, text) if x)
                 carry_text = ""
             return text
 
         def _abort(reason: str) -> None:
-            """Cut the current beat short; lines its plan carried and no clip
-            has shown yet are dropped with it."""
+            """Cut the current beat short; inputs its plan carried and no
+            clip has shown yet are dropped with it."""
             engine.abort_beat(reason)
-            if beat_lines:
-                timing.write("line_dropped", turn=state.turn_number, lines=list(beat_lines),
+            if beat_inputs:
+                timing.write("input_dropped", clip=clip_no, inputs=list(beat_inputs),
                              reason="the beat that carried them was cut before its first clip")
-                beat_lines.clear()
+                beat_inputs.clear()
 
         async def _plan(text: str) -> None:
-            """Ask Now for the next beat from `text`. A line that
-            arrives while the call runs cancels it, and the call restarts
-            with everything the viewer typed."""
-            nonlocal state, planned_text, carry_text
+            """Ask Now for the next beat from `text`. An input that arrives
+            while the call runs cancels it, and the call restarts with
+            everything the viewer typed."""
+            nonlocal planned_text, carry_text
             while True:
-                state.user_input = text
-                state.user_said = [said_ids[i] for i in plan_lines if i in said_ids]
-                call = asyncio.create_task(engine.plan(state))
+                ids = [memory_ids[i] for i in plan_inputs if i in memory_ids]
+                call = asyncio.create_task(engine.plan(clip_no, text, ids))
                 waiter = asyncio.create_task(player.wait_input(None))
                 done, _ = await asyncio.wait({call, waiter}, return_when=asyncio.FIRST_COMPLETED)
                 if call in done:
                     waiter.cancel()
                     await call
                     if engine.last_plan_fallback:
-                        # The call answering the line failed and the
-                        # picture holds for a clip; the line is not dropped:
-                        # the engine took its record back, and it joins the
-                        # next plan.
+                        # The call answering the input failed and the
+                        # picture holds for a clip; the input is not
+                        # dropped: the engine took its record back, and it
+                        # joins the next plan.
                         carry_text = " ".join(x for x in (text, carry_text) if x)
-                        timing.write("line_requeued", turn=state.turn_number, lines=list(plan_lines),
+                        timing.write("input_requeued", clip=clip_no, inputs=list(plan_inputs),
                                      reason="the Now call that answered them failed")
                         planned_text = ""
                         return
-                    beat_lines[:] = plan_lines
-                    plan_lines.clear()
+                    beat_inputs[:] = plan_inputs
+                    plan_inputs.clear()
                     planned_text = text
                     return
                 call.cancel()
@@ -498,44 +465,45 @@ async def run_live(
                     await call
                 except asyncio.CancelledError:
                     pass
-                engine.discard_pending_input(state.turn_number)
+                engine.discard_pending_input(clip_no)
                 more = await _take()
                 text = " ".join(x for x in (text, more) if x)
 
         async def _answer(text: str) -> None:
-            """A viewer line arrived before the next segment was emitted: cut
-            the beat in progress short and plan from the line. When the
+            """A viewer input arrived before the next clip was emitted: cut
+            the beat in progress short and plan from the input. When the
             planned beat has not played a clip and its plan answered an
-            earlier line (the second line of the pair arrived after the
-            Now returned), that earlier line is joined to this one
-            and planned once, as a line that cancels a call in flight is:
-            its recorded intervention is dropped so the pair is recorded
-            once, with one disposition."""
+            earlier input (the second of the pair arrived after Now
+            returned), that earlier input is joined to this one and planned
+            once, as an input that cancels a call in flight is: its
+            recorded input is dropped so the pair is recorded once, with
+            one outcome."""
             if engine.beat_unplayed() and planned_text:
-                engine.discard_pending_input(state.turn_number)
-                plan_lines[:0] = beat_lines     # the earlier line travels with this one
-                beat_lines.clear()
+                engine.discard_pending_input(clip_no)
+                plan_inputs[:0] = beat_inputs     # the earlier input travels with this one
+                beat_inputs.clear()
                 text = f"{planned_text} {text}"
             if engine.has_next_clip():
-                _abort("the viewer spoke")
+                _abort("the viewer typed")
             await _plan(text)
 
         fire_due: dict[int, float] = {}
 
-        async def _listen(turn: int) -> None:
-            """Wait for the just-in-time moment of segment `turn`, taking the
-            viewer's lines as they come: a line cuts the beat short and
+        async def _listen(n: int) -> None:
+            """Wait for the just-in-time moment of clip `n`, taking the
+            viewer's inputs as they come: an input cuts the beat short and
             has Now write the next one at once."""
             while True:
                 need = _needed_at()
                 if need is None:
                     break  # building the lead: as fast as possible
                 fire_at = need - _render_estimate() - config.buffer_seconds
-                if abs(fire_due.get(turn, float("inf")) - fire_at) > FIRE_DUE_STEP_S:
-                    # When this segment's render is due to fire (the record's wall
-                    # time plus `in_s`); written again only if the moment moves.
-                    fire_due[turn] = fire_at
-                    timing.write("fire_due", turn=turn, in_s=round(fire_at - time.monotonic(), 4))
+                if abs(fire_due.get(n, float("inf")) - fire_at) > FIRE_DUE_STEP_S:
+                    # When this clip's render is due to fire (the record's
+                    # wall time plus `in_s`); written again only if the
+                    # moment moves.
+                    fire_due[n] = fire_at
+                    timing.write("fire_due", clip=n, in_s=round(fire_at - time.monotonic(), 4))
                 if not engine.has_next_clip():
                     # Plan the next beat now; the loop then waits for the
                     # fire with the beat in hand, still listening.
@@ -559,76 +527,73 @@ async def run_live(
 
         try:
             while not stop_event.is_set():
-                if max_segments is not None and turn - resumed_at >= max_segments:
+                if max_clips is not None and clip_no - resumed_at >= max_clips:
                     break
-                turn += 1
-                state.turn_number = turn
+                clip_no += 1
 
-                await _listen(turn)
+                await _listen(clip_no)
                 # The previous clip's render is known before this clip is
                 # emitted (it lands about 1.2 s before this clip's fire in
                 # steady state, so nothing waits).
                 if not await _drain_prev():
-                    _roll_back(turn - 1, "its render failed")
-                    _fail(turn - 1, "render failed")
-                    turn -= 2          # replan the failed segment's number
+                    _roll_back(clip_no - 1, "its render failed")
+                    _fail(clip_no - 1, "render failed")
+                    clip_no -= 2          # replan the failed clip's number
                     continue
-                elif i2v is not None and turn > 1:
+                elif i2v is not None and clip_no > 1:
                     failures = 0
                 try:
-                    state = await engine.emit(state)
+                    emitted = await engine.emit(clip_no)
                 except EmitFailed as exc:
-                    timing.write("emit_failed", turn=turn, error=str(exc))
-                    story_logger.log_note(f"Segment {turn} could not be emitted ({exc}); replanned.")
-                    _fail(turn, "emit failed")
-                    turn -= 1
+                    timing.write("emit_failed", clip=clip_no, error=str(exc))
+                    transcript.note(f"Clip {clip_no} could not be emitted ({exc}); replanned.")
+                    _fail(clip_no, "emit failed")
+                    clip_no -= 1
                     continue
                 if i2v is None:
                     failures = 0
-                _log_emit(timing, engine, turn)
+                _log_emit(timing, engine, clip_no)
                 last_landed = None
-                if beat_lines:
-                    timing.write("line_landed", turn=turn, lines=list(beat_lines))
-                    last_landed = (turn, list(beat_lines))
-                    beat_lines.clear()
+                if beat_inputs:
+                    timing.write("input_landed", clip=clip_no, inputs=list(beat_inputs))
+                    last_landed = (clip_no, list(beat_inputs))
+                    beat_inputs.clear()
 
-                if state.current_shot is not None:
-                    item = _playable(state)
-                    if i2v is None:
-                        # No renderer: the clip plays as text for its own duration.
-                        await _enqueue(item)
-                    else:
-                        # The previous render was waited for above (the
-                        # sliding window is sequential); fire this one in
-                        # the background. Its budget is how long until the
-                        # clip is due on air (None while the lead builds).
-                        need = _needed_at()
-                        timing.write("fire", turn=turn, seconds=round(shape.delivered_seconds, 4),
-                                     frames=shape.render_frames,
-                                     due_in=round(need - time.monotonic(), 4) if need is not None else None)
-                        _prev_render = asyncio.create_task(
-                            _bg_render_and_enqueue(
-                                item,
-                                prompt=state.current_shot.i2v_prompt,
-                                seed_image=seed_image,
-                                clip_id=state.current_clip_id or None,
-                                parent_clip_id=state.current_parent_clip_id if state.current_clip_id else None,
-                            )
+                item = _playable(emitted)
+                if i2v is None:
+                    # No renderer: the clip plays as text for its own duration.
+                    await _enqueue(item)
+                else:
+                    # The previous render was waited for above (the sliding
+                    # window is sequential); fire this one in the
+                    # background. Its budget is how long until the clip is
+                    # due on air (None while the lead builds).
+                    need = _needed_at()
+                    timing.write("fire", clip=clip_no, seconds=round(shape.delivered_seconds, 4),
+                                 frames=shape.render_frames,
+                                 due_in=round(need - time.monotonic(), 4) if need is not None else None)
+                    _prev_render = asyncio.create_task(
+                        _bg_render_and_enqueue(
+                            item,
+                            prompt=emitted.prompt,
+                            seed_image=seed_image,
+                            clip_id=emitted.clip_id or None,
+                            parent_clip_id=emitted.parent_clip_id if emitted.clip_id else None,
                         )
-                        _prev_hold = shape.delivered_seconds
+                    )
+                    _prev_hold = shape.delivered_seconds
 
-                _commit_history(state)
-                _log_story_turn(story_logger, state)
+                transcript.clip(emitted)
             # A bounded run: let the last render land before signalling the end.
             if not await _drain_prev():
-                timing.write("render_skipped", turn=turn, reason="the last render failed at the end of a bounded run")
+                timing.write("render_skipped", clip=clip_no, reason="the last render failed at the end of a bounded run")
         except asyncio.CancelledError:
             if _prev_render is not None:
                 _prev_render.cancel()
             raise
         except Exception as exc:
-            logger.exception("Live producer crashed on turn %s", turn)
-            timing.write("error", where="producer", turn=turn, error=repr(exc))
+            logger.exception("Live producer crashed on clip %s", clip_no)
+            timing.write("error", where="producer", clip=clip_no, error=repr(exc))
             stop_event.set()
         finally:
             producer_done.set()
@@ -642,7 +607,7 @@ async def run_live(
         try:
             # Startup gate: wait until `startup_clips + 1` items are queued (or
             # the producer is already done). At 0 this is just "wait for the
-            # first segment."
+            # first clip."
             while queue.qsize() < queue_size and not stop_event.is_set() and not producer_done.is_set():
                 try:
                     await asyncio.wait_for(lead_ready.wait(), 0.25)
@@ -662,15 +627,15 @@ async def run_live(
                     queued_holds.pop(0)
                 # The player holds the item for its duration; when the next
                 # one is not ready yet it keeps showing the last frame.
-                air["turn"] = item.turn
+                air["clip"] = item.clip
                 air["start"] = time.monotonic()
                 air["hold"] = _hold_of(item)
                 commit_task = asyncio.create_task(_commit(item, commit_task))
-                timing.write("playing", turn=item.turn, duration=item.duration,
+                timing.write("playing", clip=item.clip, duration=item.duration,
                              hold=round(air["hold"], 4), waited=round(waited, 4), first=not played)
                 played.append(item)
                 await player.play(item)
-                timing.write("hold_end", turn=item.turn)
+                timing.write("hold_end", clip=item.clip)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -678,7 +643,7 @@ async def run_live(
             timing.write("error", where="consumer", error=repr(exc))
             stop_event.set()
 
-    await player.start(session_id=session_id)
+    await player.start()
     producer_task = asyncio.create_task(producer())
     consumer_task = asyncio.create_task(consumer())
 
@@ -703,19 +668,17 @@ async def run_live(
             await asyncio.gather(commit_task, return_exceptions=True)
         engine.close()
         shutil.rmtree(clips_dir, ignore_errors=True)
-        timing.write("session_end", turn=state.turn_number, played=len(played))
+        timing.write("film_end", clip=played[-1].clip if played else resumed_at, played=len(played))
         timing.close()
-    return state
 
 
-def _playable(state: StoryState) -> Playable:
-    """The viewer-facing view of the segment just produced. `path` and the
-    real `duration` are filled in once a clip exists."""
-    beat, shot = state.current_beat, state.current_shot
+def _playable(emitted: Emitted) -> Playable:
+    """The viewer-facing view of the clip just emitted. `path` and the
+    real `duration` are filled in once a rendered clip exists."""
     return Playable(
-        turn=state.turn_number,
-        duration=float(shot.duration_seconds) if shot else state.current_shape.delivered_seconds,
-        narration=beat.narration if beat else "",
-        dialogue=list(state.current_dialogue),
-        speech=bool(state.current_dialogue),
+        clip=emitted.clip,
+        duration=emitted.duration,
+        action=emitted.action,
+        dialogue=list(emitted.dialogue),
+        speech=bool(emitted.dialogue),
     )

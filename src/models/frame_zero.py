@@ -1,12 +1,12 @@
-"""Frame zero: the opening scene every adventure starts from.
+"""Frame Zero: the first frame every story begins from.
 
-A frame zero is the first frame and nothing more: a sentence saying what
-it shows, the one character in it (its name, how it looks, who it is to
-begin with and where it stands), the place it stands in, and the image
-the first clip is rendered from. None of it is a rule: once the story
-starts it is ordinary world state, and Now and Then may change any of
-it. What holds in every adventure is the content policy
-(`src/prompts/policy.md`), not the frame zero.
+Frame Zero is the first frame and nothing more: a sentence saying what it
+shows, the one character in it (its name, how it looks, who it is to
+begin with, how it sounds and where it stands), the place it stands in,
+and the image the first clip is rendered from. None of it is a rule: once
+the story starts it is ordinary world state, and Now and Then may change
+any of it. What holds in every story is the content policy
+(`src/prompts/policy.md`), not Frame Zero.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ class FrameZero(BaseModel):
 
     @classmethod
     def from_json(cls, path: Path | str) -> "FrameZero":
-        """Load a frame zero from a JSON file or a directory containing frame_zero.json."""
+        """Load Frame Zero from a JSON file or a directory containing frame_zero.json."""
         path = Path(path)
         if path.is_dir():
             fz_dir = path

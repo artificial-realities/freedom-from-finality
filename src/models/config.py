@@ -40,7 +40,7 @@ class Config(BaseModel):
     recent_clips: int = 6
     max_clips_per_beat: int = 4
     answer_max_clips: int = 2
-    compaction_interval: int = 10
+    then_every: int = 10
     then_min_gap: int = 4
 
     @classmethod

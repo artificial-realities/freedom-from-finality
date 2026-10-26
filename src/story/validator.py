@@ -17,17 +17,22 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from src.models.story import Voice
+from src.models.frame_zero import Voice
 from src.story.compiler import shot_before
-from src.story.schemas import BeatPlan, ThenUpdate, EntityOp
-from src.story.world import Entity, Era, Summary, WorldModel, short_look, slugify
+from src.story.schemas import BeatPlan, EntityOp, ThenUpdate
+from src.story.world import Checkpoint, Direction, Entity, OpenInput, Summary, WorldModel, short_look, slugify
 
 
 @dataclass
 class Report:
+    """What a check or an apply found. `outcomes` are what became of the
+    viewer's inputs in the clip (the ids of the inputs, the outcome, why),
+    for the viewer's memory once the clip airs."""
+
     violations: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     applied: list[str] = field(default_factory=list)
+    outcomes: list[tuple[list[int], str, str]] = field(default_factory=list)
 
 
 _LOCATION_PREFIXES = ("at ", "in ", "on ", "inside ", "the ")
@@ -102,8 +107,8 @@ def check(beat: BeatPlan, world: WorldModel, *, max_clips: int = 4) -> Report:
             if world.resolve(ref) is None and slugify(ref) not in introduced:
                 r.warnings.append(f"{where}: on_screen entity '{ref}' is unknown and was dropped")
 
-    if beat.delivered_request and not _owed_item(world, beat.delivered_request):
-        r.warnings.append(f"delivered_request {beat.delivered_request} names no deferred request; ignored")
+    if beat.delivered_input and _owed_item(world.owed(), beat.delivered_input) is None:
+        r.warnings.append(f"delivered_input {beat.delivered_input} names no owed input; ignored")
 
     return r
 
@@ -115,11 +120,11 @@ def _same_shot(a: str, b: str) -> bool:
     return norm(a) == norm(b)
 
 
-def _owed_item(world: WorldModel, segment: int):
-    return next((i for i in world.interventions if i.disposition == "deferred" and i.segment == segment), None)
+def _owed_item(owed: list[OpenInput], input_id: int) -> OpenInput | None:
+    return next((i for i in owed if input_id in i.inputs), None)
 
 
-def _cut_lands(world: WorldModel, refs: list[str], cut: str, seg: int):
+def _cut_lands(world: WorldModel, refs: list[str], cut: str, clip_no: int):
     """Where a cut lands when no op moved the picture: nowhere new while
     anything in the shot is already here (it is a new view of this place);
     otherwise the known location the cut names, or else the one location
@@ -129,7 +134,7 @@ def _cut_lands(world: WorldModel, refs: list[str], cut: str, seg: int):
     places: set[str] = set()
     for ref in refs:
         ent = world.resolve(ref)
-        if ent is None or ent.gone or ent.first_seen == seg:
+        if ent is None or ent.gone or ent.first_seen == clip_no:
             continue
         place = ent.id if ent.kind == "location" else ent.location
         if place == here:
@@ -144,11 +149,12 @@ def _cut_lands(world: WorldModel, refs: list[str], cut: str, seg: int):
     return None
 
 
-def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int) -> Report:
+def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -> Report:
     """Apply clip `index` of `beat` to `world`, in place: its entity ops,
     presence from its `on_screen`, its dialogue filter. The first clip
-    also lands the viewer disposition and ends the viewer's direction
-    when Now says it is fulfilled or has run its course.
+    also lands how the beat takes the viewer's input (one it absorbs
+    becomes the direction), delivers an owed input, and ends the viewer's
+    direction when Now says it is fulfilled or has run its course.
 
     Normalises the clip: `on_screen` references become entity ids,
     invalid dialogue is dropped, and a cut on the story's first clip (or
@@ -158,7 +164,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     """
     r = Report()
     clip = beat.clips[index]
-    seg = segment_no
     before = world.current_location()
     shown = {e.id for ref in clip.on_screen if (e := world.resolve(ref)) is not None}
 
@@ -176,7 +181,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             ent = Entity(
                 id=eid, name=name, kind=op.kind,
                 description=look, look=look, look_short=short_look(look),
-                first_seen=seg,
+                first_seen=clip_no,
             )
             if ent.kind == "character":
                 ent.personality = " ".join(op.personality.split())
@@ -195,7 +200,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                 ent.gone = True
                 ent.present = False
                 ent.state = " ".join(op.state.split()) or "gone"
-                ent.last_seen = seg
+                ent.last_seen = clip_no
                 r.applied.append(f"remove {ent.id}")
             continue
 
@@ -204,7 +209,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
         look = " ".join(op.description.split())
         if op.op == "update" and look and look != ent.look:
             ent.look = ent.look_short = look
-            ent.look_since = seg
+            ent.look_since = clip_no
             changes.append(f"look={look}")
         # A character may get its voice when it first speaks, or a new one
         # when its voice changes for good.
@@ -236,12 +241,12 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             ent.present = op.present
             changes.append(f"present={op.present}")
         if was_present or ent.present:
-            ent.last_seen = seg
+            ent.last_seen = clip_no
         if changes:
             r.applied.append(f"update {ent.id}: " + ", ".join(changes))
 
     cut = " ".join(clip.cut_to.split()).rstrip(".")
-    if cut and not world.events:
+    if cut and not world.clips:
         r.warnings.append(f"cut to '{cut}' dropped: the story's first clip never cuts")
         cut = ""
     elif cut and _same_shot(cut, shot_before(beat, index)):
@@ -259,7 +264,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     # where its shot evidently is (see `_cut_lands`), and everything the
     # clip shows is there, as with an op.
     if cut and before is not None and world.camera_location == before.id:
-        dest = _cut_lands(world, clip.on_screen, cut, seg)
+        dest = _cut_lands(world, clip.on_screen, cut, clip_no)
         if dest is not None:
             world.camera_location = dest.id
             for place in world.by_kind("location"):
@@ -273,7 +278,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
             continue
         if ent.kind != "location":
             ent.present = True
-        ent.last_seen = seg
+        ent.last_seen = clip_no
         if ent.id not in kept:
             kept.append(ent.id)
     clip.on_screen = kept
@@ -290,7 +295,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
                     continue
                 if ent.id in kept:
                     continue
-                if ent.first_seen == seg:
+                if ent.first_seen == clip_no:
                     ent.location = here.id
                 elif ent.location != here.id:
                     ent.present = False
@@ -306,65 +311,67 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, segment_no: int
     if index == 0:
         if world.direction is not None and beat.direction in ("fulfilled", "ran its course"):
             r.applied.append(f"viewer direction {beat.direction}: {world.direction.text!r}")
+            r.outcomes.append((world.direction.inputs, beat.direction, ""))
             world.direction = None
-        reason = beat.intervention_reason.strip()
-        pending = [i for i in world.interventions if i.disposition == "pending"]
+        reason = beat.input_reason.strip()
+        owed = world.owed()
+        pending = [i for i in world.inputs if not i.owed]
         if pending:
-            if beat.intervention == "none":
-                r.warnings.append("viewer input had no disposition; recorded as deferred")
-                beat.intervention = "deferred"
+            if beat.input == "none":
+                r.warnings.append("viewer input had no outcome; recorded as deferred")
+                beat.input = "deferred"
             for item in pending:
-                item.disposition = beat.intervention
-                item.reason = reason
-                item.resolved_at = None if beat.intervention == "deferred" else seg
-            r.applied.append(f"viewer request {beat.intervention}" + (f": {reason}" if reason else ""))
-        deferred = [i for i in world.interventions if i.disposition == "deferred"]
+                r.outcomes.append((item.inputs, beat.input, reason))
+                if beat.input == "deferred":
+                    item.owed, item.reason = True, reason
+                else:
+                    world.inputs.remove(item)
+            if beat.input == "absorbed":
+                if world.direction is not None:
+                    r.outcomes.append((world.direction.inputs, "superseded", ""))
+                world.direction = Direction(text=" ".join(i.text for i in pending), clip=clip_no,
+                                            inputs=[n for i in pending for n in i.inputs], reason=reason)
+            r.applied.append(f"viewer input {beat.input}" + (f": {reason}" if reason else ""))
         item = None
-        disposition = "absorbed"
-        if beat.delivered_request:
-            item = _owed_item(world, beat.delivered_request)
+        outcome = "delivered"
+        if beat.delivered_input:
+            item = _owed_item(owed, beat.delivered_input)
             if item is None:
-                r.warnings.append(f"delivered_request {beat.delivered_request} names no deferred request; ignored")
-        elif not pending and beat.intervention in ("absorbed", "declined") and deferred:
-            if len(deferred) == 1:
-                item, disposition = deferred[0], beat.intervention
+                r.warnings.append(f"delivered_input {beat.delivered_input} names no owed input; ignored")
+        elif not pending and beat.input in ("absorbed", "declined") and owed:
+            if len(owed) == 1:
+                item, outcome = owed[0], "delivered" if beat.input == "absorbed" else "let go"
             else:
                 r.warnings.append(
-                    f"{beat.intervention} beat with {len(deferred)} requests owed and no delivered_request; "
-                    "none resolved",
+                    f"{beat.input} beat with {len(owed)} inputs owed and no delivered_input; none resolved",
                 )
         if item is not None:
-            item.disposition = disposition
-            item.reason = reason if not pending else (item.reason or reason)
-            item.resolved_at = seg
-            r.applied.append(f"deferred viewer request (segment {item.segment}) now {disposition}: {item.text!r}")
+            world.inputs.remove(item)
+            r.outcomes.append((item.inputs, outcome, reason))
+            r.applied.append(f"owed input #{item.id} (clip {item.clip}) {outcome}: {item.text!r}")
 
     return r
 
 
-def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int,
-               seen: dict[int, int] | None = None) -> list[str]:
-    """Land a Then update: summaries, the rewritten notebook, and eras.
-    Each portrait also lands on its character, so who a character is
-    survives the notebook dropping it. An empty personality keeps the one
-    the character has; a new one replaces it only with a `because` (what
-    in the story changed it), so a core change is a recorded development,
-    never a rewording. A first personality needs none.
+def apply_then(world: WorldModel, update: ThenUpdate, *, at_clip: int) -> list[str]:
+    """Land a Then update: summaries, the rewritten notebook, and a
+    checkpoint. Each portrait also lands on its character, so who a
+    character is survives the notebook dropping it. An empty personality
+    keeps the one the character has; a new one replaces it only with a
+    `because` (what in the story changed it), so a core change is a
+    recorded development, never a rewording. A first personality needs
+    none.
 
-    An era is a turning point at one of the clips Then read: `seen` maps
-    each segment in its snapshot to the clip it held, so the adventure
-    can tell later whether that very clip is the one that aired. One
-    turning point per moment of a timeline."""
+    A checkpoint names a clip after the last checkpoint, up to the one
+    Then read up to (`at_clip`)."""
     notes: list[str] = []
 
     text = update.scene_summary.strip()
-    if text and at_segment > world.last_compacted:
-        first = world.last_compacted + 1
-        world.summaries.append(
-            Summary(scope="scene", first_segment=first, last_segment=at_segment, text=text),
-        )
-        world.last_compacted = at_segment
-        notes.append(f"compacted segments {first}-{at_segment}")
+    if text and at_clip > world.last_summary:
+        first = world.last_summary + 1
+        world.summaries.append(Summary(first_clip=first, last_clip=at_clip, text=text))
+        world.last_summary = at_clip
+        notes.append(f"summarised clips {first}-{at_clip}")
     if update.act_summary.strip():
         world.act_summary = update.act_summary.strip()
         notes.append("act summary updated")
@@ -384,29 +391,25 @@ def apply_then(world: WorldModel, update: ThenUpdate, *, at_segment: int,
                 notes.append(f"personality of {ent.id} kept: a new one came without `because`")
             else:
                 ent.personality = personality
-                ent.personality_since, ent.personality_because = at_segment, because
+                ent.personality_since, ent.personality_because = at_clip, because
                 notes.append(f"personality of {ent.id} rewritten: {personality}"
                              + (f" (because: {because})" if because else ""))
         portrait.personality = ent.personality
         ent.lately = " ".join(portrait.lately.split())
-        ent.lately_at = at_segment
+        ent.lately_at = at_clip
 
-    era = update.era
-    name = " ".join(era.name.split()) if era is not None else ""
-    if era is not None and name:
-        turned = era.turned_at
-        if not world.forked_at < turned <= at_segment:
-            notes.append(f"era {name!r} not recognised: segment {turned} is not among this timeline's clips "
-                         f"Then read ({world.forked_at + 1}-{at_segment})")
-        elif any(e.timeline == world.timeline and e.turned_at == turned for e in world.eras):
-            notes.append(f"era {name!r} not recognised: segment {turned} is already a turning point")
+    cp = update.checkpoint
+    name = " ".join(cp.name.split()) if cp is not None else ""
+    if cp is not None and name:
+        after = world.checkpoints[-1].at if world.checkpoints else 0
+        if not after < cp.at <= at_clip:
+            notes.append(f"checkpoint {name!r} not kept: clip {cp.at} is not after the last checkpoint "
+                         f"and up to clip {at_clip}")
         else:
-            world.eras.append(Era(
-                name=name, turned_at=turned, chronicle=" ".join(era.chronicle.split()),
-                timeline=world.timeline, clip_id=(seen or {}).get(turned, 0), recognised_at=at_segment,
-            ))
-            notes.append(f"era recognised: {name} (turned at segment {turned})")
+            world.checkpoints.append(Checkpoint(name=name, at=cp.at, summary=" ".join(cp.summary.split()),
+                                                noticed_at=at_clip))
+            notes.append(f"checkpoint: {name} (at clip {cp.at})")
 
     world.then_runs += 1
-    world.last_then = at_segment
+    world.last_then = at_clip
     return notes

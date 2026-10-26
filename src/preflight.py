@@ -18,7 +18,7 @@ import tempfile
 from dataclasses import dataclass
 
 from src.models.config import Config
-from src.models.story import FrameZero
+from src.models.frame_zero import FrameZero
 
 OPENAI_KEYS_URL = "https://platform.openai.com/api-keys"
 
@@ -29,7 +29,7 @@ class Finding:
     message: str
 
 
-def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) -> list[Finding]:
+def check_setup(config: Config, frame_zero: FrameZero, *, probe_server: bool = True) -> list[Finding]:
     found: list[Finding] = []
 
     def add(level: str, message: str) -> None:
@@ -41,9 +41,9 @@ def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) 
 
     _check_llm(config, add)
 
-    add("ok", f"frame zero: {story.character.name} in {story.location.name}")
+    add("ok", f"Frame Zero: {frame_zero.character.name} in {frame_zero.location.name}")
     if not config.video_enabled:
-        add("ok", "text mode, a testing tool: the story as text in a test adventure, no GPU or ffmpeg needed")
+        add("ok", "text mode, a testing tool: the story as text in a test story, no GPU or ffmpeg needed")
         return found
 
     missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
@@ -52,10 +52,10 @@ def check_setup(config: Config, story: FrameZero, *, probe_server: bool = True) 
                      f"(apt install ffmpeg, brew install ffmpeg, or ffmpeg.org)")
     else:
         add("ok", "ffmpeg and ffprobe found")
-    if not story.reference_image:
-        add("error", "the frame zero has no `reference_image`; a video run starts from one")
+    if not frame_zero.reference_image:
+        add("error", "Frame Zero has no `reference_image`; a video run starts from one")
     if probe_server:
-        _check_server(config, story, add)
+        _check_server(config, frame_zero, add)
     return found
 
 
@@ -70,7 +70,7 @@ def _check_llm(config: Config, add) -> None:
                      f"(cp .env.example .env)")
 
 
-def _check_server(config: Config, story: FrameZero, add) -> None:
+def _check_server(config: Config, frame_zero: FrameZero, add) -> None:
     from src.i2v.ltxv import LtxvI2V, ReferenceRefused
     from src.i2v.shape import ClipShape, RendererNotReady
 
@@ -87,7 +87,7 @@ def _check_server(config: Config, story: FrameZero, add) -> None:
         add("ok", f"LTX-2.5 server at {config.ltxv_server_url}: ready on {gpu}, "
                   f"{(health or {}).get('width')}x{(health or {}).get('height')}, warm [{shape.render_frames}] frames")
         try:
-            verdict = client.check_reference(story.reference_image)
+            verdict = client.check_reference(frame_zero.reference_image)
         except ReferenceRefused as exc:
             add("error", f"reference image refused: {exc}")
             return

@@ -12,8 +12,8 @@ and the world stays true to what was rendered.
 
 Then writes a **notebook update**: compressed memory, the rewritten
 notebook (characters, seeds, intentions), its understanding of the
-viewer with the lines each reading rests on, the viewer's new marks on
-the story, and optionally an era recognised retrospectively.
+viewer with the inputs each reading rests on, the viewer's new marks on
+the story, and optionally a checkpoint where it sees the story turned.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class EntityOp(BaseModel):
     `description` is how a new thing looks (introduce), or the whole new
     look of an existing character, prop or place whose appearance changes
     for good (update); a new character also gives its `personality`, as
-    the frame zero gives its character's, and how its `voice` sounds, so
+    Frame Zero gives its character's, and how its `voice` sounds, so
     it is registered once and stays the same. An update may give a
     character the voice it lacks, or a new one; personality is Then's to
     rewrite. `state` is the entity at the end of the clip, in prose,
@@ -87,16 +87,18 @@ class ClipSpec(BaseModel):
 
 
 class BeatPlan(BaseModel):
-    """Now's whole output: one beat, one to a few clips. `direction` is
-    Now's word on the viewer's active direction: it `continues`, or this
-    beat ends it because it is `fulfilled` or has `ran its course`."""
+    """Now's whole output: one beat, one to a few clips. `input` is how the
+    beat takes the viewer's input, `delivered_input` the id of an owed
+    input it delivers (0: none), and `direction` Now's word on the
+    viewer's active direction: it `continues`, or this beat ends it
+    because it is `fulfilled` or has `ran its course`."""
 
     intent: str
     framing: str
     clips: list[ClipSpec]
-    intervention: Literal["none", "absorbed", "deferred", "declined"] = "none"
-    intervention_reason: str = ""
-    delivered_request: int = 0
+    input: Literal["none", "absorbed", "deferred", "declined"] = "none"
+    input_reason: str = ""
+    delivered_input: int = 0
     direction: Literal["none", "continues", "fulfilled", "ran its course"] = "none"
 
 
@@ -127,7 +129,7 @@ class Notebook(BaseModel):
 
 
 class Reading(BaseModel):
-    """One thing Then reads in the viewer, and the ids of the lines
+    """One thing Then reads in the viewer, and the ids of the inputs
     (`#n`) it rests on."""
 
     reading: str
@@ -144,16 +146,19 @@ class ViewerUnderstanding(BaseModel):
 
 
 class NewMark(BaseModel):
-    """Something the viewer put into the story, and the lines it came from."""
+    """Something the viewer put into the story, and the inputs it came from."""
 
     mark: str
-    said: list[int]
+    inputs: list[int]
 
 
-class EraOut(BaseModel):
+class CheckpointOut(BaseModel):
+    """Where Then sees the story turned: the clip `at`, a `name` for it and
+    a `summary` of the story up to there."""
+
+    at: int
     name: str
-    turned_at: int
-    chronicle: str
+    summary: str
 
 
 class ThenUpdate(BaseModel):
@@ -165,5 +170,5 @@ class ThenUpdate(BaseModel):
     notebook: Notebook
     viewer: ViewerUnderstanding = Field(default_factory=ViewerUnderstanding)
     marks: list[NewMark] = Field(default_factory=list)
-    era: EraOut | None = None
+    checkpoint: CheckpointOut | None = None
     rationale: str = ""

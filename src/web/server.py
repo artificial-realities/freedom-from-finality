@@ -1,32 +1,29 @@
-"""Web player: the story map, and the film in a browser, steered while it plays.
+"""Web player: the film in a browser, steered while it plays.
 
 `WebPlayer` is a `Player` (see `src.playback.player`) backed by a small
-aiohttp server. With an `app` (`src.app.App`) the server lasts the whole
-session: it opens on the story map, and each film the viewer chooses
-plays on the film page (`start` to `stop`) and then hands back to the
-map. The film page plays clips back to back, holds the last frame while
-the next clip renders, and has a text box that posts to the loop at any
-moment. Without a video backend the same page shows the film as text at
-story pace.
+aiohttp server that lasts the whole session (`src.app.App`). The page
+shows the picture the story stopped on with one button, Begin the first
+time and Continue after that; each film then plays on the same page
+(`start` to `stop`) until the viewer stops it. The page plays clips back
+to back, holds the last frame while the next clip renders, and has a
+text box that posts to the loop at any moment. Without a video backend
+the same page shows the film as text at story pace.
 
 The server is the clock: `play` broadcasts what is on air and when it
 started, then waits the item's duration. A browser that connects late is
-told what is on air and seeks into it.
+told what is on air and seeks into it. The app hears how many pages are
+connected (`pages_changed`), so a film nobody is watching can stop.
 
 Routes:
-    GET  /              the story map
-    GET  /film          the film page
-    GET  /map.json      the story map's data (`src.story_map`)
-    GET  /still/KEY     a picture on the map: origin, <timeline>/<segment>, head/<timeline>
+    GET  /              the film page
+    GET  /still         the picture the story stopped on (a video story)
     GET  /events        server-sent events: hello, status, queued, playing, ended, closed
-    POST /continue      {"timeline": id}: play that timeline on from its latest position
-    POST /branch        {"checkpoint": id}: a new timeline from that checkpoint ("origin": the frame zero)
-    POST /stop          end the film; the page goes back to the map
+    POST /play          {}: begin the story, or continue it from the last clip seen
+    POST /stop          {}: stop the film, saved as of the clip on air
     POST /input         {"text": "..."} (at most MAX_INPUT_CHARS) → the next plan
-    GET  /clips/N.mp4   the clip that played for segment N (Range requests supported)
+    GET  /clips/N.mp4   the clip that played as clip N (Range requests supported)
 
-Every POST takes application/json only. The ids it names are looked up
-among the adventure's own timelines and checkpoints; none becomes a path.
+Every POST takes application/json only.
 """
 
 from __future__ import annotations
@@ -44,19 +41,18 @@ from src.playback.player import Playable, Player
 logger = logging.getLogger(__name__)
 
 FILM_PAGE = Path(__file__).with_name("player.html")
-MAP_PAGE = Path(__file__).with_name("map.html")
 HEARTBEAT_S = 15.0
-# A viewer line, as long as the page's text box allows. Every line costs a
-# Now call, so the server holds the same limit.
+# A viewer input, as long as the page's text box allows. Every input costs
+# a Now call, so the server holds the same limit.
 MAX_INPUT_CHARS = 400
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 class WebPlayer(Player):
-    """`app` answers what the map asks (`status`, `map`, `still`, `choose`,
-    `stop`); without one the server is the film's alone and closes with it."""
+    """`app` answers what the page asks (`status`, `still`, `play`, `stop`)
+    and hears how many pages are connected (`pages_changed`)."""
 
-    def __init__(self, *, host: str = "127.0.0.1", port: int = 8765, app=None) -> None:
+    def __init__(self, *, host: str = "127.0.0.1", port: int = 8765, app) -> None:
         super().__init__()
         self.host = host
         self.port = port
@@ -68,8 +64,8 @@ class WebPlayer(Player):
         self._clips: dict[int, Path] = {}
         self._clients: set[asyncio.Queue] = set()
         self._runner: web.AppRunner | None = None
-        # No film is on until `start`, when the map comes first.
-        self._ended = app is not None
+        # No film is on until `start`.
+        self._ended = True
 
     # ── Player ──────────────────────────────────────────────────────
 
@@ -79,16 +75,13 @@ class WebPlayer(Player):
             return
         app = web.Application()
         app.add_routes([
-            web.get("/", self._map_page if self.app is not None else self._film_page),
-            web.get("/film", self._film_page),
-            web.get("/map.json", self._map),
-            web.get("/still/{key:.+}", self._still),
+            web.get("/", self._film_page),
+            web.get("/still", self._still),
             web.get("/events", self._events),
-            web.post("/continue", self._continue),
-            web.post("/branch", self._branch),
+            web.post("/play", self._play),
             web.post("/stop", self._stop),
             web.post("/input", self._input),
-            web.get("/clips/{turn}.mp4", self._clip),
+            web.get("/clips/{clip}.mp4", self._clip),
         ])
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
@@ -101,9 +94,9 @@ class WebPlayer(Player):
         print(f"Open {self.url}", flush=True)
         if self.host not in LOOPBACK_HOSTS:
             print(f"Note: the player listens on {self.host} and has no login; anyone who can reach port "
-                  f"{self.port} can steer the film, and every line costs a Now call.", flush=True)
+                  f"{self.port} can steer the film, and every input costs a Now call.", flush=True)
 
-    async def start(self, *, session_id: str) -> None:
+    async def start(self) -> None:
         """A film begins: nothing of the last one carries over."""
         await self.serve()
         self.queued, self.now, self.started_at, self.played = [], None, 0.0, 0
@@ -118,6 +111,11 @@ class WebPlayer(Player):
     def url(self) -> str:
         return f"http://{self.host}:{self.port}/"
 
+    @property
+    def pages(self) -> int:
+        """How many film pages are connected."""
+        return len(self._clients)
+
     def prepare(self, item: Playable) -> None:
         self._register(item)
         self.queued.append(item)
@@ -127,9 +125,9 @@ class WebPlayer(Player):
         self._register(item)
         # Only what is on air, just before it and queued is served: a clip
         # that has played is deleted, and the film is never replayed.
-        for turn in [t for t in self._clips if t < item.turn - 1]:
-            del self._clips[turn]
-        self.queued = [q for q in self.queued if q.turn != item.turn]
+        for n in [n for n in self._clips if n < item.clip - 1]:
+            del self._clips[n]
+        self.queued = [q for q in self.queued if q.clip != item.clip]
         self.now = item
         self.started_at = time.time()
         self.played += 1
@@ -137,12 +135,11 @@ class WebPlayer(Player):
         await self._hold(item.duration)
 
     async def stop(self) -> None:
-        """The film ended. The server stays up for the map, unless it is the film's alone."""
+        """The film ended; the server stays up for the next one."""
         self._ended = True
-        self._broadcast("ended", {"segments": self.played})
+        self.queued, self.now = [], None
+        self._broadcast("ended", {"clips": self.played})
         await asyncio.sleep(0)  # let the event reach connected clients
-        if self.app is None:
-            await self.close()
 
     async def close(self) -> None:
         # Event streams last as long as their pages; end them, or the
@@ -154,52 +151,30 @@ class WebPlayer(Player):
             self._runner = None
 
     def status_changed(self) -> None:
-        """Tell every page where the session is now (the map, or a film)."""
-        self._broadcast("status", self._status())
+        """Tell every page where the session is now."""
+        self._broadcast("status", self.app.status())
 
     # ── Handlers ────────────────────────────────────────────────────
 
     async def _film_page(self, request: web.Request) -> web.Response:
         return web.Response(text=FILM_PAGE.read_text(encoding="utf-8"), content_type="text/html")
 
-    async def _map_page(self, request: web.Request) -> web.Response:
-        return web.Response(text=MAP_PAGE.read_text(encoding="utf-8"), content_type="text/html")
-
-    async def _map(self, request: web.Request) -> web.Response:
-        if self.app is None:
-            raise web.HTTPNotFound()
-        # It reads the adventure from disk, off the loop the film runs on.
-        data = await asyncio.to_thread(self.app.map)
-        return web.json_response(data, headers={"Cache-Control": "no-store"})
-
     async def _still(self, request: web.Request) -> web.StreamResponse:
-        if self.app is None:
-            raise web.HTTPNotFound()
-        found = await asyncio.to_thread(self.app.still, request.match_info["key"])
+        # It reads the story's frames from disk, off the loop the film runs on.
+        found = await asyncio.to_thread(self.app.still)
         if found is None:
             raise web.HTTPNotFound()
         body, content_type = found
-        headers = {"Content-Type": content_type, "Cache-Control": "no-cache"}
+        headers = {"Content-Type": content_type, "Cache-Control": "no-store"}
         if isinstance(body, Path):
             return web.FileResponse(body, headers=headers)
         return web.Response(body=body, headers=headers)
 
-    async def _continue(self, request: web.Request) -> web.Response:
+    async def _play(self, request: web.Request) -> web.Response:
         body = await _json_object(request)
         if isinstance(body, web.Response):
             return body
-        return self._choose("continue", str(body.get("timeline", "")))
-
-    async def _branch(self, request: web.Request) -> web.Response:
-        body = await _json_object(request)
-        if isinstance(body, web.Response):
-            return body
-        return self._choose("branch", str(body.get("checkpoint", "")))
-
-    def _choose(self, how: str, target: str) -> web.Response:
-        if self.app is None:
-            raise web.HTTPNotFound()
-        refused = self.app.choose(how, target)
+        refused = self.app.play()
         if refused is not None:
             status, error = refused
             return web.json_response({"error": error}, status=status)
@@ -209,8 +184,6 @@ class WebPlayer(Player):
         body = await _json_object(request)
         if isinstance(body, web.Response):
             return body
-        if self.app is None:
-            raise web.HTTPNotFound()
         self.app.stop()
         return web.json_response({"ok": True})
 
@@ -231,10 +204,10 @@ class WebPlayer(Player):
 
     async def _clip(self, request: web.Request) -> web.StreamResponse:
         try:
-            turn = int(request.match_info["turn"])
+            n = int(request.match_info["clip"])
         except ValueError:
             raise web.HTTPNotFound()
-        path = self._clips.get(turn)
+        path = self._clips.get(n)
         if path is None or not path.exists():
             raise web.HTTPNotFound()
         return web.FileResponse(path, headers={"Content-Type": "video/mp4", "Cache-Control": "max-age=3600"})
@@ -248,6 +221,7 @@ class WebPlayer(Player):
         await resp.prepare(request)
         queue: asyncio.Queue = asyncio.Queue()
         self._clients.add(queue)
+        self.app.pages_changed(self.pages)
         try:
             await _send(resp, "hello", self._snapshot())
             while True:
@@ -257,34 +231,32 @@ class WebPlayer(Player):
                     await resp.write(b": ping\n\n")
                     continue
                 await _send(resp, name, data)
-                if name == "closed" or (name == "ended" and self.app is None):
+                if name == "closed":
                     break
         except (ConnectionResetError, asyncio.CancelledError, RuntimeError):
             pass
         finally:
             self._clients.discard(queue)
+            self.app.pages_changed(self.pages)
         return resp
 
     # ── Helpers ─────────────────────────────────────────────────────
 
     def _register(self, item: Playable) -> None:
         if item.path:
-            self._clips[item.turn] = Path(item.path)
+            self._clips[item.clip] = Path(item.path)
 
     def _item_json(self, item: Playable, *, started_at: float | None = None) -> dict:
         data = item.model_dump(exclude={"path"})
-        data["url"] = f"/clips/{item.turn}.mp4" if item.path else None
+        data["url"] = f"/clips/{item.clip}.mp4" if item.path else None
         if started_at is not None:
             data["started_at"] = started_at
         return data
 
-    def _status(self) -> dict:
-        return self.app.status() if self.app is not None else {"state": "film"}
-
     def _snapshot(self) -> dict:
         return {
             "server_time": time.time(),
-            "status": self._status(),
+            "status": self.app.status(),
             "ended": self._ended,
             "queued": [self._item_json(i) for i in self.queued],
             "now": self._item_json(self.now, started_at=self.started_at) if self.now else None,
@@ -299,7 +271,7 @@ async def _json_object(request: web.Request) -> dict | web.Response:
     """The request's JSON object, or the response refusing it. JSON only: a
     browser cannot send it cross-site without a CORS preflight, which this
     server never grants, so another page open in the viewer's browser can
-    neither type into the film nor steer the map."""
+    neither type into the film nor start or stop it."""
     if request.content_type != "application/json":
         return web.json_response({"error": "expected application/json"}, status=415)
     try:

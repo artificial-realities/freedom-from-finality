@@ -1,5 +1,5 @@
 # A testing tool, not for viewers: the story as text in the browser, no GPU,
-# only OPENAI_API_KEY, played in its own test adventure (logs/test-adventure).
+# only OPENAI_API_KEY, played in its own test story (logs/test-story).
 # Every setting and its default is in src/models/config.py.
 now_model: "gpt-5.6-luna"
 then_model: "gpt-5.6-luna"

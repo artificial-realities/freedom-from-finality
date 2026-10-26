@@ -25,8 +25,8 @@ strength)`: the reference image for the first clip, otherwise the last
 holds the previous clip hard and largely ignores a new prompt; lower lets
 the prompt through at the cost of continuity). A client run's first
 request (`start`) begins a new session from either the reference image (a
-new adventure) or the client's copy of the frames to continue from
-(`window_frames`: an adventure resuming, or this server restarted), and
+new story) or the client's copy of the frames to continue from
+(`window_frames`: a story resuming, or this server restarted), and
 nothing from an earlier session carries over: neither its picture nor its
 clip ids.
 
@@ -116,8 +116,8 @@ class GenerateRequest(BaseModel):
     continuity_frames: int = Field(default=9, ge=1)
     seed: int | None = None
     num_frames: int = Field(default=153, ge=9)
-    # The client's copy of the frames to continue from (base64 PNGs): an
-    # adventure resuming, a server restart, or a parent this server no
+    # The client's copy of the frames to continue from (base64 PNGs): a
+    # story resuming, a server restart, or a parent this server no
     # longer holds. Always adopted, so costume and position carry over.
     window_frames: list[str] | None = None
     # Fenced renders: the clip this render belongs to and the clip it

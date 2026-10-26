@@ -18,15 +18,25 @@
   .text .said { color: #aaa; font-style: italic; font-size: clamp(14px, 1.6vw, 20px); }
   .start { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .5); }
   .start[hidden] { display: none; }
+  .door { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #000; }
+  .door[hidden] { display: none; }
+  .door img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: .45; }
+  .door img[hidden] { display: none; }
+  .door .last { position: relative; max-width: 80%; margin: 0 0 6px; text-align: center; color: #777; font-size: clamp(15px, 1.8vw, 22px); }
+  .door .last:empty { display: none; }
+  .door .go { position: relative; padding: 12px 34px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, .92); color: #000; font: inherit; font-size: 18px; cursor: pointer; }
+  .door .go:disabled { opacity: .6; cursor: default; }
+  .door .notice { position: relative; max-width: 80%; margin: 0; color: #ccc; text-align: center; font-size: 14px; }
+  .door .notice:empty { display: none; }
   .start button { width: 72px; height: 72px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .9); color: #000; font-size: 26px; padding-left: 6px; cursor: pointer; }
   .spinner { position: absolute; right: 14px; bottom: 14px; width: 18px; height: 18px; border: 2px solid rgba(255, 255, 255, .25); border-top-color: #fff; border-radius: 50%; animation: spin .9s linear infinite; }
   .spinner[hidden] { display: none; }
   @keyframes spin { to { transform: rotate(360deg); } }
   form { display: flex; gap: 8px; }
   input { box-sizing: border-box; flex: 1; min-width: 0; padding: 10px 12px; font: inherit; color: #eee; background: #111; border: 1px solid #333; border-radius: 6px; outline: none; }
-  .map { flex: none; padding: 0 14px; font: inherit; color: #bbb; background: #111; border: 1px solid #333; border-radius: 6px; cursor: pointer; }
-  .map:hover { color: #eee; border-color: #666; }
-  .map[hidden] { display: none; }
+  .stop { flex: none; padding: 0 14px; font: inherit; color: #bbb; background: #111; border: 1px solid #333; border-radius: 6px; cursor: pointer; }
+  .stop:hover { color: #eee; border-color: #666; }
+  .stop[hidden] { display: none; }
   input:focus { border-color: #666; }
   input:disabled { opacity: .5; }
 </style>
@@ -39,9 +49,10 @@
     <video id="vC" playsinline preload="auto"></video>
     <div class="text" id="text"></div>
     <div class="spinner" id="spinner" hidden></div>
-    <div class="start" id="start"><button type="button" aria-label="Play">▶</button></div>
+    <div class="start" id="start" hidden><button type="button" aria-label="Play">▶</button></div>
+    <div class="door" id="door"><img id="still" alt="" hidden><p class="last" id="last"></p><button class="go" id="go" type="button" disabled>Begin</button><p class="notice" id="notice"></p></div>
   </div>
-  <form id="form"><button class="map" id="map" type="button" hidden title="Stop the film and go back to your story map">Map</button><input id="input" type="text" autocomplete="off" maxlength="400" placeholder="Suggest something…" aria-label="Suggest something"></form>
+  <form id="form"><button class="stop" id="stop" type="button" hidden title="Stop the film; your story is saved as of the clip on screen">Stop</button><input id="input" type="text" autocomplete="off" maxlength="400" placeholder="Suggest something…" aria-label="Suggest something" disabled></form>
 </main>
 
 <script>
@@ -62,7 +73,7 @@
   let armed = false;      // the viewer clicked: the page may play sound
   let skew = 0;           // Date.now()/1000 - server time
   let now = null;         // the item on air
-  let ended = false;
+  let film = 'stopped';   // the session: stopped (Begin or Continue), starting or playing
   let stalled = false;    // the active video is waiting for data mid-clip
   const serverNow = () => Date.now() / 1000 - skew;
   pool.forEach(v => {
@@ -75,7 +86,7 @@
   const idle = v => !inUse(v) && v.dataset.queued !== '1';
 
   function load(v, item, queued) {
-    v.src = item.url; v.dataset.url = item.url; v.dataset.turn = item.turn; v.dataset.queued = queued ? '1' : '';
+    v.src = item.url; v.dataset.url = item.url; v.dataset.clip = item.clip; v.dataset.queued = queued ? '1' : '';
     v.load();
   }
 
@@ -98,12 +109,12 @@
     const behind = incoming !== null;
     if (behind) { incoming.pause(); incoming.dataset.queued = ''; incoming = null; }
     const cur = active;
-    const same = cur && cur.dataset.url === item.url && cur.dataset.turn == item.turn;
+    const same = cur && cur.dataset.url === item.url && cur.dataset.clip == item.clip;
     const v = same ? cur
       : pool.find(e => e.dataset.url === item.url && !inUse(e)) || pool.find(idle) || pool.find(e => !inUse(e));
     if (v !== cur) incoming = v;
     if (v.dataset.url !== item.url) load(v, item, false);
-    v.dataset.turn = item.turn; v.dataset.queued = '';
+    v.dataset.clip = item.clip; v.dataset.queued = '';
     const overlap = item.overlap_seconds || 0;
     // The film's first clip, or one after a hold: in from the server's clock.
     const first = behind || !cur || cur === v || cur.paused || !isFinite(cur.duration);
@@ -179,7 +190,7 @@
     const box = $('text');
     box.replaceChildren();
     const p = document.createElement('p');
-    p.textContent = item.narration || '';
+    p.textContent = item.action || '';
     box.appendChild(p);
     (item.dialogue || []).forEach(line => {
       const said = document.createElement('p');
@@ -200,38 +211,56 @@
   // video stalls.
   function tick() {
     const late = now && serverNow() - now.started_at >= now.duration;
-    $('spinner').hidden = ended || !armed || !(late || stalled || !now);
+    $('spinner').hidden = film === 'stopped' || !armed || !(late || stalled || !now);
     requestAnimationFrame(tick);
   }
 
-  // With a story map the session goes back to it when the film ends.
-  let hasMap = false;
-  const toMap = () => location.replace('/');
-
-  function finish() {
-    if (hasMap) { toMap(); return; }
-    ended = true;
-    const input = $('input');
-    input.disabled = true; input.value = ''; input.placeholder = 'The film has ended.';
+  // The film is over: nothing of it stays on the page.
+  function clear() {
+    pool.forEach(v => { v.pause(); v.classList.remove('on'); v.removeAttribute('src'); v.dataset.url = ''; v.dataset.queued = ''; v.load(); });
+    active = outgoing = incoming = null; now = null; waiting.length = 0;
+    $('text').classList.remove('on');
     $('start').hidden = true;
+  }
+
+  // Where the session is: stopped, the door shows the picture the story
+  // stopped on (or its last words, as text) with Begin or Continue.
+  function status(s) {
+    film = s.film;
+    const stopped = film === 'stopped';
+    $('door').hidden = film === 'playing';
+    $('stop').hidden = stopped; $('stop').disabled = false;
+    const input = $('input');
+    input.disabled = stopped;
+    input.placeholder = stopped ? '' : 'Suggest something…';
+    if (film === 'playing') return;
+    clear();
+    $('go').textContent = film === 'starting' ? 'Starting…' : (s.clip ? 'Continue' : 'Begin');
+    $('go').disabled = !stopped;
+    $('notice').textContent = s.notice || '';
+    $('still').hidden = !s.still;
+    if (s.still) $('still').src = '/still?' + Date.now();
+    $('last').textContent = s.still ? '' : (s.last || '');
   }
 
   // ── Events ─────────────────────────────────────────────────────
   const es = new EventSource('/events');
   es.addEventListener('hello', e => {
     const s = JSON.parse(e.data);
-    hasMap = s.status && s.status.state !== 'film';
-    $('map').hidden = !hasMap;
-    if (hasMap && s.status.state === 'map') { toMap(); return; }
     skew = Date.now() / 1000 - s.server_time;
+    status(s.status);
     s.queued.forEach(prefetch);
     if (s.now) show(s.now);
-    if (s.ended) finish();
   });
-  es.addEventListener('status', e => { if (hasMap && JSON.parse(e.data).state === 'map') toMap(); });
+  es.addEventListener('status', e => status(JSON.parse(e.data)));
   es.addEventListener('queued', e => prefetch(JSON.parse(e.data)));
   es.addEventListener('playing', e => show(JSON.parse(e.data)));
-  es.addEventListener('ended', () => { finish(); es.close(); });
+  es.addEventListener('ended', () => clear());
+  es.addEventListener('closed', () => {
+    es.close(); clear();
+    $('door').hidden = false; $('go').disabled = true; $('stop').hidden = true; $('input').disabled = true;
+    $('notice').textContent = 'The session has ended; your story is saved.';
+  });
 
   // ── Input ──────────────────────────────────────────────────────
   $('form').addEventListener('submit', async ev => {
@@ -241,7 +270,7 @@
     if (!text) return;
     input.value = '';
     try {
-      const r = await fetch('/input', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+      const r = await post('/input', { text });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
     } catch (e) {
       console.warn('input not sent:', e);
@@ -249,11 +278,24 @@
     }
   });
 
-  $('map').addEventListener('click', async () => {
-    $('map').disabled = true;
+  const post = (path, body) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  // Begin or Continue. The click also lets the page play sound.
+  $('go').addEventListener('click', async () => {
+    armed = true;
+    $('go').disabled = true;
     try {
-      await fetch('/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    } catch (e) { toMap(); }
+      const r = await post('/play', {});
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    } catch (e) {
+      $('notice').textContent = 'The film did not start: ' + e.message;
+      $('go').disabled = false;
+    }
+  });
+
+  $('stop').addEventListener('click', async () => {
+    $('stop').disabled = true;
+    try { await post('/stop', {}); } catch (e) { $('stop').disabled = false; }
   });
 
   $('start').addEventListener('click', () => {

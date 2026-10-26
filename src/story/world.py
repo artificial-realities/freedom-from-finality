@@ -1,23 +1,20 @@
-"""Typed world model: the deterministic system of record for a run.
+"""Typed world model: the deterministic system of record for the story.
 
 Everything the story has established lives here: entities (characters,
 props, locations) with what code needs in structure (kind, presence,
 location, whether they are gone) and their state in one line of prose,
-viewer interventions with their disposition, Then's notebook, an
-append-only event log (one record per clip), and the summaries Then
-compacts the log into.
+the viewer's inputs the story has not finished with, Then's notebook, the
+recent clips (one record per clip), the summaries Then writes of them and
+the checkpoints it names where the story turned.
 
-A world is one timeline (`timeline`). A branch begins from another
-timeline's checkpoint and inherits its past up to there (`ancestry`);
-`in_history` tells what happened in this timeline's past from what
-happened in another. What the viewer said and put into the story, and
-Then's understanding of them, belong to the person and live outside it,
-in the viewer's memory (`viewer.py`).
+What the viewer said and put into the story, and Then's understanding of
+them, belong to the person and live outside it, in the viewer's memory
+(`viewer.py`).
 
-Only validated deltas mutate it (see `validator.py`). The adventure
-(`src/adventure.py`) saves it as of every clip the viewer sees and loads
-it to resume; in memory it keeps only the recent events the prompts read
-(`trim_events`), while the adventure's event log keeps them all.
+Only validated deltas mutate it (see `validator.py`). The story folder
+(`src/story_folder.py`) saves it as of every clip the viewer sees and
+loads it to resume; in memory it keeps only the recent clips the prompts
+read (`trim_clips`), while the folder's clip log keeps them all.
 """
 
 from __future__ import annotations
@@ -27,13 +24,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from src.models.story import FrameZero, Voice
+from src.models.frame_zero import FrameZero, Voice
 from src.story.schemas import Notebook
 
 EntityKind = Literal["character", "prop", "location"]
-
-
-ROOT_TIMELINE = "root"
 
 
 def words(text: str) -> str:
@@ -48,8 +42,8 @@ def slugify(name: str) -> str:
 
 
 SHORT_LOOK_WORDS = 14
-KEEP_EVENTS = 24      # events kept in memory: at least the last clips the prompts read
-MOST_EVENTS = 200     # and at most this many, however long Then goes without compacting
+KEEP_CLIPS = 24       # clips kept in memory: at least the last ones the prompts read
+MOST_CLIPS = 200      # and at most this many, however long Then goes without summarising
 
 
 def short_look(look: str) -> str:
@@ -77,10 +71,10 @@ class Entity(BaseModel):
 
     A character also carries who it is, on the entity so that it outlives
     the notebook: `personality` (who it is at heart: the one it came with,
-    from the frame zero or Now's introduce, until Then rewrites it, at
-    segment `personality_since` and `personality_because` of what the story
+    from Frame Zero or Now's introduce, until Then rewrites it, at clip
+    `personality_since` and `personality_because` of what the story
     showed) and `lately` (how it has been behaving and why, as Then last
-    wrote it, at segment `lately_at`). A character Then drops from the
+    wrote it, at clip `lately_at`). A character Then drops from the
     notebook keeps both, so one that comes back much later is still who it
     was."""
 
@@ -118,53 +112,59 @@ class Entity(BaseModel):
         return " · ".join(bits)
 
 
-class Intervention(BaseModel):
-    """A viewer line as the story took it. `said` are the ids of the lines
-    it joins in the viewer's memory."""
+class OpenInput(BaseModel):
+    """A viewer input the story has not finished with: the text of one or
+    more lines the viewer typed (`inputs`, their ids in the viewer's
+    memory), planned at `clip`. Pending while the beat that answers it is
+    planned; then owed, if Now deferred it, until a later beat delivers it
+    or lets it go. One the story has finished with is no longer kept here:
+    the viewer's memory has what became of it."""
 
-    segment: int
+    clip: int
     text: str
-    said: list[int] = Field(default_factory=list)
-    disposition: Literal["pending", "absorbed", "deferred", "declined"] = "pending"
+    inputs: list[int] = Field(default_factory=list)
+    owed: bool = False
     reason: str = ""
-    resolved_at: int | None = None
+
+    @property
+    def id(self) -> int:
+        """How the roles name it: the id of its first line (`#n`)."""
+        return self.inputs[0] if self.inputs else 0
 
 
-class Era(BaseModel):
-    """A turning point Then recognised: the story turned on the clip of
-    `turned_at` in `timeline`, which was `clip_id` when Then read it, and
-    the era `name` begins there. `recognised_at` is the segment Then had
-    read up to. The adventure keeps that moment as a story checkpoint if
-    it still holds it, and the very clip Then read is the one that aired."""
+class Checkpoint(BaseModel):
+    """A checkpoint: Then saw the story turn at clip `at`, which it named
+    `name`, and summarised the story up to there. `noticed_at` is the clip
+    Then had read up to."""
 
     name: str
-    turned_at: int
-    chronicle: str
-    timeline: str = ROOT_TIMELINE
-    clip_id: int = 0
-    recognised_at: int = 0
+    at: int
+    summary: str
+    noticed_at: int = 0
 
 
 class Summary(BaseModel):
-    scope: Literal["scene", "act"]
-    first_segment: int
-    last_segment: int
+    first_clip: int
+    last_clip: int
     text: str
 
 
-class EventRecord(BaseModel):
-    """One clip of the story as it was emitted."""
+class ClipRecord(BaseModel):
+    """One clip of the story as it was emitted: the `beat_clip`th of the
+    `beat_clips` clips of beat `beat`, the viewer's input on its first clip
+    and how the beat took it, what the camera saw and the world changes
+    applied."""
 
-    segment: int
+    clip: int
     clip_id: int = 0
     beat: int = 0
     beat_intent: str = ""
-    clip_index: int = 1
-    clip_count: int = 1
-    user_input: str = ""
-    intervention: str = "none"
-    narration: str
-    applied_ops: list[str] = Field(default_factory=list)
+    beat_clip: int = 1
+    beat_clips: int = 1
+    input: str = ""
+    taken: str = "none"
+    action: str
+    changes: list[str] = Field(default_factory=list)
     on_screen: list[str] = Field(default_factory=list)
     end_state: str = ""
     dialogue: list[str] = Field(default_factory=list)
@@ -172,47 +172,36 @@ class EventRecord(BaseModel):
     duration: float = 0.0
 
 
-class Fork(BaseModel):
-    """Where a timeline left an ancestor: everything of `timeline` up to
-    the clip of `at` is its own past too."""
-
-    timeline: str
-    at: int
-
-
 class Direction(BaseModel):
-    """The viewer's line Now is still building on, from the clip that
-    took it up until Now closes it or a newer line takes its place."""
+    """The viewer's input Now is still building on, from the clip that
+    took it up until Now closes it or a newer input takes its place."""
 
     text: str
-    segment: int
-    said: list[int] = Field(default_factory=list)
+    clip: int
+    inputs: list[int] = Field(default_factory=list)
     reason: str = ""
 
 
 class WorldModel(BaseModel):
-    timeline: str = ROOT_TIMELINE
-    # The timelines this one grew from, oldest first, and where it left each.
-    ancestry: list[Fork] = Field(default_factory=list)
-    segment: int = 0
+    clip: int = 0
     opening_picture: list[str] | None = None
     camera_location: str = ""
 
     entities: dict[str, Entity] = Field(default_factory=dict)
-    interventions: list[Intervention] = Field(default_factory=list)
+    inputs: list[OpenInput] = Field(default_factory=list)
     notebook: Notebook = Field(default_factory=Notebook)
-    eras: list[Era] = Field(default_factory=list)
+    checkpoints: list[Checkpoint] = Field(default_factory=list)
     act_summary: str = ""
     summaries: list[Summary] = Field(default_factory=list)
-    events: list[EventRecord] = Field(default_factory=list)
+    clips: list[ClipRecord] = Field(default_factory=list)
 
     beats: int = 0
-    last_compacted: int = 0
+    last_summary: int = 0
     last_then: int = 0
     then_runs: int = 0
     direction: Direction | None = None
     shot: str = ""
-    # Clip ids are never reused, across sessions included: the renderer
+    # Clip ids are never reused, across films included: the renderer
     # keys the frames it continues from by them.
     clip_counter: int = 0
     last_clip_id: int = 0
@@ -221,7 +210,7 @@ class WorldModel(BaseModel):
 
     @classmethod
     def from_frame_zero(cls, frame_zero: FrameZero) -> "WorldModel":
-        """A fresh world from a frame zero: its place and its character,
+        """A fresh world from Frame Zero: its place and its character,
         built as Now's introduce builds them, ordinary entities from here on."""
         world = cls()
         place, ch = frame_zero.location, frame_zero.character
@@ -268,18 +257,6 @@ class WorldModel(BaseModel):
                 return ent
         return None
 
-    def in_history(self, timeline: str, segment: int) -> bool:
-        """Whether what happened in `timeline` at `segment` is part of this
-        timeline's past: it happened here, or in an ancestor before this
-        timeline branched from it."""
-        return timeline == self.timeline or any(f.timeline == timeline and segment <= f.at for f in self.ancestry)
-
-    @property
-    def forked_at(self) -> int:
-        """The segment this timeline branched at (0: it began at the frame
-        zero); its own clips come after it."""
-        return self.ancestry[-1].at if self.ancestry else 0
-
     def mentions(self, text: str) -> set[str]:
         """Ids of the entities `text` names, by name or id, as whole words."""
         said = words(text)
@@ -305,21 +282,18 @@ class WorldModel(BaseModel):
                 return loc
         return next(iter(self.by_kind("location")), None)
 
-    def unresolved_interventions(self) -> list[Intervention]:
-        return [i for i in self.interventions if i.disposition in ("pending", "deferred")]
+    def owed(self) -> list[OpenInput]:
+        return [i for i in self.inputs if i.owed]
 
-    def add_intervention(self, segment: int, text: str, said: list[int] = ()) -> Intervention:
-        item = Intervention(segment=segment, text=text, said=list(said))
-        self.interventions.append(item)
+    def add_input(self, clip: int, text: str, inputs: list[int] = ()) -> OpenInput:
+        item = OpenInput(clip=clip, text=text, inputs=list(inputs))
+        self.inputs.append(item)
         return item
 
-    def drop_pending_interventions(self, segment: int) -> int:
-        before = len(self.interventions)
-        self.interventions = [
-            i for i in self.interventions
-            if not (i.segment == segment and i.disposition == "pending")
-        ]
-        return before - len(self.interventions)
+    def drop_pending_inputs(self, clip: int) -> int:
+        before = len(self.inputs)
+        self.inputs = [i for i in self.inputs if i.owed or i.clip != clip]
+        return before - len(self.inputs)
 
     # ── Clocks ──────────────────────────────────────────────────────
 
@@ -328,12 +302,12 @@ class WorldModel(BaseModel):
         self.last_clip_id = self.clip_counter
         return self.clip_counter
 
-    def events_since(self, segment: int) -> list[EventRecord]:
-        return [e for e in self.events if e.segment > segment]
+    def clips_since(self, clip: int) -> list[ClipRecord]:
+        return [c for c in self.clips if c.clip > clip]
 
-    def trim_events(self) -> None:
-        """Keep in memory only the events the prompts read: those since Then
-        last compacted (at most MOST_EVENTS) and at least the last
-        KEEP_EVENTS. The story's whole history is the adventure's event log."""
-        keep = max(KEEP_EVENTS, sum(1 for e in self.events if e.segment > self.last_compacted))
-        del self.events[:-min(keep, MOST_EVENTS)]
+    def trim_clips(self) -> None:
+        """Keep in memory only the clips the prompts read: those since Then
+        last summarised (at most MOST_CLIPS) and at least the last
+        KEEP_CLIPS. The story's whole history is the folder's clip log."""
+        keep = max(KEEP_CLIPS, sum(1 for c in self.clips if c.clip > self.last_summary))
+        del self.clips[:-min(keep, MOST_CLIPS)]
