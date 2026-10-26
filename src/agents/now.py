@@ -4,9 +4,12 @@ Reads the assembled context (notebook, world, the viewer and Then's
 understanding of them, summaries, recent clips, where the picture is)
 and returns a `BeatPlan`: one action or state of the story as one to a
 few clips, each with its picture, its lines and the world changes that
-happen in it, plus how it takes the viewer's input. The world validator
-checks the proposal; a hard violation earns exactly one re-ask with the
-violations spelled out.
+happen in it, plus how it takes the viewer's input. A call that fails
+(it timed out, was refused, came back cut off or not as a beat) is made
+once more; when that fails too, `NowFailed` says why, and the film stops
+rather than show a clip nobody wrote. The world validator checks the
+proposal; a hard violation earns exactly one re-ask with the violations
+spelled out.
 """
 
 from __future__ import annotations
@@ -39,6 +42,13 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PATH: Path = prompt_path("now.system.md")
 USER_PATH: Path = prompt_path("now.user.md")
+# A failed call is made once more before the film stops: past about 10 s
+# the picture holds anyway, and two timeouts are already a long wait.
+ATTEMPTS = 2
+
+
+class NowFailed(RuntimeError):
+    """Now could not write the beat: every attempt failed; the message says why."""
 
 
 def clip_cap(config: Config, text: str) -> int:
@@ -48,8 +58,8 @@ def clip_cap(config: Config, text: str) -> int:
 
 
 async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: Config,
-                clip_no: int) -> BeatPlan | None:
-    parsed = await call_llm_structured(
+                clip_no: int) -> tuple[BeatPlan | None, str]:
+    parsed, why = await call_llm_structured(
         agent="now",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -60,12 +70,12 @@ async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: C
         max_tokens=config.max_tokens_now,
     )
     if parsed is None:
-        return None
+        return None, why
     try:
-        return BeatPlan(**parsed)
+        return BeatPlan(**parsed), ""
     except ValidationError as exc:
         logger.warning("Now beat validation failed at clip %s: %s", clip_no, exc)
-        return None
+        return None, f"the reply was not a beat ({exc.error_count()} errors)"
 
 
 async def run(
@@ -77,11 +87,12 @@ async def run(
     config: Config,
     beat_status: str,
     clip_seconds: float,
-) -> tuple[BeatPlan | None, list[str], bool]:
-    """Return (beat, notes, retried). `beat` is None on a parse failure;
-    `retried` says the validator re-ask was made (a second LLM call).
-    `text` is the viewer's input this beat answers ("" for none) and
-    `clip_seconds` the delivered length of the run's clip shape."""
+) -> tuple[BeatPlan, list[str], int]:
+    """Return (beat, notes, calls): `calls` is how many LLM calls it took
+    (a failed attempt and the validator's re-ask each add one). Raises
+    `NowFailed` when no attempt gave a beat. `text` is the viewer's input
+    this beat answers ("" for none) and `clip_seconds` the delivered
+    length of the run's clip shape."""
     system_prompt = load_prompt(
         SYSTEM_PATH,
         policy=format_policy(),
@@ -103,13 +114,22 @@ async def run(
     )
 
     notes: list[str] = []
-    beat = await _call(system_prompt, user_prompt, llm, config, world.clip)
+    failures: list[str] = []
+    beat = None
+    calls = 0
+    while beat is None and calls < ATTEMPTS:
+        calls += 1
+        beat, why = await _call(system_prompt, user_prompt, llm, config, world.clip)
+        if beat is None:
+            failures.append(why)
+            notes.append(f"now: call {calls} failed ({why})")
     if beat is None:
-        return None, ["now: structured parse failed"], False
+        raise NowFailed("Now could not write the next beat: "
+                        + (f"{failures[0]}, twice" if len(set(failures)) == 1 else "; then ".join(failures)))
 
     report = check(beat, world, max_clips=clip_cap(config, text))
-    retried = bool(report.violations)
     if report.violations:
+        calls += 1
         notes.append("now: first proposal rejected: " + "; ".join(report.violations))
         retry_prompt = (
             user_prompt
@@ -118,8 +138,10 @@ async def run(
             + "\n".join(f"- {v}" for v in report.violations)
             + "\n\nReturn a corrected beat as a single JSON object."
         )
-        second = await _call(system_prompt, retry_prompt, llm, config, world.clip)
-        if second is not None:
+        second, why = await _call(system_prompt, retry_prompt, llm, config, world.clip)
+        if second is None:
+            notes.append(f"now: retry failed ({why}); the first beat is used, its invalid ops dropped")
+        else:
             report2 = check(second, world, max_clips=clip_cap(config, text))
             if len(report2.violations) <= len(report.violations):
                 beat = second
@@ -130,4 +152,4 @@ async def run(
                 )
             else:
                 notes.append("now: retry accepted")
-    return beat, notes, retried
+    return beat, notes, calls

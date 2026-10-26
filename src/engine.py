@@ -7,8 +7,8 @@
   goes. Now is called again when the beat's last clip has been emitted,
   or at once when the viewer types: the rest of the beat is dropped and
   the next call is told where the picture actually ends.
-- **Then** — once before the story's first clip, then an async task on
-  a slow clock: every `then_every` clips, spawned when the beat's first
+- **Then** — once before the story's first clip (`open`), then an async
+  task on a slow clock: every `then_every` clips, spawned when the beat's first
   clip has been applied, so its snapshot and the clips it reads include
   the clip that caused it. At most one is in flight and runs are at
   least `then_min_gap` clips apart. Its update lands at the start of the
@@ -40,7 +40,7 @@ from src.i2v.shape import ClipShape
 from src.llm import OpenAIBackend
 from src.models.config import Config
 from src.story.compiler import compile_clip
-from src.story.schemas import BeatPlan, ClipSpec, ThenUpdate
+from src.story.schemas import BeatPlan, ThenUpdate
 from src.story.validator import Report, apply_clip, apply_then
 from src.story.viewer import Outcome
 from src.story.world import ClipRecord
@@ -94,18 +94,26 @@ class Engine:
         self.world = folder.world
         self.frame_zero = folder.frame_zero
         self.viewer = folder.viewer
-        self.llm_now = OpenAIBackend(model=config.now_model, reasoning_effort=config.now_reasoning_effort)
-        self.llm_then = OpenAIBackend(model=config.then_model, reasoning_effort=config.then_reasoning_effort)
+        # Now's own attempts are its retries (`now_agent.ATTEMPTS`); Then
+        # is off the critical path, so the SDK may retry it.
+        self.llm_now = OpenAIBackend(model=config.now_model, reasoning_effort=config.now_reasoning_effort,
+                                     timeout_s=config.now_timeout_s, retries=0)
+        self.llm_then = OpenAIBackend(model=config.then_model, reasoning_effort=config.then_reasoning_effort,
+                                      timeout_s=config.then_timeout_s, retries=config.then_retries)
         # Each emitted clip until it goes on air: the world as of it, its
-        # record, and what it did with the viewer's inputs. Committed then,
-        # dropped if it never airs.
-        self._on_air: dict[int, tuple[str, str, list[Outcome]]] = {}
+        # record, what it did with the viewer's inputs, and which of those
+        # were staged before it. Committed then, dropped if it never airs.
+        self._on_air: dict[int, tuple[str, str, list[Outcome], list[Outcome]]] = {}
+        # What the viewer's memory is owed before anything new happened:
+        # the inputs found unanswered at resume, deferred, written with
+        # the first clip that airs (so a film that never gets that far
+        # leaves them unanswered, and the next resume finds them again).
+        self._staged: list[Outcome] = []
         self._then_task: asyncio.Task | None = None
         # (at_clip, reason, records read)
         self._then_meta: tuple[int, str, int] | None = None
         self._then_notes: list[str] = []
         self._last_spawn: int = 0
-        self.last_plan_fallback: bool = False
         self._pending_spawn: str | None = None
         self._emit_snapshot: dict | None = None
         self._landed_since: list[tuple[ThenUpdate, int]] = []
@@ -141,7 +149,15 @@ class Engine:
             ids = [line.id for line in unanswered]
             item = world.add_input(world.clip, " ".join(line.text for line in unanswered), inputs=ids)
             item.owed, item.reason = True, "typed just before the story stopped, not answered yet"
-            self.viewer.add(Outcome(inputs=ids, clip=world.clip, outcome="deferred", reason=item.reason))
+            self._staged.append(Outcome(inputs=ids, clip=world.clip + 1, outcome="deferred", reason=item.reason))
+
+    async def open(self) -> None:
+        """Before the story's first clip: Then's opening run, once, so the
+        first beat has a notebook. If it fails the story begins without
+        one, and Then runs again on its usual clock."""
+        if self.world.clip or self.world.then_runs:
+            return
+        await self._run_then_now(reason="the story opens", at_clip=0)
 
     def has_next_clip(self) -> bool:
         return self._beat is not None and self._clip_index < len(self._beat.clips)
@@ -154,7 +170,8 @@ class Engine:
     async def plan(self, clip_no: int, text: str = "", inputs: list[int] = ()) -> None:
         """Ask Now for the beat that starts at clip `clip_no`, answering
         `text`, the viewer's input (`inputs`: the ids of its lines in the
-        viewer's memory), or none."""
+        viewer's memory), or none. Raises `now_agent.NowFailed` when Now
+        could not write it."""
         text = (text or "").strip()
         started = time.monotonic()
         self.timing.write("now_start", clip=clip_no, input=bool(text))
@@ -180,28 +197,20 @@ class Engine:
         if text:
             world.add_input(clip_no, text, inputs=inputs)
 
-        opening = world.then_runs == 0
-        if opening:
-            await self._run_then_now(reason="the story opens", at_clip=clip_no - 1)
-            notes.extend(self._then_notes)
-            self._then_notes = []
-
         called = time.monotonic()
-        beat, dnotes, retried = await now_agent.run(
-            world=world, viewer=self.viewer, text=text, llm=self.llm_now, config=self.config,
-            beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
-        )
+        try:
+            beat, dnotes, calls = await now_agent.run(
+                world=world, viewer=self.viewer, text=text, llm=self.llm_now, config=self.config,
+                beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
+            )
+        except BaseException:
+            # The input stays in the viewer's memory, unanswered: owed at
+            # the next resume.
+            world.drop_pending_inputs(clip_no)
+            raise
         now_s = time.monotonic() - called
         self._reseed_note = ""
         notes.extend(dnotes)
-        fallback = beat is None
-        self.last_plan_fallback = fallback and bool(text)
-        if self.last_plan_fallback:
-            world.drop_pending_inputs(clip_no)
-        if beat is None:
-            beat = self._fallback_beat()
-            notes.append("now: call failed; holding the picture for one clip"
-                         + ("; the viewer's input is answered at the next plan" if text else ""))
         beat.clips = beat.clips[: now_agent.clip_cap(self.config, text)]
 
         world.beats += 1
@@ -221,9 +230,8 @@ class Engine:
                 spawning = reason
         self._plan_notes = notes
         self._plan_meta = {"trigger": spawning}
-        cost = {"beat": world.beats, "clips": len(beat.clips), "now_s": round(now_s, 4),
-                "retry": retried, "fallback": fallback, "opening": opening}
-        self._record_plan(clip_no, beat, {"fallback": fallback, "opening": opening})
+        cost = {"beat": world.beats, "clips": len(beat.clips), "now_s": round(now_s, 4), "calls": calls}
+        self._record_plan(clip_no, beat, {"calls": calls})
         return cost
 
     def discard_pending_input(self, clip_no: int) -> None:
@@ -291,20 +299,6 @@ class Engine:
         return (f"You are opening the story. The first frame shows: {self._scene()}. Open the action from exactly "
                 "that picture, then move; anyone it does not show enters the picture.")
 
-    def _fallback_beat(self) -> BeatPlan:
-        world = self.world
-        # Hold whatever the last clip showed, so nobody leaves the picture.
-        last = world.clips[-1].on_screen if world.clips else (world.opening_picture or [])
-        on_screen = [eid for eid in last if (e := world.entities.get(eid)) is not None and e.present and not e.gone]
-        names = [world.entities[eid].name for eid in on_screen if world.entities[eid].kind == "character"]
-        action = (f"{' and '.join(names)} hold{'s' if len(names) == 1 else ''} still. Nothing else happens."
-                  if names else "The scene holds still. Nothing happens.")
-        return BeatPlan(
-            intent="holding the picture",
-            framing="medium shot",
-            clips=[ClipSpec(action=action, end_state="unchanged", on_screen=on_screen)],
-        )
-
     # ── Emit: one clip of the beat ──────────────────────────────────
 
     async def emit(self, clip_no: int) -> Emitted:
@@ -313,7 +307,7 @@ class Engine:
             emitted = await self._emit(clip_no)
         except Exception as exc:
             logger.exception("Emitting clip %s failed; rolling back", clip_no)
-            self._on_air.pop(clip_no, None)
+            self._take_back(clip_no)
             self._restore(snapshot, [])
             self._cut_after_failure(snapshot, f"emitting it failed ({type(exc).__name__})")
             raise EmitFailed(f"clip {clip_no}: {type(exc).__name__}: {exc}") from exc
@@ -330,13 +324,20 @@ class Engine:
             carry.append(snap["beat_input"])
         if self._beat is not None and self._clip_index == 0 and self._beat_input and self._beat is not snap["beat_ref"]:
             carry.append(self._beat_input)
-        self._on_air.pop(clip_no, None)
+        self._take_back(clip_no)
         self._restore(snap, self._landed_since)
         for n in {clip_no, self.world.clip}:
             self.world.drop_pending_inputs(n)
         self._cut_after_failure(snap, reason)
         self._emit_snapshot, self._landed_since = None, []
         return " ".join(carry)
+
+    def _take_back(self, clip_no: int) -> None:
+        """Clip `clip_no` will never air: what it was to tell the viewer's
+        memory first goes with the next clip instead."""
+        pending = self._on_air.pop(clip_no, None)
+        if pending is not None:
+            self._staged = pending[3] + self._staged
 
     def _snapshot(self, clip_no: int) -> dict:
         return {
@@ -417,8 +418,9 @@ class Engine:
         clip_id = world.next_clip_id()
 
         report = apply_clip(beat, i, world, clip_no=clip_no)
-        heard = [Outcome(inputs=ids, clip=clip_no, outcome=how, reason=why, beat=beat.intent)
-                 for ids, how, why in report.outcomes if ids]
+        staged = [o.model_copy(update={"clip": clip_no}) for o in self._staged]
+        heard = staged + [Outcome(inputs=ids, clip=clip_no, outcome=how, reason=why, beat=beat.intent)
+                          for ids, how, why in report.outcomes if ids]
         prompt = compile_clip(beat, i, world, scene=self.frame_zero.scene, opening=(clip_no == 1), clip_no=clip_no)
         duration = self.shape.delivered_seconds
         said = [f"{world.resolve(d.speaker).name}: {d.line}" for d in spec.dialogue]
@@ -442,7 +444,8 @@ class Engine:
             duration=duration,
         ))
         world.trim_clips()
-        self._on_air[clip_no] = (world.model_dump_json(), world.clips[-1].model_dump_json(), heard)
+        self._on_air[clip_no] = (world.model_dump_json(), world.clips[-1].model_dump_json(), heard, staged)
+        self._staged = []
         if first and self._pending_spawn is not None:
             reason, self._pending_spawn = self._pending_spawn, None
             self._spawn_then(reason=reason, at_clip=clip_no)
@@ -487,7 +490,7 @@ class Engine:
         pending = self._on_air.pop(clip_no, None)
         if pending is None:
             return False
-        world_json, clip_json, heard = pending
+        world_json, clip_json, heard, _ = pending
         await asyncio.to_thread(self.folder.commit, clip_no, world_json, clip_json, last_frames)
         for record in heard:
             self.viewer.add(record)

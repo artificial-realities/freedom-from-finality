@@ -18,6 +18,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from src.agents.now import NowFailed
 from src.engine import EmitFailed, Emitted, Engine
 from src.i2v import LtxvI2V
 from src.i2v.base import I2VBackend
@@ -34,10 +35,12 @@ from src.util.timing_log import TimingLog, git_revision
 # A failed render is retried once only if the retry can still finish
 # before its clip is due (the p95 of the last RENDER_WINDOW renders plus
 # JIT_MARGIN_S); this many failed clips in a row stop the film instead
-# of looping on a renderer that is down.
+# of looping on a renderer that is down, and this many failed saves in a
+# row stop it rather than play on unsaved.
 JIT_MARGIN_S = 0.5
 RENDER_WINDOW = 20
 MAX_CONSECUTIVE_FAILURES = 3
+MAX_FAILED_SAVES = 3
 # A `fire_due` record is written again only when the due moment moves by more than this.
 FIRE_DUE_STEP_S = 0.2
 
@@ -156,6 +159,11 @@ async def run_live(
     With a video backend each item is a rendered clip. Without one it is
     the clip's text, held for the clip's duration.
 
+    A film that cannot go on (Now failed twice, clips or saves failed
+    three times in a row) raises once it has stopped, saved as of the clip
+    on air, so the page can say why; clips already rendered play out
+    first, unless saving is what failed.
+
     The film's records go to `logs/films/<id>/`: the transcript, the
     models' raw outputs and the timing log (fires, renders, the queue, air
     time, viewer inputs, Now calls; see `src.util.timing_log`). The story
@@ -203,6 +211,19 @@ async def run_live(
     # that have played are deleted once the next is saved.
     commit_task: asyncio.Task | None = None
     aired: dict[int, str] = {}
+    # Why the film cannot go on, raised once it has stopped; and the saves
+    # that failed in a row.
+    failed: list[BaseException] = []
+    saves = {"failed": 0}
+    tasks: list[asyncio.Task] = []
+
+    def _fail_now(exc: BaseException) -> None:
+        """Stop the film at once: it cannot go on safely."""
+        if not failed:
+            failed.append(exc)
+        stop_event.set()
+        for task in tasks:
+            task.cancel()
 
     async def _commit(item: Playable, before: asyncio.Task | None) -> None:
         """Save the story as of `item`, now on air: the world then and, for
@@ -221,9 +242,14 @@ async def run_live(
             timing.write("last_frames_failed", clip=item.clip, error=repr(exc))
         try:
             await engine.commit(item.clip, last_frames)
+            saves["failed"] = 0
         except Exception as exc:
             logger.exception("Could not save the story as of clip %s", item.clip)
             timing.write("commit_failed", clip=item.clip, error=repr(exc))
+            saves["failed"] += 1
+            if saves["failed"] >= MAX_FAILED_SAVES:
+                _fail_now(RuntimeError(f"the story could not be saved {saves['failed']} times in a row "
+                                       f"({type(exc).__name__}: {exc}); it is saved as of the last clip that was"))
         finally:
             if last_frames is not None:
                 last_frames.unlink(missing_ok=True)
@@ -436,35 +462,26 @@ async def run_live(
         async def _plan(text: str) -> None:
             """Ask Now for the next beat from `text`. An input that arrives
             while the call runs cancels it, and the call restarts with
-            everything the viewer typed."""
-            nonlocal planned_text, carry_text
+            everything the viewer typed. A film stopped meanwhile cancels
+            the call too: nothing keeps running, or billing, after it."""
+            nonlocal planned_text
             while True:
                 ids = [memory_ids[i] for i in plan_inputs if i in memory_ids]
                 call = asyncio.create_task(engine.plan(clip_no, text, ids))
                 waiter = asyncio.create_task(player.wait_input(None))
-                done, _ = await asyncio.wait({call, waiter}, return_when=asyncio.FIRST_COMPLETED)
-                if call in done:
+                try:
+                    done, _ = await asyncio.wait({call, waiter}, return_when=asyncio.FIRST_COMPLETED)
+                finally:
                     waiter.cancel()
-                    await call
-                    if engine.last_plan_fallback:
-                        # The call answering the input failed and the
-                        # picture holds for a clip; the input is not
-                        # dropped: the engine took its record back, and it
-                        # joins the next plan.
-                        carry_text = " ".join(x for x in (text, carry_text) if x)
-                        timing.write("input_requeued", clip=clip_no, inputs=list(plan_inputs),
-                                     reason="the Now call that answered them failed")
-                        planned_text = ""
-                        return
+                    if not call.done():
+                        call.cancel()
+                        await asyncio.gather(call, return_exceptions=True)
+                if call in done:
+                    call.result()
                     beat_inputs[:] = plan_inputs
                     plan_inputs.clear()
                     planned_text = text
                     return
-                call.cancel()
-                try:
-                    await call
-                except asyncio.CancelledError:
-                    pass
                 engine.discard_pending_input(clip_no)
                 more = await _take()
                 text = " ".join(x for x in (text, more) if x)
@@ -526,6 +543,7 @@ async def run_live(
                     await _answer(text)
 
         try:
+            await engine.open()
             while not stop_event.is_set():
                 if max_clips is not None and clip_no - resumed_at >= max_clips:
                     break
@@ -592,9 +610,17 @@ async def run_live(
                 _prev_render.cancel()
             raise
         except Exception as exc:
-            logger.exception("Live producer crashed on clip %s", clip_no)
+            # The film ends once what is rendered has played; the page is
+            # told why.
+            if isinstance(exc, NowFailed):
+                logger.error("Clip %s: %s", clip_no, exc)
+            else:
+                logger.exception("Live producer crashed on clip %s", clip_no)
             timing.write("error", where="producer", clip=clip_no, error=repr(exc))
-            stop_event.set()
+            transcript.note(f"The film stopped at clip {clip_no}: {exc}")
+            if not failed:
+                failed.append(exc)
+            await _drain_prev()   # the clip rendering now still plays
         finally:
             producer_done.set()
             try:
@@ -641,11 +667,12 @@ async def run_live(
         except Exception as exc:
             logger.exception("Live consumer crashed")
             timing.write("error", where="consumer", error=repr(exc))
-            stop_event.set()
+            _fail_now(exc)
 
     await player.start()
     producer_task = asyncio.create_task(producer())
     consumer_task = asyncio.create_task(consumer())
+    tasks += [producer_task, consumer_task]
 
     try:
         await asyncio.gather(producer_task, consumer_task)
@@ -668,8 +695,11 @@ async def run_live(
             await asyncio.gather(commit_task, return_exceptions=True)
         engine.close()
         shutil.rmtree(clips_dir, ignore_errors=True)
-        timing.write("film_end", clip=played[-1].clip if played else resumed_at, played=len(played))
+        timing.write("film_end", clip=played[-1].clip if played else resumed_at, played=len(played),
+                     stopped_by=repr(failed[0]) if failed else None)
         timing.close()
+    if failed:
+        raise failed[0]
 
 
 def _playable(emitted: Emitted) -> Playable:

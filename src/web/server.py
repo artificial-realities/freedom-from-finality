@@ -23,7 +23,10 @@ Routes:
     POST /input         {"text": "..."} (at most MAX_INPUT_CHARS) → the next plan
     GET  /clips/N.mp4   the clip that played as clip N (Range requests supported)
 
-Every POST takes application/json only.
+Every POST takes application/json only. While the player listens on
+this computer only (the default), it answers only requests addressed to
+this computer: a page elsewhere cannot reach it by pointing a name of its
+own at 127.0.0.1 (DNS rebinding).
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from aiohttp import web
 
@@ -73,7 +77,7 @@ class WebPlayer(Player):
         """Bring the server up, once."""
         if self._runner is not None:
             return
-        app = web.Application()
+        app = web.Application(middlewares=[_this_computer] if self.host in LOOPBACK_HOSTS else [])
         app.add_routes([
             web.get("/", self._film_page),
             web.get("/still", self._still),
@@ -265,6 +269,18 @@ class WebPlayer(Player):
     def _broadcast(self, name: str, data: dict) -> None:
         for queue in list(self._clients):
             queue.put_nowait((name, data))
+
+
+@web.middleware
+async def _this_computer(request: web.Request, handler):
+    """Refuse a request whose `Host` is not this computer."""
+    try:
+        host = urlsplit(f"//{request.host}").hostname or ""
+    except ValueError:
+        host = ""
+    if host not in LOOPBACK_HOSTS:
+        return web.json_response({"error": "the player answers only requests to this computer"}, status=403)
+    return await handler(request)
 
 
 async def _json_object(request: web.Request) -> dict | web.Response:

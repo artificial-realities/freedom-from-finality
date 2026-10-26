@@ -93,7 +93,7 @@ async def run(
         checkpoints=format_checkpoints(world),
         instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["summary"]).format(scene=scene),
     )
-    parsed = await call_llm_structured(
+    parsed, _ = await call_llm_structured(
         agent="then",
         system_prompt=system_prompt,
         user_prompt=user_prompt,

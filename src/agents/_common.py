@@ -23,22 +23,31 @@ async def call_llm_structured(
     clip_no: int,
     schema: type[BaseModel],
     max_tokens: int,
-) -> dict | None:
-    """Call the LLM constrained to `schema` and return the parsed dict, or
-    None when the call failed or its text is not a JSON object (a truncated
-    reply, a refusal); callers decide what to do without it."""
+) -> tuple[dict | None, str]:
+    """Call the LLM constrained to `schema` and return the parsed dict and
+    "", or None and why there is none: the call failed, the model refused,
+    the reply was cut off at `max_tokens`, or its text is not a JSON
+    object. Callers decide what to do without it."""
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    raw, _usage = await llm.generate_structured(
+    raw, info = await llm.generate_structured(
         messages=messages, schema=schema, temperature=config.temperature, max_tokens=max_tokens,
     )
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        parsed = None
-    if not isinstance(parsed, dict):
-        logger.warning("agent=%s clip=%s: no structured reply, skipping update", agent, clip_no)
-        return None
-    return parsed
+    if info.get("error"):
+        why = info["error"]
+    elif info.get("refusal"):
+        why = f"the model refused: {str(info['refusal'])[:160]}"
+    elif info.get("finish_reason") == "length":
+        why = f"the reply was cut off at {max_tokens} tokens"
+    else:
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            return parsed, ""
+        why = "the reply was not a JSON object"
+    logger.warning("agent=%s clip=%s: no structured reply (%s)", agent, clip_no, why)
+    return None, why

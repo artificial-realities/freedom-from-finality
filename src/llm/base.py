@@ -18,6 +18,8 @@ class LLMBackend(ABC):
         temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> tuple[str, dict]:
-        """Return (response_text, token_usage), the text constrained to
-        `schema`. A failed call returns ("", {"error": ...}), never raises."""
+        """Return (response_text, info), the text constrained to `schema`;
+        `info` has the token usage, the `finish_reason` and a `refusal` if
+        the model refused. A failed call returns ("", {"error": why}),
+        never raises."""
         ...

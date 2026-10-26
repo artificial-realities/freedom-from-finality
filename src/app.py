@@ -16,6 +16,7 @@ import logging
 import mimetypes
 from pathlib import Path
 
+from src.agents.now import NowFailed
 from src.i2v.ltxv import ReferenceRefused
 from src.i2v.shape import RendererNotReady
 from src.models.config import Config
@@ -163,6 +164,9 @@ class App:
         exc = None if film.cancelled() else film.exception()
         if isinstance(exc, (RendererNotReady, ReferenceRefused)):
             self._back(f"The film cannot start: {exc}")
+        elif isinstance(exc, NowFailed):
+            self._back(f"The film stopped. {exc}. Your story is saved as of the clip on screen; "
+                       "Continue goes on from there.")
         elif exc is not None:
             logger.error("The film stopped", exc_info=exc)
             self._back(f"The film stopped: {exc}")

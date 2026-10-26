@@ -25,8 +25,11 @@ class Config(BaseModel):
     now_reasoning_effort: str = ""
     then_reasoning_effort: str = ""
     temperature: float = 0.7
-    max_tokens_now: int = 2048
-    max_tokens_then: int = 2048
+    max_tokens_now: int = 4096
+    max_tokens_then: int = 4096
+    now_timeout_s: float = 20.0
+    then_timeout_s: float = 90.0
+    then_retries: int = 2
 
     # ── Video ──────────────────────────────────────────────────────
     video_enabled: bool = False
