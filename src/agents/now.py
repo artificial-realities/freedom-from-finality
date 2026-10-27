@@ -70,7 +70,6 @@ async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: C
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         llm=llm,
-        config=config,
         clip_no=clip_no,
         schema=BeatPlan,
         max_tokens=config.max_tokens_now,

@@ -109,7 +109,6 @@ async def run(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         llm=llm,
-        config=config,
         clip_no=world.clip,
         schema=ThenUpdate,
         max_tokens=config.max_tokens_then,

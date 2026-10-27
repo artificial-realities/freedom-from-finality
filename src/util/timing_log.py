@@ -1,14 +1,14 @@
-"""Per-session timing log: what the live loop lives by, one JSON line per event.
+"""Per-film timing log: what the live loop lives by, one JSON line per event.
 
-`logs/sessions/<id>/timing.jsonl` records when each clip was fired,
-rendered, queued, put on air and taken off; when each viewer line arrived,
-was taken by Now and landed; what each Now call cost; and
-the browser's own view of each swap. Nothing reads it back during a run.
-It exists so a benchmark can be computed from a film instead of being
-reconstructed from file times.
+`logs/films/<id>/timing.jsonl` records when each clip was fired,
+rendered, queued, put on air and taken off; when each viewer input
+arrived, was taken by Now and landed; what each Now call cost; each save
+that failed; and what stopped the film. Nothing reads it back during a
+film. It exists so a film's timing can be measured from it instead of
+being reconstructed from file times.
 
 Every record carries `t` (seconds since the log opened, monotonic),
-`wall` (Unix time, to line records up with the browser and the server)
+`wall` (Unix time, to line records up with other logs and the server)
 and `event`; an event's own fields cannot overwrite them. Writing never
 raises: a log that cannot be written is switched off with one warning,
 and the film goes on.

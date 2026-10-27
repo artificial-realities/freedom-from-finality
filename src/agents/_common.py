@@ -8,7 +8,6 @@ import logging
 from pydantic import BaseModel
 
 from src.llm.base import LLMBackend
-from src.models.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,6 @@ async def call_llm_structured(
     system_prompt: str,
     user_prompt: str,
     llm: LLMBackend,
-    config: Config,
     clip_no: int,
     schema: type[BaseModel],
     max_tokens: int,
@@ -32,9 +30,7 @@ async def call_llm_structured(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    raw, info = await llm.generate_structured(
-        messages=messages, schema=schema, temperature=config.temperature, max_tokens=max_tokens,
-    )
+    raw, info = await llm.generate_structured(messages=messages, schema=schema, max_tokens=max_tokens)
     if info.get("error"):
         why = info["error"]
     elif info.get("refusal"):

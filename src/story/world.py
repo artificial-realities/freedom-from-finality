@@ -170,7 +170,6 @@ class Direction(BaseModel):
 
 class WorldModel(BaseModel):
     clip: int = 0
-    opening_picture: list[str] | None = None
     camera_location: str = ""
 
     entities: dict[str, Entity] = Field(default_factory=dict)
@@ -216,9 +215,6 @@ class WorldModel(BaseModel):
             voice=" ".join(ch.voice.split()),
             state=" ".join(ch.state.split()), present=True, location=lid,
         )
-        # The first frame shows the character, so the opening clip does not
-        # describe it as entering.
-        world.opening_picture = [cid]
         return world
 
     def _unique_id(self, base: str) -> str:

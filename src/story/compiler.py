@@ -150,16 +150,18 @@ def _with_article(shot: str) -> str:
     return ("an " if first[0] in "aeiou" else "a ") + shot
 
 
-def previous_picture(world: WorldModel, clip_no: int) -> set[str] | None:
+def previous_picture(world: WorldModel, clip_no: int, *, opening: bool = False) -> set[str] | None:
     """The entities in the picture at the end of the previous clip: that
     clip's `on_screen` plus whatever entered during it (introduced then),
     so an entity described as entering once is not described as entering
-    again on the next clip. Before the story's first clip it is Frame
-    Zero's character. None when the picture before is not known (a replay
-    with a gap)."""
+    again on the next clip. A clip that opens on Frame Zero's picture
+    (`opening`) has in it what Frame Zero shows: the entities the world
+    began with. None when the picture before is not known (a replay with
+    a gap)."""
+    if opening:
+        return {e.id for e in world.entities.values() if e.first_seen == 0 and e.kind != "location" and not e.gone}
     if not world.clips:
-        first = clip_no <= 1 and world.opening_picture is not None
-        return set(world.opening_picture) if first else None
+        return None
     prev = world.clips[-1]
     if prev.clip != clip_no - 1:
         return None
@@ -188,9 +190,10 @@ def compile_clip(
     opening: bool = False,
     clip_no: int = 0,
 ) -> str:
-    """The prompt for clip `index` of `beat`. `opening` marks the story's
-    first clip: the renderer seeds it from the reference image, so it
-    carries the full looks and opens on `scene`, what that image shows.
+    """The prompt for clip `index` of `beat`. `opening` marks a clip the
+    renderer seeds from the reference image (the story's first, or the
+    first after a resume with no frames to continue from), so it carries
+    the full looks and opens on `scene`, what that image shows.
     `clip_no` is the clip's number: an entity introduced in it, or on
     screen now but not in the previous clip's picture (read from the
     world's recent clips), enters during this clip and is described then."""
@@ -223,7 +226,7 @@ def compile_clip(
     # Who enters the picture during this clip: introduced in this clip
     # (listed by Now or not: the world has it present), or on
     # screen now without having been in the previous clip's picture.
-    previous = previous_picture(world, clip_no)
+    previous = previous_picture(world, clip_no, opening=opening)
     entering: list[Entity] = []
     staying: list[Entity] = []
     for e in ents:

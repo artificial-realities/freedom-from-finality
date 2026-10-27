@@ -15,7 +15,6 @@ class LLMBackend(ABC):
         self,
         messages: list[dict],
         schema: type[BaseModel],
-        temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> tuple[str, dict]:
         """Return (response_text, info), the text constrained to `schema`;

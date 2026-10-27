@@ -139,6 +139,10 @@ class Engine:
         self._last_beat: tuple[str, int, int] | None = None
         self._pending_note: str = ""
         self._reseed_note: str = ""
+        # The next clip opens on Frame Zero's picture, which the renderer
+        # seeds it from: the story's first clip, or the first after a
+        # resume with no frames to continue from.
+        self._opening = not self.world.clips
         self._last_spawn = self.world.last_then
         self._resume()
         self._base_json = self.world.model_dump_json()
@@ -284,6 +288,12 @@ class Engine:
         )
         return dropped
 
+    def from_frame_zero(self) -> None:
+        """The film resumes with no frames to continue the picture from: its
+        first clip opens on Frame Zero's picture again, and Now hears so."""
+        self._opening = True
+        self.note_reseed(self.world.clip + 1)
+
     def note_reseed(self, clip_no: int) -> None:
         self._reseed_note = (f"At clip {clip_no} the renderer restarted and the picture was re-seeded from "
                              f"the first frame ({self._scene()}). Nothing from before is in the picture. "
@@ -365,6 +375,7 @@ class Engine:
             "plan_notes": list(self._plan_notes), "plan_meta": dict(self._plan_meta),
             "last_end_state": self._last_end_state, "last_beat": self._last_beat,
             "pending_note": self._pending_note, "pending_spawn": self._pending_spawn,
+            "opening": self._opening,
         }
 
     def _record_plan(self, clip_no: int, beat: BeatPlan, meta: dict) -> None:
@@ -411,6 +422,7 @@ class Engine:
         self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
         self._last_end_state, self._last_beat = snap["last_end_state"], snap["last_beat"]
         self._pending_note, self._pending_spawn = snap["pending_note"], snap["pending_spawn"]
+        self._opening = snap["opening"]
 
     def _cut_after_failure(self, snap: dict, reason: str) -> None:
         beat = self._beat
@@ -443,7 +455,8 @@ class Engine:
         staged = [o.model_copy(update={"clip": clip_no}) for o in self._staged]
         heard = staged + [Outcome(inputs=ids, clip=clip_no, outcome=how, reason=why, beat=beat.intent)
                           for ids, how, why in report.outcomes if ids]
-        prompt = compile_clip(beat, i, world, scene=self.frame_zero.scene, opening=(clip_no == 1), clip_no=clip_no)
+        prompt = compile_clip(beat, i, world, scene=self.frame_zero.scene, opening=self._opening, clip_no=clip_no)
+        self._opening = False
         duration = self.shape.delivered_seconds
         said = [f"{world.resolve(d.speaker).name}: {d.line}" for d in spec.dialogue]
 

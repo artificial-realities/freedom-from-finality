@@ -22,8 +22,8 @@ class OpenAIBackend(LLMBackend):
                  timeout_s: float = 600.0, retries: int = 2) -> None:
         self.model = model
         # A reasoning model (the GPT-5 family, o-series) takes its effort
-        # and `max_completion_tokens`, and only its default temperature;
-        # "" is a chat model (gpt-4.1, gpt-4o) with `max_tokens`.
+        # and `max_completion_tokens`; "" is a chat model (gpt-4.1, gpt-4o)
+        # with `max_tokens`. Both sample at their default temperature.
         self.reasoning_effort = reasoning_effort
         self.timeout_s = timeout_s
         # The SDK retries a call that timed out, could not connect or was
@@ -31,16 +31,15 @@ class OpenAIBackend(LLMBackend):
         self.client = AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"), timeout=timeout_s,
                                   max_retries=retries)
 
-    def _sampling(self, temperature: float, max_tokens: int) -> dict:
+    def _sampling(self, max_tokens: int) -> dict:
         if self.reasoning_effort:
             return {"reasoning_effort": self.reasoning_effort, "max_completion_tokens": max_tokens}
-        return {"temperature": temperature, "max_tokens": max_tokens}
+        return {"max_tokens": max_tokens}
 
     async def generate_structured(
         self,
         messages: list[dict],
         schema: type[BaseModel],
-        temperature: float = 0.7,
         max_tokens: int = 1024,
     ) -> tuple[str, dict]:
         response_format = {
@@ -51,7 +50,7 @@ class OpenAIBackend(LLMBackend):
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                **self._sampling(temperature, max_tokens),
+                **self._sampling(max_tokens),
                 response_format=response_format,
             )
         except Exception as exc:

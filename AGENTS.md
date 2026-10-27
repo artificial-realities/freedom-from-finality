@@ -75,7 +75,7 @@ python main.py play --config configs/text.yaml         # testing: the story as t
 
 ## Conventions
 
-- **State & responses**: Pydantic v2 `BaseModel`, not `TypedDict` or raw dicts. The world model (`src/story/world.py`) is the system of record for the story; the viewer's memory (`src/story/viewer.py`) is the person's, append-only and never rolled back with the world. Prose is never the source of truth.
+- **State & responses**: Pydantic v2 `BaseModel`, not `TypedDict` or raw dicts. The world model (`src/story/world.py`) is the system of record for the story; the viewer's memory (`src/story/viewer.py`) is the person's, append-only and never rolled back with the world. Structure lives in fields (ids, kind, presence, place, gone); an entity's pose and condition are one line of prose by decision (decisions.md, "One line of prose per entity"), which code never parses.
 - **Agents** are async functions, not classes. They read prompt sections from `src/story/context.py` and return schema instances; only `src/story/validator.py` mutates the world.
 - **Workflow, not agent system**: no tool use, no LLM-directed control flow. The engine decides order and triggers; the LLM proposes, code validates and applies.
 - **Rendering is opt-out, content is not.** Now writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
@@ -85,7 +85,7 @@ python main.py play --config configs/text.yaml         # testing: the story as t
 - **Facts, not thresholds, for story quality.** No code judges pacing, loops or whether the film is moving; give the roles what they need to judge it.
 - **No test suite, by choice.** The project changes too fast for tests to pay their upkeep; `ruff check .` is the gate. Don't add tests or test-only code paths unless the owner asks.
 - **A product, not a research harness.** Experiments, benchmarks and evaluation tooling stay out of the repository; what one decides goes into `docs/decisions.md` in a few lines with its numbers. Comments say why in plain words, without tracker IDs or dates.
-- **Safe by default.** The player and the LTX-2.5 server listen on `127.0.0.1` and have no login; never change that default or document public hosting as safe. The app writes only under `--log-dir` and `--story`; a value from a request never becomes a path. No telemetry or third-party calls.
+- **Safe by default.** The player and the LTX-2.5 server listen on `127.0.0.1` and have no login; never change that default or document public hosting as safe. The app writes only under `--log-dir` and `--story`, and prunes only `logs/films/` (the newest 20 films are kept); a value from a request never becomes a path. No telemetry or third-party calls.
 - **One clip shape, one continuous picture.** `clip_seconds` becomes the run's one shape (`src/i2v/shape.py`), which every consumer reads and the server must have warmed. Only a story's first clip is seeded from the reference image; a resume continues from the frames saved with the last clip; never re-seed mid-film (it resets costume, props and position).
 - **The story belongs to the viewer and lasts.** It is saved as of the last clip they saw and holds the story, never the rendered video (clips are deleted once played; only the frames the next clip continues from are kept). Only `src/story_folder.py` and the viewer's memory write to it, durably (`src/util/durable.py`); keep it portable (relative paths, JSON, JSON lines, the format number in `story.json`) and outside the world model what belongs to the person.
 

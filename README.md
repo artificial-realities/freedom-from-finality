@@ -43,7 +43,9 @@ On a machine with its own GPU, start the server there and run `python main.py pl
 
 There is one story, and it never ends. The page opens on the picture it stopped on: press **Begin** the first time, and **Continue** after that, and it goes on from the last clip you saw, with its world, its characters, everything that has happened and what the story has learned about you. **Stop** ends the film and saves it; so does closing the page (after a minute) or Ctrl+C. The story lives in the `story/` folder on your computer (never in git): copy the folder to back it up or move it to another computer. When the film runs on a rented GPU, `server/vast_run.sh` copies it there before the session and brings it home every minute and when the session ends.
 
-The film itself is not kept: each clip is deleted once it has played, and only the few frames the next clip continues from are saved. Nothing is ever replayed; the story only goes on. `logs/films/` holds technical records of each film (transcripts, timing, the models' raw outputs), none of which the story needs.
+The film itself is not kept: each clip is deleted once it has played, and only the few frames the next clip continues from are saved. Nothing is ever replayed; the story only goes on.
+
+**What leaves your computer, and what stays.** While a film plays, Now and Then are calls to OpenAI with your key: each sends the story as the roles need it (the world, the recent clips, the story's past, Then's notes) and what you typed. The video is rendered on the GPU server you run. Nothing else is sent anywhere, and there is no telemetry. `story/viewer.jsonl` keeps what you typed for good, since it is the story's memory of you; `logs/films/` keeps technical records of the 20 most recent films (transcripts, timing, the models' raw outputs), which also contain what you typed, and none of which the story needs.
 
 ## How it works
 

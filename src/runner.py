@@ -43,6 +43,10 @@ MAX_CONSECUTIVE_FAILURES = 3
 MAX_FAILED_SAVES = 3
 # A `fire_due` record is written again only when the due moment moves by more than this.
 FIRE_DUE_STEP_S = 0.2
+# The films whose records logs/films/ keeps: the newest this many. They
+# hold the viewer's words, so they do not pile up; nothing else in logs/
+# is ever removed.
+FILMS_KEPT = 20
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,16 @@ logger = logging.getLogger(__name__)
 def _make_film_id(config_name: str) -> str:
     """The film's id: the name of its folder under `logs/films/`."""
     return f"{config_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+
+def _prune_films(films: Path, keep: int) -> None:
+    """Remove the records of all but the newest `keep` films."""
+    try:
+        found = sorted((d for d in films.iterdir() if d.is_dir()), key=lambda d: d.stat().st_mtime)
+    except OSError:
+        return
+    for d in found[:-keep] if keep > 0 else found:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def _start_timing(config: Config, frame_zero: FrameZero, film_id: str, film_dir: Path, *,
@@ -173,6 +187,7 @@ async def run_live(
     """
     frame_zero = folder.frame_zero
     film_id = _make_film_id(config.name)
+    _prune_films(Path(log_dir) / "films", FILMS_KEPT - 1)
     film_dir = Path(log_dir) / "films" / film_id
     transcript = Transcript(film_dir / "transcript.md", film_id=film_id, config_name=config.name,
                             first_frame=frame_zero.scene)
@@ -196,7 +211,7 @@ async def run_live(
         else:
             # Nothing saved to continue the picture from: it starts again
             # from the first frame, and Now hears so.
-            engine.note_reseed(resumed_at + 1)
+            engine.from_frame_zero()
     timing.write("story", id=folder.id, resumed_at=resumed_at, last_frames=folder.last_frames is not None)
     print(("Your story continues from clip %d." % resumed_at if resumed_at else "Your story begins.")
           + f" It plays as {'video' if i2v is not None else 'text'}.", flush=True)
