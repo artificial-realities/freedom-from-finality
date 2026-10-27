@@ -55,12 +55,6 @@ server/vast_run.sh down      # bring your story home and stop paying
 
 Have an 80 GB NVIDIA GPU of your own (H100 or newer)? Skip Vast: see [SETUP.md](SETUP.md#your-own-gpu).
 
-## Where it stands
-
-- **Video:** measured on H100 and H200 with earlier stories. A 300-clip film rendered with no slowdown, and its only pauses came from slow LLM calls. Typed input reached the screen two clips later.
-- **MacLaren's story** (the layered memory, the memory of you) has only played as text so far: three films of 150-300 clips, under $0.30 of OpenAI each. Not yet as video.
-- **Open problems:** a slow Now call can still pause the picture for a moment. Continuity fights steering: the more a clip holds on to the last one, the less a new prompt lands. Long films drift visually.
-
 ## What leaves your computer
 
 While a film plays, Now and Then call OpenAI with your key, sending the story as they need it and what you typed. The video renders on the GPU server you run. Nothing else goes anywhere, and there's no telemetry. What you type is kept in `story/viewer.jsonl` (the story's memory of you) and in the technical logs of the last 20 films. The page has no login and listens on `127.0.0.1` only, since everything typed into it is billed to your key.
