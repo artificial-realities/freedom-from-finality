@@ -30,6 +30,9 @@ class OpenAIBackend(LLMBackend):
         # throttled (429, 5xx) this many times before it fails.
         self.client = AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"), timeout=timeout_s,
                                   max_retries=retries)
+        # Everything this backend has spent, for the timing log: calls, and
+        # tokens in (of which cached) and out.
+        self.usage = {"calls": 0, "prompt": 0, "cached": 0, "completion": 0}
 
     def _sampling(self, max_tokens: int) -> dict:
         if self.reasoning_effort:
@@ -46,6 +49,7 @@ class OpenAIBackend(LLMBackend):
             "type": "json_schema",
             "json_schema": {"name": schema.__name__, "strict": True, "schema": to_strict_json_schema(schema)},
         }
+        self.usage["calls"] += 1
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,
@@ -64,8 +68,11 @@ class OpenAIBackend(LLMBackend):
         if refusal:
             info["refusal"] = refusal
         if resp.usage is not None:
-            info.update(prompt=resp.usage.prompt_tokens, completion=resp.usage.completion_tokens,
-                        total=resp.usage.total_tokens)
+            details = getattr(resp.usage, "prompt_tokens_details", None)
+            cached = getattr(details, "cached_tokens", 0) or 0
+            info.update(prompt=resp.usage.prompt_tokens, cached=cached, completion=resp.usage.completion_tokens)
+            for key in ("prompt", "cached", "completion"):
+                self.usage[key] += info[key] or 0
         return choice.message.content or "", info
 
     def _failure(self, exc: Exception) -> str:

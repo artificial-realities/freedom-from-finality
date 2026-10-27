@@ -43,6 +43,7 @@ from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ThenUpdate
 from src.story.validator import Report, apply_clip, apply_then
 from src.story.viewer import Outcome
+from src.story.history import History
 from src.story.world import ClipRecord, WorldModel
 from src.story_folder import StoryFolder
 from src.util.timing_log import TimingLog
@@ -191,6 +192,7 @@ class Engine:
         could not write it."""
         text = (text or "").strip()
         started = time.monotonic()
+        spent = dict(self.llm_now.usage)
         self.timing.write("now_start", clip=clip_no, input=bool(text))
         try:
             cost = await self._plan(clip_no, text, list(inputs))
@@ -200,8 +202,9 @@ class Engine:
                               plan_s=round(time.monotonic() - started, 4),
                               **({} if cancelled else {"error": type(exc).__name__}))
             raise
+        tokens = {f"tokens_{k}": v - spent[k] for k, v in self.llm_now.usage.items() if k != "calls"}
         self.timing.write("now_end", clip=clip_no, input=bool(text),
-                          plan_s=round(time.monotonic() - started, 4), **cost)
+                          plan_s=round(time.monotonic() - started, 4), **cost, **tokens)
 
     async def _plan(self, clip_no: int, text: str, inputs: list[int]) -> dict:
         world = self.world
@@ -541,6 +544,7 @@ class Engine:
         if self._then_task is not None:
             self._then_task.cancel()
             self._then_task, self._then_meta = None, None
+        self.timing.write("llm_usage", now=dict(self.llm_now.usage), then=dict(self.llm_then.usage))
 
     # ── Then clock ─────────────────────────────────────────────────
 
@@ -556,10 +560,7 @@ class Engine:
         upto = len(self.viewer.records)
 
         async def _task():
-            return await then_agent.run(
-                world=snapshot, history=history, viewer=self.viewer, upto=upto, scene=self.frame_zero.scene,
-                llm=self.llm_then, config=self.config, mode="summary", clip_seconds=self.shape.delivered_seconds,
-            )
+            return await self._then(at_clip, world=snapshot, history=history, upto=upto, mode="summary")
 
         self._then_meta = (at_clip, reason, upto)
         self._then_task = asyncio.create_task(_task())
@@ -569,12 +570,26 @@ class Engine:
         """The opening run: the only synchronous one."""
         self._last_spawn = at_clip
         upto = len(self.viewer.records)
-        update = await then_agent.run(
-            world=self.world, history=self.history.view(self.world.history_count), viewer=self.viewer, upto=upto,
-            scene=self.frame_zero.scene, llm=self.llm_then, config=self.config, mode="opening",
-            clip_seconds=self.shape.delivered_seconds,
-        )
+        update = await self._then(at_clip, world=self.world, history=self.history.view(self.world.history_count),
+                                  upto=upto, mode="opening")
         self._land(update, at_clip=at_clip, reason=reason, upto=upto)
+
+    async def _then(self, at_clip: int, *, world: WorldModel, history: History, upto: int,
+                    mode: str) -> ThenUpdate | None:
+        """One Then run, its time and tokens in the timing log."""
+        started, spent = time.monotonic(), dict(self.llm_then.usage)
+        update = None
+        try:
+            update = await then_agent.run(
+                world=world, history=history, viewer=self.viewer, upto=upto, scene=self.frame_zero.scene,
+                llm=self.llm_then, config=self.config, mode=mode, clip_seconds=self.shape.delivered_seconds,
+            )
+            return update
+        finally:
+            self.timing.write("then_end", at_clip=at_clip, mode=mode, ok=update is not None,
+                              then_s=round(time.monotonic() - started, 4),
+                              reply_chars=len(update.model_dump_json()) if update is not None else 0,
+                              **{f"tokens_{k}": v - spent[k] for k, v in self.llm_then.usage.items()})
 
     def _hold_reason(self, clip_no: int) -> str | None:
         task = self._then_task
