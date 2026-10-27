@@ -256,6 +256,12 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
             ent.gone = False
             changes.append("back in the story")
         was_present = ent.present
+        name = " ".join(op.name.split())
+        if op.op == "update" and name and name != ent.name:
+            if ent.name not in ent.names:
+                ent.names.append(ent.name)
+            ent.name = name
+            changes.append(f"name={name}")
         look = " ".join(op.look.split())
         if op.op == "update" and look and look != ent.look:
             # The new look is restated whole on every clip, not cut short:

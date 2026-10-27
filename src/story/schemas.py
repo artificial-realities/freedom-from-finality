@@ -39,11 +39,14 @@ class EntityOp(BaseModel):
     once and stays the same. An update may give a character the voice it
     lacks, or a new one; personality is Then's to rewrite. `state` is the
     entity at the end of the clip, in prose, replacing its last one. An
-    update with `present: true` brings back one that left the story.
+    update with `present: true` brings back one that left the story, and
+    one with a `name` renames it: the name it goes by from now on (its id
+    stays, and its earlier names still find it).
     """
 
     op: Literal["introduce", "update", "remove"]
     entity: str
+    name: str = ""
     kind: EntityKind = "prop"
     look: str = ""
     personality: str = ""

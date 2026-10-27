@@ -25,6 +25,8 @@ the schemas do not.
 
 from __future__ import annotations
 
+import re
+
 from src.story.schemas import BeatPlan
 from src.story.world import Entity, WorldModel
 
@@ -103,8 +105,9 @@ def _voice_words(text: str) -> str:
     return text.strip(" ,")
 
 
-# Words that only soften a quality: "slightly formal" says nothing "formal" does not.
-_HEDGES = frozenset({"a", "an", "bit", "little", "slightly", "somewhat", "quite", "very", "rather"})
+# Words that only soften or join a quality: "slightly formal" says nothing
+# "formal" does not, nor "faint and delayed" what "faint, delayed" says.
+_HEDGES = frozenset({"a", "an", "and", "bit", "little", "slightly", "somewhat", "quite", "very", "rather"})
 
 
 def speech(name: str, line: str, *, delivery: str = "", voice: str = "") -> str:
@@ -116,7 +119,7 @@ def speech(name: str, line: str, *, delivery: str = "", voice: str = "") -> str:
     words = [p for p in (x.strip() for x in _voice_words(delivery).split(",")) if p]
     if voice.strip():
         said = {w for p in words for w in p.lower().split()}
-        for phrase in (x.strip() for x in _voice_words(voice).split(",")):
+        for phrase in (re.sub(r"\s+voice$", "", x.strip(), flags=re.I) for x in _voice_words(voice).split(",")):
             if phrase and not {w for w in phrase.lower().split() if w not in _HEDGES} <= said:
                 words.append(phrase)
     how = ", ".join(words)

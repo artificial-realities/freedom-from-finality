@@ -70,7 +70,10 @@ def short_look(look: str) -> str:
 
 
 class Entity(BaseModel):
-    """`look` is how the entity is drawn, whole, and `look_short` the part
+    """`names` are the names it went by before its `name` (a dog the viewer
+    named, a stranger who gave hers), which still find it.
+
+    `look` is how the entity is drawn, whole, and `look_short` the part
     restated on every clip it is in (since clip `look_since` when an op
     replaced it). A `gone` entity left the story for good; its `state` says
     how, and an update that puts it back in the scene brings it back.
@@ -86,6 +89,7 @@ class Entity(BaseModel):
 
     id: str
     name: str
+    names: list[str] = Field(default_factory=list)
     kind: EntityKind
     look: str = ""
     look_short: str = ""
@@ -238,7 +242,8 @@ class WorldModel(BaseModel):
         if ref in self.entities:
             return self.entities[ref]
         sid, low = slugify(ref), ref.lower()
-        named = [e for e in self.entities.values() if e.id == sid or e.name.lower() == low or slugify(e.name) == sid]
+        named = [e for e in self.entities.values()
+                 if e.id == sid or any(n.lower() == low or slugify(n) == sid for n in (e.name, *e.names))]
         live = [e for e in named if not e.gone]
         if live:
             return max(live, key=lambda e: e.first_seen)
@@ -250,9 +255,10 @@ class WorldModel(BaseModel):
         return ent if ent is not None and not ent.gone else None
 
     def mentions(self, text: str) -> set[str]:
-        """Ids of the entities `text` names, by name or id, as whole words."""
+        """Ids of the entities `text` names, by a name it has or had, or its
+        id, as whole words."""
         said = words(text)
-        return {e.id for e in self.entities.values() if any(words(n) in said for n in (e.name, e.id))}
+        return {e.id for e in self.entities.values() if any(words(n) in said for n in (e.name, e.id, *e.names))}
 
     def by_kind(self, kind: EntityKind) -> list[Entity]:
         return [e for e in self.entities.values() if e.kind == kind]

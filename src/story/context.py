@@ -88,11 +88,16 @@ def _who(ent: Entity, *, dated: bool) -> list[str]:
     return bits
 
 
+def _name(ent: Entity) -> str:
+    """Its name, and the names it went by before."""
+    return ent.name + (f" (once {', '.join(ent.names)})" if ent.names else "")
+
+
 def _character(ent: Entity, portrayed: set[str], lead: list[str]) -> str:
     """One character in full. Who it is comes from the notebook for the
     characters Then portrays; any other carries it here, from the entity,
     so a newcomer, or one coming back, is still who it was."""
-    bits = [f"- {ent.id} (character): {ent.name}", *lead]
+    bits = [f"- {ent.id} (character): {_name(ent)}", *lead]
     if ent.look:
         bits.append(f"looks: {ent.look}")
     if ent.id not in portrayed:
@@ -169,7 +174,7 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
                 continue
             now = f" · now: {_clip(ent.state, STATE_CHARS)}" if ent.state else ""
             looks = f" · looks: {ent.look}" if ent.look_since else ""
-            out.append(f"- {ent.id} ({ent.kind}): {ent.name}{now}{looks}")
+            out.append(f"- {ent.id} ({ent.kind}): {_name(ent)}{now}{looks}")
         if rest:
             out.append("Also present (seen less recently): " + ", ".join(f"`{e.id}`" for e in rest))
     else:
@@ -203,7 +208,7 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
                     e.lately and f"lately (clip {e.lately_at}): {_first_sentence(e.lately)}"]
             return " · ".join(b for b in bits if b)
         out.append(("Other characters" if full else "Characters") + " not in the scene (the most recently seen first):")
-        out.extend(f"- `{e.id}` {e.name}: {about(e)}" for e in rest[:AWAY_LISTED])
+        out.extend(f"- `{e.id}` {_name(e)}: {about(e)}" for e in rest[:AWAY_LISTED])
         if len(rest) > AWAY_LISTED:
             out.append(f"- and {len(rest) - AWAY_LISTED} more, seen longer ago: "
                        + ", ".join(f"`{e.id}`" for e in rest[AWAY_LISTED:AWAY_LISTED * 3])
@@ -524,9 +529,13 @@ def format_checkpoints(world: WorldModel, history: History) -> str:
     if checkpoints:
         named = "; ".join(f'"{c.name}" at clip {c.at}' for c in checkpoints[-CHECKPOINTS_NAMED:])
         earlier = len(checkpoints) - CHECKPOINTS_NAMED
-        out = [f"So far ({len(checkpoints)}): " + (f"{earlier} earlier, then " if earlier > 0 else "") + named + "."]
         last = checkpoints[-1]
-        out.append(f"The last one is {world.clip - last.at} clips ago.")
+        runs = sum(1 for s in history.summaries() if s.last_clip > last.at)
+        out = [f"So far ({len(checkpoints)}, one every {last.at // len(checkpoints)} clips on average, "
+               f"about every {max(1, len(history.summaries()) // len(checkpoints))} of your runs): "
+               + (f"{earlier} earlier, then " if earlier > 0 else "") + named + ".",
+               f"The last one is {world.clip - last.at} clips ago; you have summarised {runs} "
+               f"run{'s' if runs != 1 else ''} since."]
     else:
         last = None
         out = [f"None so far: the story has run {world.clip} clips without one."]
