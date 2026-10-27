@@ -19,7 +19,9 @@ A man drawn in black lines stands alone in an empty white world. Two LLM roles â
 
 ## Run it
 
-You need Python 3.11+, an [OpenAI API key](https://platform.openai.com/api-keys), ffmpeg, and the LTX-2.5 server on an NVIDIA GPU with 80 GB (an H100 has cost about $3 an hour to rent) with a Hugging Face token for the gated weights. [server/README.md](server/README.md) has the details.
+**Easiest:** open the repo in your coding agent (Claude Code, Codex, Cursor...) and say *set up FFF for me*. It follows [SETUP.md](SETUP.md): which keys to get, renting the GPU, and what it costs (roughly $2.50-8 for a 30-minute film).
+
+By hand: you need Python 3.11+, an [OpenAI API key](https://platform.openai.com/api-keys), ffmpeg, and the LTX-2.5 server on an NVIDIA GPU with 80 GB (an H100 has cost about $3 an hour to rent) with a Hugging Face token for the gated weights. [server/README.md](server/README.md) has the details.
 
 ```bash
 git clone https://github.com/artificial-realities/freedom-from-finality.git
@@ -29,15 +31,16 @@ pip install -r requirements.txt
 cp .env.example .env              # then add your keys to .env
 ```
 
-With a [Vast.ai](https://vast.ai) key it is three commands:
+With a [Vast.ai](https://vast.ai) key it is a few commands:
 
 ```bash
+server/vast_run.sh check          # keys ready? and what renting costs right now (rents nothing)
 server/vast_run.sh up             # rent an H100, start the server (5-20 min the first time)
 server/vast_run.sh run            # your story on it: open http://127.0.0.1:8765/ and press Begin
 server/vast_run.sh down           # bring your story home and stop paying
 ```
 
-On a machine with its own GPU, start the server there and run `python main.py play`, then open http://127.0.0.1:8765/. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: everything typed into it is billed to your OpenAI key.
+On a machine with its own GPU (NVIDIA, 80 GB, H100 or newer; see [SETUP.md](SETUP.md#your-own-gpu)), start the server there and run `python main.py play`, then open http://127.0.0.1:8765/. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: everything typed into it is billed to your OpenAI key.
 
 ## Your story
 

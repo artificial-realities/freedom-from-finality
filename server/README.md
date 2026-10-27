@@ -16,6 +16,7 @@ Linux, an NVIDIA GPU with 80 GB (tested on H100 SXM and NVL, and H200 NVL), torc
 `vast_run.sh` rents the cheapest matching H100, installs and starts the server, tunnels it to `localhost:8000`, and runs the film on the box, so no clip crosses the internet (an MP4 through the tunnel costs 1.5-4.6 s). Your story stays yours: `run` copies it to the box, brings it home every minute and when the film stops, and `down` brings it home before destroying the box.
 
 ```bash
+server/vast_run.sh check     # keys, Vast credit and ssh key ready? and what renting costs now; rents nothing
 server/vast_run.sh up        # rent and start; ready in 5-20 min (weights download, then the warm-up)
 server/vast_run.sh run       # your story on the box: open http://127.0.0.1:8765/ and press Begin (Ctrl+C ends it)
 server/vast_run.sh pull      # bring your story home, and the films' transcripts and timing logs → logs/box/
@@ -23,7 +24,7 @@ server/vast_run.sh down      # always: renting bills by the hour until this
 server/vast_run.sh status    # what is rented, and the server's /health
 ```
 
-Needs `VAST_API_KEY`, `HF_TOKEN` and `OPENAI_API_KEY` in `.env`, the `vastai` CLI (`pip install vastai`), credit on the account, and your ssh key registered on Vast. Arguments after `run` reach `main.py` (`server/vast_run.sh run configs/video.yaml --clips 20`). Never edit `vast_run.sh` while it runs: bash reads the file as it goes.
+Needs `VAST_API_KEY`, `HF_TOKEN` and `OPENAI_API_KEY` in `.env`, the `vastai` CLI (`pip install vastai`), credit on the account, and your ssh key registered on Vast. `up` tries `HF_TOKEN` against the gated weights before it rents. The hourly price leaves out the download: a fresh box pulls about 145 GB, which some hosts bill per GB (up to about $5.50), and `check` shows it. Arguments after `run` reach `main.py` (`server/vast_run.sh run configs/video.yaml --clips 20`). Never edit `vast_run.sh` while it runs: bash reads the file as it goes.
 
 ## On your own GPU machine
 

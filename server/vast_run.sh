@@ -2,6 +2,8 @@
 # Rent a GPU on Vast.ai, stand up the LTX-2.5 server on it, tunnel it to
 # localhost:8000, run the film on the box, and tear everything down.
 #
+#   server/vast_run.sh check                       keys, credit and ssh key ready? and what renting costs now;
+#                                                  rents nothing
 #   server/vast_run.sh up [OFFER_ID]               rent (the cheapest matching H100 unless given), install,
 #                                                  start the server, open the tunnel, wait until it is ready
 #   server/vast_run.sh run [config] [args...]      your story ON the box; its page comes back on localhost:8765
@@ -36,10 +38,25 @@ PY=$([ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 IMAGE=pytorch/pytorch:2.9.1-cuda12.8-cudnn9-devel
 # H100 SXM and NVL: cheaper than the PCIe on Vast and ~1.3x faster on this compute-bound model.
 QUERY=${VAST_QUERY:-'gpu_name in [H100_SXM,H100_NVL] gpu_ram>=80 num_gpus=1 disk_space>=180 inet_down>=800 rentable=true verified=true reliability>0.98'}
+DISK=200
+# What a fresh box downloads (the image, the packages, the weights). Some
+# hosts bill it per GB, and the hourly price leaves it out.
+DOWNLOAD_GB=145
+WEIGHTS_URL=https://huggingface.co/Lightricks/LTX-2.5-Diffusers
 
+# Cheapest first; with --storage the hourly price counts the disk `up` asks for.
+offers() { vastai search offers "$QUERY" --order dph_total --storage "$DISK" --raw; }
 pick_offer() {
-  vastai search offers "$QUERY" --order dph_total --raw \
-    | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r[0]["id"]) if r else sys.exit("no offers match")'
+  offers | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r[0]["id"]) if r else sys.exit("no offers match")'
+}
+# A box that cannot download the gated weights is paid for and useless, so the token is tried first.
+need_weights() {
+  case "$(curl -s -o /dev/null -w '%{http_code}' -I -L -H "Authorization: Bearer $HF_TOKEN" "$WEIGHTS_URL/resolve/main/model_index.json")" in
+    200) echo "HF_TOKEN reaches the LTX-2.5 weights";;
+    401) echo "HF_TOKEN is not accepted by Hugging Face: make a read token at https://huggingface.co/settings/tokens" >&2; exit 1;;
+    403) echo "HF_TOKEN works, but the licence is not accepted yet: click Agree at $WEIGHTS_URL" >&2; exit 1;;
+    *) echo "could not reach Hugging Face to try HF_TOKEN" >&2;;
+  esac
 }
 instance_json() { vastai show instance "$(cat "$STATE/id")" --raw; }
 field() { instance_json | python3 -c "import json,sys; print(json.load(sys.stdin).get('$1') or '')"; }
@@ -74,11 +91,49 @@ push_story() {
 # The frame counts the server warms come from the client's clip shape, so they are never typed twice.
 server_env() { echo "HF_TOKEN=$HF_TOKEN LTX2_WARMUP_FRAMES=$(python3 -W ignore::RuntimeWarning -m src.i2v.shape "$CONFIG")"; }
 
+# Everything `up` and `run` need, and what renting costs right now. Rents nothing.
+check() {
+  need VAST_API_KEY HF_TOKEN OPENAI_API_KEY
+  vastai show user --raw | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    d = {"error": True}
+if d.get("error"):
+    sys.exit("Vast said no: check VAST_API_KEY (https://cloud.vast.ai/manage-keys/) and your connection")
+print("VAST_API_KEY works; credit on the account: $%.2f" % (d.get("credit") or 0))'
+  vastai show ssh-keys --raw | python3 -c '
+import glob, json, os, sys
+registered = " ".join(k.get("public_key") or "" for k in json.load(sys.stdin))
+mine = [open(p).read().split()[1:2] for p in glob.glob(os.path.expanduser("~/.ssh/*.pub"))]
+if not any(k and k[0] in registered for k in mine):
+    sys.exit("none of your ssh keys is on Vast: add ~/.ssh/id_ed25519.pub under SSH Keys at https://cloud.vast.ai/manage-keys/ (ssh-keygen -t ed25519 makes one)")
+print("your ssh key is on Vast")'
+  need_weights
+  echo "OPENAI_API_KEY is set (not tried: a call costs money)"
+  # The estimate counts 15 min of startup, and OpenAI at about $0.50 per hour of film.
+  offers | python3 -c '
+import json, sys
+r = json.load(sys.stdin)
+if not r:
+    sys.exit("no offers match right now: try again later, or set VAST_QUERY")
+o, gb = r[0], float(sys.argv[1])
+hour, per_gb = o["dph_total"], o.get("inet_down_cost") or 0
+download = gb * per_gb
+print("\nup would rent offer %s: %s in %s" % (o["id"], o["gpu_name"], o.get("geolocation") or "?"))
+print("  the box    $%.2f an hour, from up until down" % hour)
+print("  download   $%.2f once per box (about %d GB at $%.3f a GB)" % (download, gb, per_gb))
+print("  OpenAI     about $0.50 an hour of film")
+for label, h in (("30 min", 0.5), ("1 hour", 1.0), ("2 hours", 2.0)):
+    print("  %-7s of film, startup included: about $%.2f" % (label, (h + 0.25) * hour + download + 0.5 * h))' "$DOWNLOAD_GB"
+}
 up() {
   need VAST_API_KEY HF_TOKEN
+  need_weights
   local offer=${1:-$(pick_offer)}
   echo "renting offer $offer"
-  vastai create instance "$offer" --image "$IMAGE" --disk 200 --ssh --direct --label ltx25 --raw \
+  vastai create instance "$offer" --image "$IMAGE" --disk "$DISK" --ssh --direct --label ltx25 --raw \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("success"), d; print(d["new_contract"])' > "$STATE/id"
   echo "instance $(cat "$STATE/id"): waiting for boot"
   for _ in $(seq 1 60); do [ "$(field actual_status)" = running ] && break; sleep 10; done
@@ -170,6 +225,6 @@ down() {
   echo "tunnel closed, instance destroyed"
 }
 case "${1:-}" in
-  up) shift; up "$@";; run) shift; run "$@";; pull) shift; pull "$@";; restart) restart;; status) status;; down) down;;
-  *) sed -n '2,21p' "$0"; exit 1;;
+  up) shift; up "$@";; check) check;; run) shift; run "$@";; pull) shift; pull "$@";; restart) restart;; status) status;; down) down;;
+  *) sed -n '2,23p' "$0"; exit 1;;
 esac

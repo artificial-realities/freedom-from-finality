@@ -2,6 +2,8 @@
 
 Project facts and rules for coding agents (and humans). How the story works is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and why it is built that way in [docs/decisions.md](docs/decisions.md).
 
+**Someone wants to set up and run FFF?** Follow [SETUP.md](SETUP.md) and walk them through it: the keys, renting the GPU, what it costs.
+
 ## What this is
 
 An infinite, continuously generated story that a viewer steers by typing into a browser page. Two LLM roles — **Now** (the creative voice, one beat per call on the critical path) and **Then** (memory and intuition, off the critical path on a slow clock) — write the story over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
@@ -32,6 +34,7 @@ configs/                   # text.yaml · video.yaml
 frame_zero.json            # Frame Zero: the first frame a new story begins from (read only then): scene, character,
                            # location, image
 docs/                      # ARCHITECTURE.md (how) · decisions.md (why)
+SETUP.md                   # for an agent setting someone up: keys, renting the GPU, what it costs
 server/                    # the LTX-2.5 server for the GPU box, and vast_run.sh to rent one; see server/README.md
 story/                     # the viewer's story (git-ignored, personal): see src/story_folder.py
 logs/                      # technical run output (git-ignored): films/<id>/, test-story/
@@ -94,5 +97,5 @@ python main.py play --config configs/text.yaml         # testing: the story as t
 - A focused diff, with no unrelated reformatting.
 - `ruff check .` passes.
 - No secrets in code, logs, test fixtures or commit messages, and no paid calls or GPU rentals unless the human authorised them.
-- Docs updated when behaviour, configuration or setup changes: README.md, docs/, `.env.example`, `server/README.md` and this file.
+- Docs updated when behaviour, configuration or setup changes: README.md, SETUP.md, docs/, `.env.example`, `server/README.md` and this file.
 - State plainly what was verified and what wasn't (for example "suite and check pass; not run on a GPU; no paid film").
