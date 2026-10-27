@@ -1,6 +1,6 @@
 # Decisions
 
-Why the system is built the way it is: each entry is a decision, what it was weighed against, and the evidence. The runs behind them were made between September and October 2026 on one story (the LEGO minifigure in a white void), with OpenAI models and LTX-2.5 on rented H100s. They are grounding for the design, not benchmarks.
+Why the system is built the way it is: each entry is a decision, what it was weighed against, and the evidence. The runs behind them were made between September and October 2026, most of them on LEGO stories (a minifigure in a white void, then a quest) and the latest on Mac's story as text, with OpenAI models and LTX-2.5 on rented H100s and H200s. They are grounding for the design, not benchmarks.
 
 > **Name changes (October 2026).** The Director became Spark, then **Now**; the Showrunner became Echo, then **Then**; the story blueprint (`story.json`) became **Frame Zero** (`frame_zero.json`); the adventure became the **story** (`story/`), a segment or turn a **clip**, an intervention, line or request an **input**, a turning point or era a **checkpoint**, and a continuation the **saved state**. The entries below use the current names.
 
@@ -44,7 +44,7 @@ Why the system is built the way it is: each entry is a decision, what it was wei
 
 ## Picture and sound
 
-**The drift was the sampling recipe, not the prompts.** Early films drifted within each clip (faces, torsos, a greying ground), and a week of prompt work did not fix it. The distilled transformer was being sampled with the full model's recipe (15 steps, CFG 3, STG). On its own recipe (8 sigmas, unguided) the figure holds through the action. The full model on its recipe gave the same identity at 3.5× the time and added an extra character. Remaining "drift" was facial expressions Now wrote; the LEGO story now forbids them.
+**The drift was the sampling recipe, not the prompts.** Early films drifted within each clip (faces, torsos, a greying ground), and a week of prompt work did not fix it. The distilled transformer was being sampled with the full model's recipe (15 steps, CFG 3, STG). On its own recipe (8 sigmas, unguided) the figure holds through the action. The full model on its recipe gave the same identity at 3.5× the time and added an extra character. Remaining "drift" was facial expressions Now wrote; the LEGO story then forbade them.
 
 **No identity anchor.** Conditioning every clip on the reference image as an extra keyframe suppressed the clip's closing action when placed at the end and inserted an idle beat when placed in the middle. On the correct recipe it is not needed.
 
@@ -52,7 +52,7 @@ Why the system is built the way it is: each entry is a decision, what it was wei
 
 **Cuts are allowed, sparingly.** LTX-2.5 follows a written cut ("The view cuts to …"): 6 of 6 requested cuts happened and none of 12 unrequested. But the cut lands 2-4 s into the clip, a new angle renders as the figure turning, close-ups repaint the face, and some cuts dissolve. The LEGO story was one take; since every story may travel anywhere, and a walk does not reach a new place on screen (below), every story may now cut. In the first text film of a story with cuts on, Now cut on 42 of 100 clips, mostly to a new angle; it is now told what a cut costs the render, and to cut only to another location or for a reveal.
 
-**A place is drawn from where the protagonist is.** A location with a look is named in every clip's prompt (in full on the clip the picture arrives there, short while it stays), and the scene follows the protagonist: what is in the picture comes along, the rest stays where it was left. In the first 200-clip film of the quest story Now moved the location 37 clips after the action entered the tower, so every prompt in between said "mountain pass" inside the tower. Told that the location is what the video model draws, and shown it in World now, it moved the location on the clip the picture arrived in a check film. On the GPU (an H200 NVL, one scripted chain and one live 120-clip film) a cut to a new place landed its look within 2.5 s, while a walk kept drawing the old place: one dissolved to near-black and the figure came back with a hair piece, another made the dragon's tower a beige castle hall. A story with cuts now arrives by cutting; one without cuts travels poorly. Wide landscape shots went photo-real; the story's style now says everything, landscape and sky included, is LEGO (not yet checked on the GPU). The H200 renders a 6 s clip in 2.8 s (p95 3.1 s), faster than the H100.
+**A place is drawn from where the protagonist is.** A location with a look is named in every clip's prompt (in full on the clip the picture arrives there, short while it stays), and the scene follows the protagonist: what is in the picture comes along, the rest stays where it was left. In the first 200-clip film of the quest story Now moved the location 37 clips after the action entered the tower, so every prompt in between said "mountain pass" inside the tower. Told that the location is what the video model draws, and shown it in World now, it moved the location on the clip the picture arrived in a check film. On the GPU (an H200 NVL, one scripted chain and one live 120-clip film) a cut to a new place landed its look within 2.5 s, while a walk kept drawing the old place: one dissolved to near-black and the figure came back with a hair piece, another made the dragon's tower a beige castle hall. A story with cuts now arrives by cutting; one without cuts travels poorly. Wide landscape shots went photo-real; the story's style was then told that everything, landscape and sky included, is LEGO, and the story was retired before that was checked on the GPU. The H200 renders a 6 s clip in 2.8 s (p95 3.1 s), faster than the H100.
 
 **No frame observer.** A vision model checked every rendered clip and could force a cut on drift. After the recipe fix it measured drift that was gone, its forced cut never fired in any run, and it misread framing. Removed.
 
@@ -81,6 +81,6 @@ What did not help: the full model (3.5× slower, no better), FlashAttention-3 (r
 
 ## Known open problems
 
-- **Long films drift to a floor.** As props accumulate, the white void turns into a LEGO baseplate.
+- **Long films drift.** In the LEGO films the white void turned into a baseplate as props accumulated. Mac's story has not been rendered yet.
 - **Continuity against steering.** The sliding window trades one for the other (`ltxv_continuity_strength`); a better mechanism is needed, not a better setting.
 - **Now latency tail.** A slow call at a beat's end or on a line can still hold the picture.

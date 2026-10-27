@@ -1,67 +1,79 @@
 # Freedom from Finality
 
-An infinite, continuously generated story that plays in your browser while you type suggestions into it.
+> "The freedom from finality allows a piece to grow, allows the computer to learn."
+> — Myron W. Krueger, *Artificial Reality*
 
-A man drawn in black lines stands alone in an empty white world. Two LLM roles — **Now** and **Then** — begin writing his story, and the story never stops. You watch. When you type something, the story listens and takes it wherever it goes. Characters appear, places form, things happen: nothing is scripted, nothing is predetermined, and the story develops its own meaning and continuity over time.
+Here it means a story with no ending. It keeps growing, and it keeps what it learns about the person watching.
 
-```
-┌─▶ the viewer types a suggestion (or doesn't)
-│     → Now (LLM) writes the next beat: 1-4 clips of action, dialogue and world changes
-│     → code checks it against the world model and compiles a video prompt per clip
-│     → LTX-2.5 renders each 6-second clip with sound, continuing from the end of the last one
-└──── the browser plays the clips back to back
-      (meanwhile Then, a second LLM, condenses the story so far and keeps the story's memory)
-```
+**Freedom from Finality (FFF)** is an endless film, made while you watch. Two LLMs write it, a video model renders it, and you steer it by simply typing. Nothing is scripted. It never ends, never resets, and picks up where you left off.
 
-- **A story with a life of its own.** Two LLM roles write the film over a typed world model (characters, props, locations, an event log) that only code changes. Now writes one beat per call; Then keeps the story's memory in the background, never holding up the picture. The story keeps moving when nobody types.
-- **Suggestions, not commands.** What you type is taken up in the story's own way, maybe with a twist, a character who resists, or a consequence that comes later. It reaches the screen about two clips after you type it.
-- **One continuous picture.** [LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5-Diffusers) renders every clip just in time on a GPU you host, each one conditioned on the last frames of the one before, so the film never cuts back to a fresh start. All the sound, the characters' voices included, comes from the video model.
+<p align="center"><img src="frame_zero.png" width="600" alt="MacLaren, a man drawn in black lines, alone in an empty white world"></p>
 
-## Run it
-
-**Easiest:** open the repo in your coding agent (Claude Code, Codex, Cursor...) and say *set up FFF for me*. It follows [SETUP.md](SETUP.md): which keys to get, renting the GPU, and what it costs (roughly $2.50-8 for a 30-minute film).
-
-By hand: you need Python 3.11+, an [OpenAI API key](https://platform.openai.com/api-keys), ffmpeg, and the LTX-2.5 server on an NVIDIA GPU with 80 GB (an H100 has cost about $3 an hour to rent) with a Hugging Face token for the gated weights. [server/README.md](server/README.md) has the details.
-
-```bash
-git clone https://github.com/artificial-realities/freedom-from-finality.git
-cd freedom-from-finality
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env              # then add your keys to .env
-```
-
-With a [Vast.ai](https://vast.ai) key it is a few commands:
-
-```bash
-server/vast_run.sh check          # keys ready? and what renting costs right now (rents nothing)
-server/vast_run.sh up             # rent an H100, start the server (5-20 min the first time)
-server/vast_run.sh run            # your story on it: open http://127.0.0.1:8765/ and press Begin
-server/vast_run.sh down           # bring your story home and stop paying
-```
-
-On a machine with its own GPU (NVIDIA, 80 GB, H100 or newer; see [SETUP.md](SETUP.md#your-own-gpu)), start the server there and run `python main.py play`, then open http://127.0.0.1:8765/. `python main.py check` says what is missing, without paid calls. The player has no login and listens on `127.0.0.1` only: everything typed into it is billed to your OpenAI key.
-
-## Your story
-
-There is one story, and it never ends. The page opens on the picture it stopped on: press **Begin** the first time, and **Continue** after that, and it goes on from the last clip you saw, with its world, its characters, everything that has happened and what the story has learned about you. **Stop** ends the film and saves it; so does closing the page (after a minute) or Ctrl+C. The story lives in the `story/` folder on your computer (never in git): copy the folder to back it up or move it to another computer. When the film runs on a rented GPU, `server/vast_run.sh` copies it there before the session and brings it home every minute and when the session ends.
-
-The film itself is not kept: each clip is deleted once it has played, and only the few frames the next clip continues from are saved. Nothing is ever replayed; the story only goes on.
-
-**What leaves your computer, and what stays.** While a film plays, Now and Then are calls to OpenAI with your key: each sends the story as the roles need it (the world, the recent clips, the story's past, Then's notes) and what you typed. The video is rendered on the GPU server you run. Nothing else is sent anywhere, and there is no telemetry. `story/viewer.jsonl` keeps what you typed for good, since it is the story's memory of you; `logs/films/` keeps technical records of the 20 most recent films (transcripts, timing, the models' raw outputs), which also contain what you typed, and none of which the story needs.
+Every story starts from this frame: MacLaren, alone in The White. Everything after it is written live.
 
 ## How it works
 
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the engine, and [docs/decisions.md](docs/decisions.md) why it is built this way, with the evidence. Every story begins from the first frame in [frame_zero.json](frame_zero.json) (Frame Zero), and what the story will never show is in its [content policy](src/prompts/policy.md). Open problems: a slow Now call can still hold the picture for a moment; the sliding window trades continuity against how strongly a suggestion lands; and long films drift visually.
+```
+you type (or don't)
+  → Now (LLM) writes the next beat: 1-4 clips of action, dialogue and world changes
+  → code checks it against the world model and turns each clip into a video prompt
+  → LTX-2.5 renders each 6 s clip with sound, starting from the last frames of the one before
+  → the browser plays the clips back to back
+meanwhile Then (LLM) keeps the story's memory, off the critical path
+```
 
-`pip install -r requirements-dev.txt`, then `ruff check .`. There is no test suite, by choice. Issues and pull requests are welcome.
+- **The LLMs propose, code decides.** The world (characters, props, places, who has what) is a typed model that only code changes. Everything Now writes goes through a validator first. No tool calls, no agent loop.
+- **Two clocks.** Now is on the critical path: one call per beat, about 6 s. Then runs every ten clips or so and never holds up the picture. It summarises, keeps notes on the characters and on you, and marks where the story turned.
+- **One continuous shot.** Every clip is conditioned on the last 9 frames of the one before, so the picture never jumps back to a fresh start. All the sound, voices included, comes from the video model.
+- **Just in time.** Each render starts a few seconds before its clip is due, and a 6 s clip renders in 3-4 s on an H100. What you type cuts the current beat short and is on screen about two clips later.
+- **Suggestions, not commands.** What you type is taken up in the story's own way. Maybe with a twist, a character who refuses, or a consequence that comes later.
 
-## The name
+## One story, for good
 
-*Freedom from Finality* (FFF) comes from a sentence in Myron W. Krueger's book *Artificial Reality*: "The freedom from finality allows a piece to grow, allows the computer to learn." Here it means a story with no ending, which keeps growing and keeps what it learns about the person watching.
+You get one story, and it never ends. **Begin** the first time, **Continue** after that, **Stop** whenever. It's saved as of the last clip you saw, in `story/` on your computer. Copy the folder to back it up.
+
+The video isn't kept. Clips are deleted once they've played. Only the last 9 frames (about 200 KB) are saved, because that's all the next clip needs.
+
+The story remembers in layers: the last six clips word for word, then summaries, then checkpoints where it turned, then the story so far. What the LLMs read stays the same size however long it runs. When someone comes back after two hours, their past comes back with them. It remembers you too: what you typed, what the story did with it, and what Then makes of you, each guess tied to the inputs behind it. Lookup is by name, no embeddings.
+
+## Run it
+
+Easiest: open the repo in your coding agent (Claude Code, Codex, Cursor...) and say *set up FFF for me*. It follows [SETUP.md](SETUP.md): the keys, renting a GPU, and what it costs (about $2.50-8 for a 30-minute film, mostly the GPU).
+
+By hand, with Python 3.11+ and keys for OpenAI, Hugging Face and [Vast.ai](https://vast.ai):
+
+```bash
+git clone https://github.com/artificial-realities/freedom-from-finality.git && cd freedom-from-finality
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt vastai
+cp .env.example .env         # add your keys
+server/vast_run.sh check     # keys ready? what does renting cost right now?
+server/vast_run.sh up        # rent an H100 and start the video server (5-20 min)
+server/vast_run.sh run       # open http://127.0.0.1:8765/ and press Begin
+server/vast_run.sh down      # bring your story home and stop paying
+```
+
+Have an 80 GB NVIDIA GPU of your own (H100 or newer)? Skip Vast: see [SETUP.md](SETUP.md#your-own-gpu).
+
+## Where it stands
+
+- **Video:** measured on H100 and H200 with earlier stories. A 300-clip film rendered with no slowdown, and its only pauses came from slow LLM calls. Typed input reached the screen two clips later.
+- **MacLaren's story** (the layered memory, the memory of you) has only played as text so far: three films of 150-300 clips, under $0.30 of OpenAI each. Not yet as video.
+- **Open problems:** a slow Now call can still pause the picture for a moment. Continuity fights steering: the more a clip holds on to the last one, the less a new prompt lands. Long films drift visually.
+
+## What leaves your computer
+
+While a film plays, Now and Then call OpenAI with your key, sending the story as they need it and what you typed. The video renders on the GPU server you run. Nothing else goes anywhere, and there's no telemetry. What you type is kept in `story/viewer.jsonl` (the story's memory of you) and in the technical logs of the last 20 films. The page has no login and listens on `127.0.0.1` only, since everything typed into it is billed to your key.
+
+## More
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it works, in full.
+- [docs/decisions.md](docs/decisions.md): why it's built this way, with the numbers.
+- [src/prompts/policy.md](src/prompts/policy.md): what the story will never show.
+- [AGENTS.md](AGENTS.md): working on the code. `ruff check .` is the only gate; there's no test suite, on purpose. Issues and pull requests are welcome.
 
 ## License
 
 The code is [MIT](LICENSE). An [Artificial Realities](https://github.com/artificial-realities) project by Simen Bihaug-Frøyland ([@sbfroy](https://github.com/sbfroy)).
 
-The LTX-2.5 weights by [Lightricks](https://huggingface.co/Lightricks) are not part of this repository: they are downloaded from Hugging Face under the LTX-2 Community License Agreement, which has its own conditions.
+The LTX-2.5 weights by [Lightricks](https://huggingface.co/Lightricks) aren't part of this repo. They download from Hugging Face under the LTX-2 Community License, which has its own terms.
