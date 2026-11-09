@@ -42,7 +42,7 @@ from src.models.config import Config
 from src.story.compiler import compile_clip
 from src.story.schemas import BeatPlan, ThenUpdate
 from src.story.validator import Report, apply_clip, apply_then
-from src.story.viewer import Outcome
+from src.story.viewer import Input, Outcome
 from src.story.history import History
 from src.story.world import ClipRecord, WorldModel
 from src.story_folder import StoryFolder
@@ -122,6 +122,9 @@ class Engine:
         self._then_meta: tuple[int, str, int] | None = None
         self._then_notes: list[str] = []
         self._last_spawn: int = 0
+        # How many records of the viewer's memory the last Then run read: an
+        # input after them calls the next run early (`_trigger`).
+        self._then_upto: int = len(self.viewer.records)
         self._pending_spawn: str | None = None
         self._emit_snapshot: dict | None = None
         # The world as of the last clip emitted, as the JSON its commit
@@ -325,8 +328,12 @@ class Engine:
             return self._pending_note
         if self._last_beat is not None:
             intent, done, total = self._last_beat
+            # A beat that answers the viewer is kept short for speed and was
+            # told the next beat continues it; this is that beat.
+            answer = (" It answered the viewer's input, kept short so it reached the screen quickly; "
+                      "this beat goes on with that answer." if self._beat_input else "")
             return (f'The previous beat "{intent}" ({done} clip{"s" if done != 1 else ""}) was written in full; '
-                    f"its last clip ends on: {self._last_end_state}")
+                    f"its last clip ends on: {self._last_end_state.rstrip('.')}.{answer}")
         return (f"You are opening the story. The first frame shows: {self._scene()}. Open the action from exactly "
                 "that picture, then move; anyone it does not show enters the picture.")
 
@@ -477,6 +484,7 @@ class Engine:
             beat_clips=len(beat.clips),
             input=text,
             taken=beat.input if first else "none",
+            taken_why=beat.input_reason if first and text else "",
             action=spec.action_text(),
             changes=list(report.applied),
             on_screen=list(spec.on_screen),
@@ -555,6 +563,10 @@ class Engine:
     def _trigger(self) -> str | None:
         if self.world.clip - self.world.last_summary >= self.config.then_every:
             return f"every {self.config.then_every} clips"
+        # The notebook was written before the viewer's latest input, and Now
+        # reads it at every beat: Then rewrites it as soon as it may.
+        if any(isinstance(r, Input) for r in self.viewer.records[self._then_upto:]):
+            return "the viewer spoke"
         return None
 
     def _spawn_then(self, *, reason: str, at_clip: int) -> None:
@@ -562,6 +574,7 @@ class Engine:
             else self.world.model_copy(deep=True)
         history = self.history.view(snapshot.history_count)
         upto = len(self.viewer.records)
+        self._then_upto = upto
 
         async def _task():
             return await self._then(at_clip, world=snapshot, history=history, upto=upto, mode="summary")
@@ -574,6 +587,7 @@ class Engine:
         """The opening run: the only synchronous one."""
         self._last_spawn = at_clip
         upto = len(self.viewer.records)
+        self._then_upto = upto
         update = await self._then(at_clip, world=self.world, history=self.history.view(self.world.history_count),
                                   upto=upto, mode="opening")
         self._land(update, at_clip=at_clip, reason=reason, upto=upto)
@@ -663,8 +677,6 @@ class Engine:
             out.append("- Dormant: " + ", ".join(f"{e.id} (clip {e.last_seen})" for e in dormant))
         if first and beat.input != "none":
             out.append(f"- Viewer: {beat.input}" + (f" ({beat.input_reason})" if beat.input_reason else ""))
-        elif first and world.direction is not None:
-            out.append(f"- Viewer direction (clip {world.direction.clip}): \"{world.direction.text}\"")
         spec = beat.clips[index]
         if spec.dialogue:
             out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in spec.dialogue))

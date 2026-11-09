@@ -65,8 +65,9 @@ class Config(BaseModel):
     # (its latency is the steering delay).
     max_clips_per_beat: int = 4
     answer_max_clips: int = 2
-    # Then runs every this many clips (and once before the first), at most
-    # one at a time and at least `then_min_gap` clips apart.
+    # Then runs every this many clips (once before the first, and soon after
+    # the viewer types), at most one at a time and at least `then_min_gap`
+    # clips apart.
     then_every: int = 10
     then_min_gap: int = 4
 

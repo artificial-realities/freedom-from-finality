@@ -11,8 +11,7 @@ being written, and that only damages its own line.
 Facts and interpretation are kept apart. Code writes the facts: each
 input as it arrives with the clip on air then (`Input`), and what the
 story did with it once that clip reached the screen (`Outcome`: how a
-beat took it, a deferred one later delivered or let go, a direction
-ended). Then writes the interpretation: its understanding of the viewer,
+beat took it, a deferred one later delivered or let go). Then writes the interpretation: its understanding of the viewer,
 each reading citing the inputs it rests on (`Understanding`), and the
 viewer's marks on the story (`Mark`).
 """
@@ -35,8 +34,8 @@ logger = logging.getLogger(__name__)
 READINGS_KEPT = 6
 
 # What became of an input: how the beat that answered it took it; a
-# deferred one later delivered or let go; or, for the direction it became,
-# how that ended.
+# deferred one later delivered or let go. The last three are how a
+# "direction" an input became ended, which older stories still hold.
 OutcomeKind = Literal["absorbed", "deferred", "declined", "delivered", "let go",
                       "fulfilled", "ran its course", "superseded"]
 

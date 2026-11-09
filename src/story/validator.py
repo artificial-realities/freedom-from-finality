@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from src.story.compiler import shot_before
 from src.story.schemas import BeatPlan, EntityOp, ThenUpdate
 from src.story.history import Checkpoint, History, Summary
-from src.story.world import Direction, Entity, OpenInput, WorldModel, short_look, slugify
+from src.story.world import Entity, OpenInput, WorldModel, short_look, slugify
 
 
 @dataclass
@@ -207,10 +207,8 @@ def _alias(beat: BeatPlan, index: int, introduce: EntityOp, gone_id: str, new_id
 def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -> Report:
     """Apply clip `index` of `beat` to `world`, in place: its entity ops,
     presence from its `on_screen`, its dialogue filter. The first clip
-    also lands how the beat takes the viewer's input (one it absorbs
-    becomes the direction), resolves the owed inputs Now names, and ends
-    the viewer's direction when Now says it is fulfilled or has run its
-    course.
+    also lands how the beat takes the viewer's input and resolves the owed
+    inputs Now names.
 
     Normalises the clip: `on_screen` references become entity ids,
     invalid dialogue is dropped, and a cut on the story's first clip (or
@@ -384,10 +382,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
     ]
 
     if index == 0:
-        if world.direction is not None and beat.direction in ("fulfilled", "ran its course"):
-            r.applied.append(f"viewer direction {beat.direction}: {world.direction.text!r}")
-            r.outcomes.append((world.direction.inputs, beat.direction, ""))
-            world.direction = None
         reason = beat.input_reason.strip()
         owed = world.owed()
         pending = [i for i in world.inputs if not i.owed]
@@ -401,16 +395,9 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
                     item.owed, item.reason = True, reason
                 else:
                     world.inputs.remove(item)
-            if beat.input == "absorbed":
-                if world.direction is not None:
-                    r.outcomes.append((world.direction.inputs, "superseded", ""))
-                world.direction = Direction(text=" ".join(i.text for i in pending), clip=clip_no,
-                                            inputs=[n for i in pending for n in i.inputs], reason=reason)
             r.applied.append(f"viewer input {beat.input}" + (f": {reason}" if reason else ""))
-        # Owed inputs Now resolves by id: delivered (the first becomes the
-        # direction, unless this beat took up a new input) or let go.
-        # Nothing resolves an owed input but Now saying so.
-        directed = bool(pending) and beat.input == "absorbed"
+        # Owed inputs Now resolves by id, delivered or let go. Nothing
+        # resolves an owed input but Now saying so.
         for o in beat.owed:
             item = _owed_item(owed, o.input)
             if item is None or item not in world.inputs:
@@ -421,11 +408,6 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
             r.outcomes.append((item.inputs, o.outcome, why))
             r.applied.append(f"owed input #{item.id} (clip {item.clip}) {o.outcome}: {item.text!r}"
                              + (f" ({why})" if why else ""))
-            if o.outcome == "delivered" and not directed:
-                if world.direction is not None:
-                    r.outcomes.append((world.direction.inputs, "superseded", ""))
-                world.direction = Direction(text=item.text, clip=clip_no, inputs=list(item.inputs), reason=why)
-                directed = True
 
     return r
 

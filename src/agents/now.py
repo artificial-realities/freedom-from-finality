@@ -106,6 +106,8 @@ async def run(
         beat_seconds=seconds_label(round(clip_seconds * config.max_clips_per_beat)),
         typical_seconds=f"{round(2 * clip_seconds)} to {round(3 * clip_seconds)}",
         max_clips=config.max_clips_per_beat,
+        # What can be said in a clip: about two and a half words a second.
+        clip_words=round(2.5 * clip_seconds),
     )
     named = named_now(world, text, config.recent_clips, viewer)
     recall = recalled(world, named)

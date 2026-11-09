@@ -153,6 +153,7 @@ class ClipRecord(BaseModel):
     beat_clips: int = 1
     input: str = ""
     taken: str = "none"
+    taken_why: str = ""
     action: str
     changes: list[str] = Field(default_factory=list)
     on_screen: list[str] = Field(default_factory=list)
@@ -160,16 +161,6 @@ class ClipRecord(BaseModel):
     dialogue: list[str] = Field(default_factory=list)
     location: str = ""
     duration: float = 0.0
-
-
-class Direction(BaseModel):
-    """The viewer's input Now is still building on, from the clip that
-    took it up until Now closes it or a newer input takes its place."""
-
-    text: str
-    clip: int
-    inputs: list[int] = Field(default_factory=list)
-    reason: str = ""
 
 
 class WorldModel(BaseModel):
@@ -191,7 +182,6 @@ class WorldModel(BaseModel):
     last_summary: int = 0
     last_then: int = 0
     then_runs: int = 0
-    direction: Direction | None = None
     shot: str = ""
     # Clip ids are never reused, across films included: the renderer
     # keys the frames it continues from by them.

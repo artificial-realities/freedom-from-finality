@@ -58,17 +58,12 @@ INSTRUCTIONS = {
         "empty, and `checkpoint` null."
     ),
     "summary": (
-        "Summarise the clips since your last run into `summary`. Ask whether "
-        "the story has turned since its last checkpoint, which most runs it has "
-        "not; only if it has, name the checkpoint and rewrite the story so far. "
-        "Rewrite the story since the last checkpoint. Then rewrite the notebook: "
-        "how each character has been lately, and "
-        "whether the story has changed who any of them is at heart; who the "
-        "story is following and who else is pulling at it; what is alive, "
-        "which seeds remain or are new, and where the story might go, and "
-        "whether it is still moving or going in circles. Then rewrite your "
-        "understanding of the viewer from their inputs, and record any new "
-        "mark they have put on the story."
+        "Summarise the clips since your last run into `summary`. Name a "
+        "checkpoint only if a new part of the story has begun since the last "
+        "one, which most runs it has not, and then rewrite the story so far. "
+        "Rewrite the story since the last checkpoint, the notebook and your "
+        "understanding of the viewer, and record any new mark they have put "
+        "on the story."
     ),
 }
 

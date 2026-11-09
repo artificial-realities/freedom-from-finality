@@ -119,13 +119,15 @@ def _first_sentence(text: str, n: int = STATE_CHARS) -> str:
 def named_now(world: WorldModel, viewer_input: str = "", recent: int = 6,
               viewer: ViewerMemory | None = None) -> set[str]:
     """The entities named in what the roles read this call: the viewer's
-    input, their direction and owed inputs, Then's understanding of them,
+    input, their recent and owed inputs, Then's understanding of them,
     Then's notebook, the state of what is in the scene, the recent clips.
     Code only matches names: which mentions matter is the roles'
     judgment, and Then keeps something in reach by naming it."""
     nb = world.notebook
-    texts = [viewer_input, world.direction.text if world.direction else "", nb.alive, nb.intentions]
+    texts = [viewer_input, nb.alive, nb.intentions]
     understanding = viewer.understanding() if viewer is not None else None
+    if viewer is not None:
+        texts += [s.text for s in viewer.inputs()[-RECENT_INPUTS:]]
     if understanding is not None:
         texts += [r.reading for r in understanding.readings] + [understanding.lately]
     texts += [i.text for i in world.owed()]
@@ -233,6 +235,10 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
 
 # ── The viewer ──────────────────────────────────────────────────────
 
+# The viewer's latest inputs, shown to both roles with how long ago they
+# came and what the story did with them: what they asked for lasts beyond
+# the beat that answered it, and the roles judge for how long.
+RECENT_INPUTS = 4
 MARKS_FOR_NOW = 5
 MARKS_FOR_THEN = 10
 EARLIER_INPUTS_FOR_THEN = 10
@@ -302,11 +308,38 @@ def _input(viewer: ViewerMemory, said: Input, *, full: bool) -> str:
     return head + " → " + ("; ".join(outcomes) if outcomes else "not answered on screen yet")
 
 
+def _ago(world: WorldModel, clip: int) -> str:
+    age = max(0, world.clip - clip)
+    return f"{age} clip{'s' if age != 1 else ''} ago"
+
+
+def _recent(world: WorldModel, viewer: ViewerMemory) -> list[str]:
+    """The viewer's latest inputs the story has answered or is answering,
+    newest last, each with how long ago it came and how the story took it;
+    the ones still open (this beat's, the owed) are shown on their own."""
+    open_ids = {n for i in world.inputs for n in i.inputs}
+    said = [s for s in viewer.inputs() if s.id not in open_ids][-RECENT_INPUTS:]
+    out = []
+    for s in said:
+        # The beat that answered it may not be on air yet: the world's own
+        # record of its first clip says how it was taken.
+        beat = next((c for c in reversed(world.clips) if c.input and s.text in c.input), None)
+        took = [o for o in viewer.outcomes() if s.id in o.inputs]
+        if took:
+            how = took[-1].outcome + (f": {took[-1].reason}" if took[-1].reason else "")
+        elif beat is not None:
+            how = beat.taken + (f": {beat.taken_why}" if beat.taken_why else "")
+        else:
+            how = "not answered yet"
+        out.append(f'- {_ago(world, s.clip)}: "{_clip(s.text, 200)}" → {how}')
+    return out
+
+
 def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *, answer_clips: int = 0,
                   recall: list[Entity] = ()) -> str:
-    """The viewer as Now reads it: this beat's input or their active
-    direction, what is owed, Then's understanding of them, and the marks
-    that touch the moment."""
+    """The viewer as Now reads it: this beat's input, what they said
+    lately, what is owed, Then's understanding of them, and the marks that
+    touch the moment."""
     out: list[str] = []
     text = (current_input or "").strip()
     if text:
@@ -316,18 +349,10 @@ def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *
                        "Start the answer now; the next beat continues it.")
     else:
         out.append("No viewer input for this beat.")
-        d = world.direction
-        if d is not None:
-            inputs = {s.id: s for s in viewer.inputs()}
-            during = next((inputs[i].during for i in d.inputs if i in inputs and inputs[i].during), "")
-            age = world.clip - d.clip
-            out.append(
-                f'Their direction: "{d.text}", taken up at clip {d.clip} '
-                f"({age} clip{'s' if age != 1 else ''} ago)"
-                + (f"; they gave it while: {_clip(during, 140).rstrip('.')}" if during else "")
-                + f". You took it as: {d.reason or '(no reason given)'}. "
-                "Build on it while it has life; say in `direction` when it is fulfilled or has run its course."
-            )
+    recent = _recent(world, viewer)
+    if recent:
+        out.append("What they said lately (newest last), how long ago, and how the story took it:")
+        out.extend(recent)
     owed = world.owed()
     if owed:
         out.append("Earlier inputs still owed (deferred), each until a beat delivers it or lets it go:")
@@ -335,15 +360,8 @@ def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *
         if older:
             out.append(f"- {len(older)} older: " + ", ".join(f"#{i.id} (clip {i.clip})" for i in older))
         for i in owed[-OWED_SHOWN:]:
-            age = world.clip - i.clip
-            out.append(f'- #{i.id} ({age} clip{"s" if age != 1 else ""} ago): "{_clip(i.text, 200)}" '
+            out.append(f'- #{i.id} ({_ago(world, i.clip)}): "{_clip(i.text, 200)}" '
                        f'(deferred: {i.reason or "no reason given"})')
-    handled = [o for o in viewer.outcomes() if o.outcome in ("absorbed", "declined", "delivered", "let go")]
-    if handled:
-        inputs = {s.id: s for s in viewer.inputs()}
-        out.append("Recently handled:")
-        out.extend(f'- clip {o.clip}: "{" ".join(inputs[i].text for i in o.inputs if i in inputs)}" → {o.outcome}'
-                   for o in handled[-3:])
     understanding = _understanding(viewer, ids=False)
     if understanding:
         out.append("Then's understanding of them (each reading with the inputs it rests on):")
@@ -380,9 +398,10 @@ def format_viewer_then(world: WorldModel, viewer: ViewerMemory, *, upto: int, re
     play = in_play(world, world.mentions(" ".join(s.text for s in new)), recall) | {e for s in new for e in s.entities}
     cited = {g for r in u.readings for g in r.grounds} if u else set()
     older = [s for s in inputs if s.id not in new_ids]
-    earlier = [s for s in older if s.id in cited or set(s.entities) & play][-EARLIER_INPUTS_FOR_THEN:]
+    latest = {s.id for s in older[-RECENT_INPUTS:]}
+    earlier = [s for s in older if s.id in cited or s.id in latest or set(s.entities) & play][-EARLIER_INPUTS_FOR_THEN:]
     if earlier:
-        out.append("Earlier inputs this moment or your readings touch:")
+        out.append("Earlier inputs: the latest, and those this moment or your readings touch:")
         out.extend(_input(viewer, s, full=False) for s in earlier)
     marks, unshown = _marks(viewer, play, MARKS_FOR_THEN, ids=True,
                             cited={s.id for s in new} | {s.id for s in earlier})

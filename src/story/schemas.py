@@ -104,10 +104,7 @@ class OwedOutcome(BaseModel):
 
 class BeatPlan(BaseModel):
     """Now's whole output: one beat, one to a few clips. `input` is how the
-    beat takes the viewer's input, `owed` the owed inputs it resolves, and
-    `direction` Now's word on the viewer's active direction: it
-    `continues`, or this beat ends it because it is `fulfilled` or has
-    `ran its course`."""
+    beat takes the viewer's input, and `owed` the owed inputs it resolves."""
 
     intent: str
     framing: str
@@ -115,7 +112,6 @@ class BeatPlan(BaseModel):
     input: Literal["none", "absorbed", "deferred", "declined"] = "none"
     input_reason: str = ""
     owed: list[OwedOutcome] = Field(default_factory=list)
-    direction: Literal["none", "continues", "fulfilled", "ran its course"] = "none"
 
 
 # ── Then schemas ────────────────────────────────────────────────────
