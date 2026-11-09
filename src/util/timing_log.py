@@ -2,7 +2,7 @@
 
 `logs/films/<id>/timing.jsonl` records when each clip was fired,
 rendered, queued, put on air and taken off; when each viewer input
-arrived, was taken by Now and landed; what each Now call cost; each save
+arrived, was taken by Goldfish and landed; what each Goldfish call cost; each save
 that failed; and what stopped the film. Nothing reads it back during a
 film. It exists so a film's timing can be measured from it instead of
 being reconstructed from file times.

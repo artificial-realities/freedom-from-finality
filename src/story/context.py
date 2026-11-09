@@ -1,6 +1,6 @@
 """Context assembler: renders the world model into prompt sections.
 
-Everything Now and Then read comes through here, so the prompt budget
+Everything Goldfish and Elephant read comes through here, so the prompt budget
 is decided in one place: active entities in full with each character's
 current state, dormant ones by name (except absent characters the story
 is pointing at, recalled in full), recent clips verbatim, and the past at
@@ -31,10 +31,10 @@ def format_policy() -> str:
 # ── User-prompt sections (change every call) ───────────────────────
 
 def format_notebook(world: WorldModel) -> str:
-    """Then's notebook as Now reads it."""
+    """Elephant's notebook as Goldfish reads it."""
     nb = world.notebook
     if not nb.characters and not nb.alive and not nb.seeds:
-        return "(Then has not written the notebook yet.)"
+        return "(Elephant has not written the notebook yet.)"
     out: list[str] = []
     if nb.characters:
         out.append("**Characters**")
@@ -89,7 +89,7 @@ def _name(ent: Entity) -> str:
 
 def _character(ent: Entity, portrayed: set[str], lead: list[str]) -> str:
     """One character in full. Who it is comes from the notebook for the
-    characters Then portrays; any other carries it here, from the entity,
+    characters Elephant portrays; any other carries it here, from the entity,
     so a newcomer, or one coming back, is still who it was."""
     bits = [f"- {ent.id} (character): {_name(ent)}", *lead]
     if ent.look:
@@ -113,10 +113,10 @@ def _first_sentence(text: str) -> str:
 def named_now(world: WorldModel, viewer_input: str = "", recent: int = 6,
               viewer: ViewerMemory | None = None) -> set[str]:
     """The entities named in what the roles read this call: the viewer's
-    input, their recent and owed inputs, Then's understanding of them,
-    Then's notebook, the state of what is in the scene, the recent clips.
+    input, their recent and owed inputs, Elephant's understanding of them,
+    Elephant's notebook, the state of what is in the scene, the recent clips.
     Code only matches names: which mentions matter is the roles'
-    judgment, and Then keeps something in reach by naming it."""
+    judgment, and Elephant keeps something in reach by naming it."""
     nb = world.notebook
     texts = [viewer_input, nb.alive, nb.intentions]
     understanding = viewer.understanding() if viewer is not None else None
@@ -166,7 +166,7 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
         for ent in full:
             if ent.kind == "character":
                 now = ent.state or "(not recorded yet: describe it in your first op)"
-                out.append(_character(ent, portrayed, [f"now: {now}"]))
+                out.append(_character(ent, portrayed, [f"goldfish: {now}"]))
                 continue
             now = f" · now: {ent.state}" if ent.state else ""
             looks = f" · looks: {ent.look}" if ent.look_since else ""
@@ -286,7 +286,7 @@ def _marks(viewer: ViewerMemory, play: set[str], cap: int, *, ids: bool,
 
 def _input(viewer: ViewerMemory, said: Input, *, full: bool) -> str:
     """One of the viewer's inputs with what the story did with it; `full`
-    adds what was on screen when they typed it and Now's reasons."""
+    adds what was on screen when they typed it and Goldfish's reasons."""
     head = f"- #{said.id} ({_at(said.clip)}"
     if full and said.during:
         head += f", while: {said.during.rstrip('.')}"
@@ -331,8 +331,8 @@ def _recent(world: WorldModel, viewer: ViewerMemory) -> list[str]:
 
 def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *, answer_clips: int = 0,
                   recall: list[Entity] = ()) -> str:
-    """The viewer as Now reads it: this beat's input, what they said
-    lately, what is owed, Then's understanding of them, and the marks that
+    """The viewer as Goldfish reads it: this beat's input, what they said
+    lately, what is owed, Elephant's understanding of them, and the marks that
     touch the moment."""
     out: list[str] = []
     text = (current_input or "").strip()
@@ -358,7 +358,7 @@ def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *
                        f'(deferred: {i.reason or "no reason given"})')
     understanding = _understanding(viewer, ids=False)
     if understanding:
-        out.append("Then's understanding of them (each reading with the inputs it rests on):")
+        out.append("Elephant's understanding of them (each reading with the inputs it rests on):")
         out.extend(understanding)
     marks, _ = _marks(viewer, in_play(world, world.mentions(text), recall), MARKS_FOR_NOW, ids=False)
     if marks:
@@ -367,8 +367,8 @@ def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *
     return "\n".join(out)
 
 
-def format_viewer_then(world: WorldModel, viewer: ViewerMemory, *, upto: int, recall: list[Entity] = ()) -> str:
-    """The viewer as Then reads it: its understanding as last written, the
+def format_viewer_elephant(world: WorldModel, viewer: ViewerMemory, *, upto: int, recall: list[Entity] = ()) -> str:
+    """The viewer as Elephant reads it: its understanding as last written, the
     inputs new since then (or newly answered) in full, earlier inputs the
     moment or its readings touch, and the marks that touch the moment.
     `upto` is how many records the memory holds for this run; everything
@@ -526,7 +526,7 @@ def format_recent(world: WorldModel, count: int) -> str:
 
 
 def format_checkpoints(world: WorldModel, history: History) -> str:
-    """For Then: the checkpoints so far, how long ago the last was, how
+    """For Elephant: the checkpoints so far, how long ago the last was, how
     long the two rolling summaries are, and the clips a new one can be
     named at."""
     checkpoints = history.checkpoints()

@@ -6,7 +6,7 @@ Project facts and rules for coding agents (and humans). How the story works is i
 
 ## What this is
 
-An infinite, continuously generated story that a viewer steers by typing into a browser page. Two LLM roles — **Now** (the creative voice, one beat per call on the critical path) and **Then** (memory and intuition, off the critical path on a slow clock) — write the story over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
+An infinite, continuously generated story that a viewer steers by typing into a browser page. Two LLM roles — **Goldfish** (the creative voice, one beat per call on the critical path) and **Elephant** (memory and intuition, off the critical path on a slow clock) — write the story over a typed world model; a deterministic engine validates and applies what they write; LTX-2.5 renders each 6-second clip, with its sound, just in time on a GPU server. The orchestration is one mechanism under exploration, not the definition of the project: treat it as replaceable.
 
 Each viewer has one story, which never ends: it begins once from Frame Zero and resumes from the last clip they saw, in the `story/` folder on their own computer (see "The story" in ARCHITECTURE.md). `configs/video.yaml` is how it is played (the default; it needs the LTX-2.5 server on an 80 GB NVIDIA GPU, best with the client on the same machine). `configs/text.yaml` is a testing tool, never for viewers: the story as text, no GPU, only an OpenAI key, played in its own test story (`logs/test-story`), never the viewer's. A story map, branches and checkpoints to go back to are on the `story-map` branch, not on main.
 
@@ -19,9 +19,9 @@ src/
   app.py                   # the session: the film page, Begin or Continue, Stop, a stop with no page open
   story_folder.py          # the story on disk: begin, resume, commit as of each aired clip, crash recovery, adopt
   runner.py                # run_live: the film loop (just-in-time render, viewer interrupts, commit on air)
-  engine.py                # Engine: plan a beat, emit its clips, roll back, the Then clock
-  agents/                  # now.py (BeatPlan per beat), then.py (ThenUpdate)
-  prompts/                 # now.*.md, then.*.md, policy.md (the content policy, the same in every story)
+  engine.py                # Engine: plan a beat, emit its clips, roll back, the Elephant clock
+  agents/                  # goldfish.py (BeatPlan per beat), elephant.py (ElephantUpdate)
+  prompts/                 # goldfish.*.md, elephant.*.md, policy.md (the content policy, the same in every story)
   story/                   # typed world model, viewer's memory, schemas, validator (per clip), context assembler, prompt compiler
   models/                  # config (Config, every field commented), frame_zero (FrameZero)
   i2v/                     # the renderer boundary, the LTX-2.5 HTTP client, the clip shape
@@ -66,7 +66,7 @@ python main.py play --config configs/text.yaml         # testing: the story as t
 
 ## Paid calls and rented GPUs: rules
 
-- **Never start a film (from the page or a script) without the human's explicit permission for that run.** Serving the page costs nothing; a film does. Each beat is a Now call and each viewer input another, about $0.50 per hour of film.
+- **Never start a film (from the page or a script) without the human's explicit permission for that run.** Serving the page costs nothing; a film does. Each beat is a Goldfish call and each viewer input another, about $0.50 per hour of film.
 - **Never run `server/vast_run.sh up` (or anything that rents, starts or restarts a GPU) without explicit approval.** A rented GPU bills by the hour until `server/vast_run.sh down`; after any GPU work, confirm with `server/vast_run.sh status` that nothing is left running.
 - CI and `check` stay offline and free.
 
@@ -81,9 +81,9 @@ python main.py play --config configs/text.yaml         # testing: the story as t
 - **State & responses**: Pydantic v2 `BaseModel`, not `TypedDict` or raw dicts. The world model (`src/story/world.py`) is the system of record for the story; the viewer's memory (`src/story/viewer.py`) is the person's, append-only and never rolled back with the world. Structure lives in fields (ids, kind, presence, place, gone); an entity's pose and condition are one line of prose by decision (decisions.md, "One line of prose per entity"), which code never parses.
 - **Agents** are async functions, not classes. They read prompt sections from `src/story/context.py` and return schema instances; only `src/story/validator.py` mutates the world.
 - **Workflow, not agent system**: no tool use, no LLM-directed control flow. The engine decides order and triggers; the LLM proposes, code validates and applies.
-- **Rendering is opt-out, content is not.** Now writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
+- **Rendering is opt-out, content is not.** Goldfish writes the same beats, lines and world changes whether or not anything renders. Never gate content generation on `video_enabled`.
 - **The video model's dialect lives in one place**: `src/story/compiler.py`. Schemas do not change when the model does.
-- **Structured outputs are strict**: keep `BeatPlan` and `ThenUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
+- **Structured outputs are strict**: keep `BeatPlan` and `ElephantUpdate` inside OpenAI's strict subset (no free-form dicts); enforce structure in the validator.
 - **Prompts, schemas, compiler and engine are story-agnostic.** The opening scene lives in `frame_zero.json` and becomes ordinary world state; nothing in it is a standing rule. What holds in every story is the content policy (`src/prompts/policy.md`).
 - **Facts, not thresholds, for story quality.** No code judges pacing, loops or whether the film is moving; give the roles what they need to judge it.
 - **No test suite, by choice.** The project changes too fast for tests to pay their upkeep; `ruff check .` is the gate. Don't add tests or test-only code paths unless the owner asks.

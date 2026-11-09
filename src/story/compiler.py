@@ -69,10 +69,10 @@ CAMERA_STATIC = ("static", "static camera", "none", "no movement", "no camera mo
 
 def camera_clause(motion: str) -> str:
     """The camera as one clause: "the camera remains static", or the
-    Now's motion after "the camera" in a form that reads as a
+    Goldfish's motion after "the camera" in a form that reads as a
     sentence whether the motion is a verb phrase ("slowly pushes in"), a
     participle ("tracking him") or a noun phrase ("slow push-in toward
-    the pair", the form Now writes today)."""
+    the pair", the form Goldfish writes today)."""
     text = " ".join(motion.split()).strip().rstrip(".").strip()
     low = text.lower()
     for prefix in ("the camera ", "camera "):
@@ -227,7 +227,7 @@ def compile_clip(
             seen.add(e.id)
             ents.append(e)
     # Who enters the picture during this clip: introduced in this clip
-    # (listed by Now or not: the world has it present), or on
+    # (listed by Goldfish or not: the world has it present), or on
     # screen now without having been in the previous clip's picture.
     previous = previous_picture(world, clip_no, opening=opening)
     entering: list[Entity] = []

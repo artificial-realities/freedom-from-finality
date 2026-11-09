@@ -60,11 +60,11 @@ def check_setup(config: Config, frame_zero: FrameZero, *, probe_server: bool = T
 
 
 def _check_llm(config: Config, add) -> None:
-    if not (config.now_model and config.then_model):
-        add("error", "now_model and then_model must both be set in the config")
+    if not (config.goldfish_model and config.elephant_model):
+        add("error", "goldfish_model and elephant_model must both be set in the config")
     if os.getenv("OPENAI_API_KEY", "").strip():
         add("ok", f"OPENAI_API_KEY is set (not tried against OpenAI); "
-                  f"Now {config.now_model}, Then {config.then_model}")
+                  f"Goldfish {config.goldfish_model}, Elephant {config.elephant_model}")
     else:
         add("error", f"OPENAI_API_KEY is not set: create a key at {OPENAI_KEYS_URL} and put it in .env "
                      f"(cp .env.example .env)")

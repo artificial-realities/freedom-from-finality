@@ -1,12 +1,12 @@
-"""Now: the one LLM call on the critical path, once per beat.
+"""Goldfish: the one LLM call on the critical path, once per beat.
 
-Reads the assembled context (notebook, world, the viewer and Then's
+Reads the assembled context (notebook, world, the viewer and Elephant's
 understanding of them, summaries, recent clips, where the picture is)
 and returns a `BeatPlan`: one action or state of the story as one to a
 few clips, each with its picture, its lines and the world changes that
 happen in it, plus how it takes the viewer's input. A call that fails
 (it timed out, was refused, came back cut off or not as a beat) is made
-once more; when that fails too, `NowFailed` says why, and the film stops
+once more; when that fails too, `GoldfishFailed` says why, and the film stops
 rather than show a clip nobody wrote. The world validator checks the
 proposal; a hard violation earns exactly one re-ask with the violations
 spelled out.
@@ -46,15 +46,15 @@ from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PATH: Path = prompt_path("now.system.md")
-USER_PATH: Path = prompt_path("now.user.md")
+SYSTEM_PATH: Path = prompt_path("goldfish.system.md")
+USER_PATH: Path = prompt_path("goldfish.user.md")
 # A failed call is made once more before the film stops: past about 10 s
 # the picture holds anyway, and two timeouts are already a long wait.
 ATTEMPTS = 2
 
 
-class NowFailed(RuntimeError):
-    """Now could not write the beat: every attempt failed; the message says why."""
+class GoldfishFailed(RuntimeError):
+    """Goldfish could not write the beat: every attempt failed; the message says why."""
 
 
 def clip_cap(config: Config, text: str) -> int:
@@ -66,20 +66,20 @@ def clip_cap(config: Config, text: str) -> int:
 async def _call(system_prompt: str, user_prompt: str, llm: LLMBackend, config: Config,
                 clip_no: int) -> tuple[BeatPlan | None, str]:
     parsed, why = await call_llm_structured(
-        agent="now",
+        agent="goldfish",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         llm=llm,
         clip_no=clip_no,
         schema=BeatPlan,
-        max_tokens=config.max_tokens_now,
+        max_tokens=config.max_tokens_goldfish,
     )
     if parsed is None:
         return None, why
     try:
         return BeatPlan(**parsed), ""
     except ValidationError as exc:
-        logger.warning("Now beat validation failed at clip %s: %s", clip_no, exc)
+        logger.warning("Goldfish beat validation failed at clip %s: %s", clip_no, exc)
         return None, f"the reply was not a beat ({exc.error_count()} errors)"
 
 
@@ -96,7 +96,7 @@ async def run(
 ) -> tuple[BeatPlan, list[str], int]:
     """Return (beat, notes, calls): `calls` is how many LLM calls it took
     (a failed attempt and the validator's re-ask each add one). Raises
-    `NowFailed` when no attempt gave a beat. `text` is the viewer's input
+    `GoldfishFailed` when no attempt gave a beat. `text` is the viewer's input
     this beat answers ("" for none) and `clip_seconds` the delivered
     length of the run's clip shape."""
     system_prompt = load_prompt(
@@ -132,15 +132,15 @@ async def run(
         beat, why = await _call(system_prompt, user_prompt, llm, config, world.clip)
         if beat is None:
             failures.append(why)
-            notes.append(f"now: call {calls} failed ({why})")
+            notes.append(f"goldfish: call {calls} failed ({why})")
     if beat is None:
-        raise NowFailed("Now could not write the next beat: "
+        raise GoldfishFailed("Goldfish could not write the next beat: "
                         + (f"{failures[0]}, twice" if len(set(failures)) == 1 else "; then ".join(failures)))
 
     report = check(beat, world, max_clips=clip_cap(config, text))
     if report.violations:
         calls += 1
-        notes.append("now: first proposal rejected: " + "; ".join(report.violations))
+        notes.append("goldfish: first proposal rejected: " + "; ".join(report.violations))
         retry_prompt = (
             user_prompt
             + "\n\n## Corrections required\n\n"
@@ -150,16 +150,16 @@ async def run(
         )
         second, why = await _call(system_prompt, retry_prompt, llm, config, world.clip)
         if second is None:
-            notes.append(f"now: retry failed ({why}); the first beat is used, its invalid ops dropped")
+            notes.append(f"goldfish: retry failed ({why}); the first beat is used, its invalid ops dropped")
         else:
             report2 = check(second, world, max_clips=clip_cap(config, text))
             if len(report2.violations) <= len(report.violations):
                 beat = second
             if report2.violations:
                 notes.append(
-                    "now: retry still had violations (invalid ops dropped): "
+                    "goldfish: retry still had violations (invalid ops dropped): "
                     + "; ".join(report2.violations),
                 )
             else:
-                notes.append("now: retry accepted")
+                notes.append("goldfish: retry accepted")
     return beat, notes, calls

@@ -15,15 +15,15 @@ Every story starts from this frame: MacLaren, alone in The White. Everything aft
 
 ```
 you type (or don't)
-  → Now (LLM) writes the next beat: 1-4 clips of action, dialogue and world changes
+  → Goldfish (LLM) writes the next beat: 1-4 clips of action, dialogue and world changes
   → code checks it against the world model and turns each clip into a video prompt
   → LTX-2.5 renders each 6 s clip with sound, starting from the last frames of the one before
   → the browser plays the clips back to back
-meanwhile Then (LLM) keeps the story's memory, off the critical path
+meanwhile Elephant (LLM) keeps the story's memory, off the critical path
 ```
 
-- **The LLMs propose, code decides.** The world (characters, props, places, who has what) is a typed model that only code changes. Everything Now writes goes through a validator first. No tool calls, no agent loop.
-- **Two clocks.** Now is on the critical path: one call per beat, about 6 s. Then runs every ten clips or so and never holds up the picture. It summarises, keeps notes on the characters and on you, and marks where the story turned.
+- **The LLMs propose, code decides.** The world (characters, props, places, who has what) is a typed model that only code changes. Everything Goldfish writes goes through a validator first. No tool calls, no agent loop.
+- **Two clocks.** Goldfish lives in the moment; Elephant never forgets. Goldfish is on the critical path: one call per beat, about 6 s. Elephant runs every ten clips or so and never holds up the picture. It summarises, keeps notes on the characters and on you, and marks where the story turned.
 - **One continuous shot.** Every clip is conditioned on the last 9 frames of the one before, so the picture never jumps back to a fresh start. All the sound, voices included, comes from the video model.
 - **Just in time.** Each render starts a few seconds before its clip is due, and a 6 s clip renders in 3-4 s on an H100. What you type cuts the current beat short and is on screen about two clips later.
 - **Suggestions, not commands.** What you type is taken up in the story's own way. Maybe with a twist, a character who refuses, or a consequence that comes later.
@@ -34,7 +34,7 @@ You get one story, and it never ends. **Begin** the first time, **Continue** aft
 
 The video isn't kept. Clips are deleted once they've played. Only the last 9 frames (about 200 KB) are saved, because that's all the next clip needs.
 
-The story remembers in layers: the last six clips word for word, then summaries, then checkpoints where it turned, then the story so far. What the LLMs read stays the same size however long it runs. When someone comes back after two hours, their past comes back with them. It remembers you too: what you typed, what the story did with it, and what Then makes of you, each guess tied to the inputs behind it. Lookup is by name, no embeddings.
+The story remembers in layers: the last six clips word for word, then summaries, then checkpoints where it turned, then the story so far. What the LLMs read stays the same size however long it runs. When someone comes back after two hours, their past comes back with them. It remembers you too: what you typed, what the story did with it, and what Elephant makes of you, each guess tied to the inputs behind it. Lookup is by name, no embeddings.
 
 ## Run it
 
@@ -57,7 +57,7 @@ Have an 80 GB NVIDIA GPU of your own (H100 or newer)? Skip Vast: see [SETUP.md](
 
 ## What leaves your computer
 
-While a film plays, Now and Then call OpenAI with your key, sending the story as they need it and what you typed. The video renders on the GPU server you run. Nothing else goes anywhere, and there's no telemetry. What you type is kept in `story/viewer.jsonl` (the story's memory of you) and in the technical logs of the last 20 films. The page has no login and listens on `127.0.0.1` only, since everything typed into it is billed to your key.
+While a film plays, Goldfish and Elephant call OpenAI with your key, sending the story as they need it and what you typed. The video renders on the GPU server you run. Nothing else goes anywhere, and there's no telemetry. What you type is kept in `story/viewer.jsonl` (the story's memory of you) and in the technical logs of the last 20 films. The page has no login and listens on `127.0.0.1` only, since everything typed into it is billed to your key.
 
 ## More
 

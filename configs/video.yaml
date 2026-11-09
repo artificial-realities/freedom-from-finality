@@ -1,9 +1,9 @@
 # The story as video with sound: needs the LTX-2.5 server (server/README.md)
 # and OPENAI_API_KEY. Every setting and its default is in src/models/config.py.
-now_model: "gpt-5.6-luna"
-then_model: "gpt-5.6-luna"
-now_reasoning_effort: "none"
-then_reasoning_effort: "none"
+goldfish_model: "gpt-5.6-luna"
+elephant_model: "gpt-5.6-luna"
+goldfish_reasoning_effort: "none"
+elephant_reasoning_effort: "none"
 
 video_enabled: true
 clip_seconds: 6                           # the one clip length: 153 frames, which the server warms

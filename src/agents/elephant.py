@@ -1,6 +1,6 @@
-"""Then: the slow-clock LLM call, off the critical path.
+"""Elephant: the slow-clock LLM call, off the critical path.
 
-Runs once before the story's first clip and then every `then_every`
+Runs once before the story's first clip and then every `elephant_every`
 clips, and does four things in one call: summarises the clips since its
 last run, rewrites the notebook (characters, seeds, intentions),
 rewrites its understanding of the viewer and notes their new marks on
@@ -28,22 +28,22 @@ from src.story.context import (
     format_memory,
     format_notebook,
     format_policy,
-    format_viewer_then,
+    format_viewer_elephant,
     format_world_now,
     in_play,
     named_now,
     recalled,
 )
 from src.story.history import History
-from src.story.schemas import ThenUpdate
+from src.story.schemas import ElephantUpdate
 from src.story.viewer import ViewerMemory
 from src.story.world import WorldModel
 from src.util.prompt_loader import load_prompt, prompt_path
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PATH: Path = prompt_path("then.system.md")
-USER_PATH: Path = prompt_path("then.user.md")
+SYSTEM_PATH: Path = prompt_path("elephant.system.md")
+USER_PATH: Path = prompt_path("elephant.user.md")
 
 INSTRUCTIONS = {
     "opening": (
@@ -79,7 +79,7 @@ async def run(
     config: Config,
     mode: str,
     clip_seconds: float,
-) -> ThenUpdate | None:
+) -> ElephantUpdate | None:
     """`viewer` is the viewer's memory and `upto` how many of its records
     this run reads (what came after is for the next). `scene` is what Frame
     Zero's first frame shows; `mode` is "opening" for the run before the
@@ -97,23 +97,23 @@ async def run(
         summaries=format_memory(world, history, back, recent=SUMMARIES_FOR_THEN, caps=PAST_FOR_THEN),
         clips=format_clips(world, world.last_summary),
         world_now=format_world_now(world, recall),
-        viewer=format_viewer_then(world, viewer, upto=upto, recall=recall),
+        viewer=format_viewer_elephant(world, viewer, upto=upto, recall=recall),
         checkpoints=format_checkpoints(world, history),
         instruction=INSTRUCTIONS.get(mode, INSTRUCTIONS["summary"]).format(scene=scene),
     )
     parsed, _ = await call_llm_structured(
-        agent="then",
+        agent="elephant",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         llm=llm,
         clip_no=world.clip,
-        schema=ThenUpdate,
-        max_tokens=config.max_tokens_then,
+        schema=ElephantUpdate,
+        max_tokens=config.max_tokens_elephant,
     )
     if parsed is None:
         return None
     try:
-        return ThenUpdate(**parsed)
+        return ElephantUpdate(**parsed)
     except ValidationError as exc:
-        logger.warning("Then update validation failed at clip %s: %s", world.clip, exc)
+        logger.warning("Elephant update validation failed at clip %s: %s", world.clip, exc)
         return None

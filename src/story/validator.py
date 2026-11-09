@@ -1,4 +1,4 @@
-"""Validate and apply a Now beat against the world model.
+"""Validate and apply a Goldfish beat against the world model.
 
 Plan → Diff → Validate → Apply. The LLM proposes, this module decides
 what is structurally admissible, applies the admissible part, and
@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 
 from src.story.compiler import shot_before
-from src.story.schemas import BeatPlan, EntityOp, ThenUpdate
+from src.story.schemas import BeatPlan, EntityOp, ElephantUpdate
 from src.story.history import Checkpoint, History, Summary
 from src.story.world import Entity, OpenInput, WorldModel, short_look, slugify
 
@@ -40,7 +40,7 @@ class Report:
 
 
 _LOCATION_PREFIXES = ("at ", "in ", "on ", "inside ", "the ")
-# The notebook's seeds, as Then is told: the ones that matter most.
+# The notebook's seeds, as Elephant is told: the ones that matter most.
 SEEDS_KEPT = 8
 
 
@@ -62,12 +62,12 @@ def resolve_location(world: WorldModel, ref: str):
 
 def _handles(op: EntityOp) -> set[str]:
     """What the rest of a beat may call something it introduces: its
-    `entity`, and the `name` it is given, when Now gives one."""
+    `entity`, and the `name` it is given, when Goldfish gives one."""
     return {slugify(ref) for ref in (op.entity, op.name) if ref.strip()}
 
 
 def _introduced_name(op: EntityOp) -> str:
-    """The name a new entity goes by: the `name` Now gave it, or else its
+    """The name a new entity goes by: the `name` Goldfish gave it, or else its
     `entity` (written as a handle, `old_lighthouse`, it reads as words)."""
     name = " ".join(op.name.split())
     if name:
@@ -186,7 +186,7 @@ def _cut_lands(world: WorldModel, refs: list[str], cut: str, clip_no: int):
 
 def _alias(beat: BeatPlan, index: int, introduce: EntityOp, gone_id: str, new_id: str) -> None:
     """A gone name introduced again: in the rest of the beat, the name and
-    the gone one's id mean the new one, since Now wrote them before it
+    the gone one's id mean the new one, since Goldfish wrote them before it
     could know the new id."""
     names = _handles(introduce) | {introduce.entity.strip().lower(), introduce.name.strip().lower(), gone_id}
     names.discard("")
@@ -208,7 +208,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
     """Apply clip `index` of `beat` to `world`, in place: its entity ops,
     presence from its `on_screen`, its dialogue filter. The first clip
     also lands how the beat takes the viewer's input and resolves the owed
-    inputs Now names.
+    inputs Goldfish names.
 
     Normalises the clip: `on_screen` references become entity ids,
     invalid dialogue is dropped, and a cut on the story's first clip (or
@@ -396,8 +396,8 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
                 else:
                     world.inputs.remove(item)
             r.applied.append(f"viewer input {beat.input}" + (f": {reason}" if reason else ""))
-        # Owed inputs Now resolves by id, delivered or let go. Nothing
-        # resolves an owed input but Now saying so.
+        # Owed inputs Goldfish resolves by id, delivered or let go. Nothing
+        # resolves an owed input but Goldfish saying so.
         for o in beat.owed:
             item = _owed_item(owed, o.input)
             if item is None or item not in world.inputs:
@@ -427,8 +427,8 @@ def involved(world: WorldModel, first: int, last: int) -> set[str]:
     return ids
 
 
-def apply_then(world: WorldModel, history: History, update: ThenUpdate, *, at_clip: int) -> list[str]:
-    """Land a Then update: its summary and checkpoint into the story's
+def apply_elephant(world: WorldModel, history: History, update: ElephantUpdate, *, at_clip: int) -> list[str]:
+    """Land an Elephant update: its summary and checkpoint into the story's
     history, each with the entities it involves; the story so far and
     since the last checkpoint; the rewritten notebook. Each portrait also
     lands on its character, so who a character is survives the notebook
@@ -438,10 +438,10 @@ def apply_then(world: WorldModel, history: History, update: ThenUpdate, *, at_cl
     first personality needs none.
 
     A checkpoint names a clip after the last checkpoint, up to the one
-    Then read up to (`at_clip`). With it, the story so far is replaced
-    when Then rewrote it (else the old one stands, up to the checkpoint it
+    Elephant read up to (`at_clip`). With it, the story so far is replaced
+    when Elephant rewrote it (else the old one stands, up to the checkpoint it
     was written at, and the roles read the checkpoints after it), and
-    since the last checkpoint starts again from what Then wrote."""
+    since the last checkpoint starts again from what Elephant wrote."""
     notes: list[str] = []
     history.truncate(world.history_count)
 
@@ -485,7 +485,7 @@ def apply_then(world: WorldModel, history: History, update: ThenUpdate, *, at_cl
         notes.append("since the last checkpoint " + ("rewritten" if since else "begins again"))
     world.history_count = len(history.records)
 
-    # A copy, so the raw update recorded in then.jsonl stays as Then wrote it.
+    # A copy, so the raw update recorded in elephant.jsonl stays as Elephant wrote it.
     world.notebook = update.notebook.model_copy(deep=True)
     notes.append("notebook updated")
     if len(world.notebook.seeds) > SEEDS_KEPT:
@@ -510,6 +510,6 @@ def apply_then(world: WorldModel, history: History, update: ThenUpdate, *, at_cl
         ent.lately = " ".join(portrait.lately.split())
         ent.lately_at = at_clip
 
-    world.then_runs += 1
-    world.last_then = at_clip
+    world.elephant_runs += 1
+    world.last_elephant = at_clip
     return notes

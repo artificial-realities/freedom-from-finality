@@ -3,14 +3,14 @@
 Everything the story has established lives here: entities (characters,
 props, locations) with what code needs in structure (kind, presence,
 location, whether they are gone) and their state in one line of prose,
-the viewer's inputs the story has not finished with, Then's notebook, the
-recent clips (one record per clip), and Then's two rolling summaries:
+the viewer's inputs the story has not finished with, Elephant's notebook, the
+recent clips (one record per clip), and Elephant's two rolling summaries:
 the story so far (everything up to the last checkpoint) and since the
 last checkpoint. Its summaries and checkpoints themselves are the
 story's long memory, kept outside it (`history.py`); the world counts how
 many of them it has seen (`history_count`).
 
-What the viewer said and put into the story, and Then's understanding of
+What the viewer said and put into the story, and Elephant's understanding of
 them, belong to the person and live outside it, in the viewer's memory
 (`viewer.py`).
 
@@ -25,7 +25,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from src.models.frame_zero import FrameZero
 from src.story.schemas import Notebook
@@ -46,7 +46,7 @@ def slugify(name: str) -> str:
 
 SHORT_LOOK_WORDS = 14
 KEEP_CLIPS = 24       # clips kept in memory: at least the last ones the prompts read
-MOST_CLIPS = 200      # and at most this many, however long Then goes without summarising
+MOST_CLIPS = 200      # and at most this many, however long Elephant goes without summarising
 
 
 def short_look(look: str) -> str:
@@ -80,10 +80,10 @@ class Entity(BaseModel):
 
     A character also carries who it is, on the entity so that it outlives
     the notebook: `personality` (who it is at heart: the one it came with,
-    from Frame Zero or Now's introduce, until Then rewrites it, at clip
+    from Frame Zero or Goldfish's introduce, until Elephant rewrites it, at clip
     `personality_since` and `personality_because` of what the story
-    showed) and `lately` (how it has been behaving and why, as Then last
-    wrote it, at clip `lately_at`). A character Then drops from the
+    showed) and `lately` (how it has been behaving and why, as Elephant last
+    wrote it, at clip `lately_at`). A character Elephant drops from the
     notebook keeps both, so one that comes back much later is still who it
     was."""
 
@@ -113,7 +113,7 @@ class Entity(BaseModel):
     def line(self) -> str:
         bits = [f"{self.id} ({self.kind}): {self.name}"]
         if self.state:
-            bits.append(f"now: {self.state}")
+            bits.append(f"goldfish: {self.state}")
         if self.location and self.kind != "location":
             bits.append(f"at {self.location}")
         return " · ".join(bits)
@@ -123,7 +123,7 @@ class OpenInput(BaseModel):
     """A viewer input the story has not finished with: the text of one or
     more lines the viewer typed (`inputs`, their ids in the viewer's
     memory), planned at `clip`. Pending while the beat that answers it is
-    planned; then owed, if Now deferred it, until a later beat delivers it
+    planned; then owed, if Goldfish deferred it, until a later beat delivers it
     or lets it go. One the story has finished with is no longer kept here:
     the viewer's memory has what became of it."""
 
@@ -180,8 +180,9 @@ class WorldModel(BaseModel):
 
     beats: int = 0
     last_summary: int = 0
-    last_then: int = 0
-    then_runs: int = 0
+    # Elephant was called Then: a story saved before the rename still loads.
+    last_elephant: int = Field(0, validation_alias=AliasChoices("last_elephant", "last_then"))
+    elephant_runs: int = Field(0, validation_alias=AliasChoices("elephant_runs", "then_runs"))
     shot: str = ""
     # Clip ids are never reused, across films included: the renderer
     # keys the frames it continues from by them.
@@ -193,7 +194,7 @@ class WorldModel(BaseModel):
     @classmethod
     def from_frame_zero(cls, frame_zero: FrameZero) -> "WorldModel":
         """A fresh world from Frame Zero: its place and its character,
-        built as Now's introduce builds them, ordinary entities from here on."""
+        built as Goldfish's introduce builds them, ordinary entities from here on."""
         world = cls()
         place, ch = frame_zero.location, frame_zero.character
         lid = slugify(place.name)
@@ -296,7 +297,7 @@ class WorldModel(BaseModel):
         return [c for c in self.clips if c.clip > clip]
 
     def trim_clips(self) -> None:
-        """Keep in memory only the clips the prompts read: those since Then
+        """Keep in memory only the clips the prompts read: those since Elephant
         last summarised (at most MOST_CLIPS) and at least the last
         KEEP_CLIPS. The story's whole history is the folder's clip log."""
         keep = max(KEEP_CLIPS, sum(1 for c in self.clips if c.clip > self.last_summary))

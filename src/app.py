@@ -16,7 +16,7 @@ import logging
 import mimetypes
 from pathlib import Path
 
-from src.agents.now import NowFailed
+from src.agents.goldfish import GoldfishFailed
 from src.i2v.ltxv import ReferenceRefused
 from src.i2v.shape import RendererNotReady
 from src.models.config import Config
@@ -29,7 +29,7 @@ from src.web import WebPlayer
 logger = logging.getLogger(__name__)
 
 # A film nobody is watching stops after this long without a page open, so
-# a closed tab does not keep it running (and calling Now). It says nothing
+# a closed tab does not keep it running (and calling Goldfish). It says nothing
 # about the viewer: nothing of it reaches the story or their memory.
 PAGELESS_STOP_S = 60.0
 
@@ -164,7 +164,7 @@ class App:
         exc = None if film.cancelled() else film.exception()
         if isinstance(exc, (RendererNotReady, ReferenceRefused)):
             self._back(f"The film cannot start: {exc}")
-        elif isinstance(exc, NowFailed):
+        elif isinstance(exc, GoldfishFailed):
             self._back(f"The film stopped. {exc}. Your story is saved as of the clip on screen; "
                        "Continue goes on from there.")
         elif exc is not None:

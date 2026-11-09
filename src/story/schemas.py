@@ -1,16 +1,16 @@
-"""Structured outputs for the Now and Then calls.
+"""Structured outputs for the Goldfish and Elephant calls.
 
 Both schemas are consumed through OpenAI strict structured outputs, so
 they stay inside the strict subset: no free-form dicts, every field a
 plain type, list or nested model. Validation against the world happens
 in `src/story/validator.py`, not here.
 
-Now writes a **beat**: one action or state of the story that lasts a
+Goldfish writes a **beat**: one action or state of the story that lasts a
 few clips. Each clip carries its own picture and the world changes that
 happen in it, so a beat can be cut short by the viewer after any clip
 and the world stays true to what was rendered.
 
-Then writes a **notebook update**: a summary of the clips since its last
+Elephant writes a **notebook update**: a summary of the clips since its last
 run, the story since the last checkpoint, the rewritten notebook
 (characters, seeds, intentions), its understanding of the viewer with
 the inputs each reading rests on, the viewer's new marks on the story,
@@ -28,7 +28,7 @@ EntityKind = Literal["character", "prop", "location"]
 
 
 class EntityOp(BaseModel):
-    """One world change proposed by Now, in the clip where it happens.
+    """One world change proposed by Goldfish, in the clip where it happens.
 
     `entity` is an existing entity id for `update`/`remove`, or a handle
     for a new thing for `introduce` (its id is made from it, and `name`,
@@ -38,7 +38,7 @@ class EntityOp(BaseModel):
     (update); a new character also gives its `personality`, as Frame Zero
     gives its character's, and how its `voice` sounds, so it is registered
     once and stays the same. An update may give a character the voice it
-    lacks, or a new one; personality is Then's to rewrite. `state` is the
+    lacks, or a new one; personality is Elephant's to rewrite. `state` is the
     entity at the end of the clip, in prose, replacing its last one. An
     update with `present: true` brings back one that left the story, and
     one with a `name` renames it: the name it goes by from now on (its id
@@ -66,7 +66,7 @@ class DialogueLine(BaseModel):
 class ClipSpec(BaseModel):
     """One clip of a beat: the next few seconds of continuous picture.
     `action` is the only prose the story has; the transcript, the player
-    and Then's log all read it.
+    and Elephant's log all read it.
 
     `cut_to` (only where the story allows cuts; "" = the clip
     continues the shot): the shot the clip cuts to, at its start; the
@@ -103,7 +103,7 @@ class OwedOutcome(BaseModel):
 
 
 class BeatPlan(BaseModel):
-    """Now's whole output: one beat, one to a few clips. `input` is how the
+    """Goldfish's whole output: one beat, one to a few clips. `input` is how the
     beat takes the viewer's input, and `owed` the owed inputs it resolves."""
 
     intent: str
@@ -114,7 +114,7 @@ class BeatPlan(BaseModel):
     owed: list[OwedOutcome] = Field(default_factory=list)
 
 
-# ── Then schemas ────────────────────────────────────────────────────
+# ── Elephant schemas ────────────────────────────────────────────────────
 
 class CharacterPortrait(BaseModel):
     """`personality` is who the character is at heart, and changes slowly:
@@ -141,7 +141,7 @@ class Notebook(BaseModel):
 
 
 class Reading(BaseModel):
-    """One thing Then reads in the viewer, and the ids of the inputs
+    """One thing Elephant reads in the viewer, and the ids of the inputs
     (`#n`) it rests on."""
 
     reading: str
@@ -149,7 +149,7 @@ class Reading(BaseModel):
 
 
 class ViewerUnderstanding(BaseModel):
-    """Then's understanding of the viewer: a few readings, what they lean
+    """Elephant's understanding of the viewer: a few readings, what they lean
     toward `lately`, and what is `unknown`."""
 
     readings: list[Reading] = Field(default_factory=list)
@@ -168,7 +168,7 @@ class NewMark(BaseModel):
 
 
 class CheckpointOut(BaseModel):
-    """Where Then sees the story turned: the clip `at`, a `name` for it and
+    """Where Elephant sees the story turned: the clip `at`, a `name` for it and
     a `summary` of the story from the checkpoint before up to there."""
 
     at: int
@@ -176,8 +176,8 @@ class CheckpointOut(BaseModel):
     summary: str
 
 
-class ThenUpdate(BaseModel):
-    """Then's output, in the order it writes it: `summary` of the clips
+class ElephantUpdate(BaseModel):
+    """Elephant's output, in the order it writes it: `summary` of the clips
     since its last run; a `checkpoint` where the story turned, with
     `story_so_far`, everything up to it, rewritten (only with a
     checkpoint); `since_checkpoint`, the story since the last checkpoint

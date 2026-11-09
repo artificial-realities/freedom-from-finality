@@ -4,7 +4,7 @@ Frame Zero is the first frame and nothing more: a sentence saying what it
 shows, the one character in it (its name, how it looks, who it is to
 begin with, how it sounds and where it stands), the place it stands in,
 and the image the first clip is rendered from. None of it is a rule: once
-the story starts it is ordinary world state, and Now and Then may change
+the story starts it is ordinary world state, and Goldfish and Elephant may change
 any of it. What holds in every story is the content policy
 (`src/prompts/policy.md`), not Frame Zero.
 """
@@ -19,10 +19,10 @@ from pydantic import BaseModel, ConfigDict
 
 
 class StartingCharacter(BaseModel):
-    """The character in the first frame, given the way Now introduces any
-    character later: `personality` is who it is at heart (only Then
+    """The character in the first frame, given the way Goldfish introduces any
+    character later: `personality` is who it is at heart (only Elephant
     rewrites it once the story starts), `voice` how it sounds (or empty,
-    for Now to give when it first speaks), `state` where it stands and
+    for Goldfish to give when it first speaks), `state` where it stands and
     what it is doing."""
 
     model_config = ConfigDict(extra="forbid")

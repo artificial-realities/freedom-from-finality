@@ -22,25 +22,25 @@ class Config(BaseModel):
     name: str = "film"
 
     # ── The two roles ──────────────────────────────────────────────
-    # The OpenAI models of Now (one call per beat, on the critical path)
-    # and Then (memory, off it); both gpt-5.6-luna in the configs.
-    now_model: str = ""
-    then_model: str = ""
+    # The OpenAI models of Goldfish (one call per beat, on the critical path)
+    # and Elephant (memory, off it); both gpt-5.6-luna in the configs.
+    goldfish_model: str = ""
+    elephant_model: str = ""
     # A reasoning model's effort ("none" keeps hidden reasoning off, so it
     # adds no latency); "" for a chat model, which takes no effort.
-    now_reasoning_effort: str = ""
-    then_reasoning_effort: str = ""
+    goldfish_reasoning_effort: str = ""
+    elephant_reasoning_effort: str = ""
     # Each reply's cap: one cut off at its cap is lost whole, so the caps
     # sit well above the largest replies seen (about 1,300 tokens each).
-    max_tokens_now: int = 4096
-    max_tokens_then: int = 4096
-    # How long a call may take. Now's median is 6.5 s and past about 10 s
-    # the picture holds anyway; a failed Now call is made once more, then
-    # the film stops. Then is off the critical path, and the OpenAI client
-    # retries it `then_retries` times.
-    now_timeout_s: float = 20.0
-    then_timeout_s: float = 90.0
-    then_retries: int = 2
+    max_tokens_goldfish: int = 4096
+    max_tokens_elephant: int = 4096
+    # How long a call may take. Goldfish's median is 6.5 s and past about 10 s
+    # the picture holds anyway; a failed Goldfish call is made once more, then
+    # the film stops. Elephant is off the critical path, and the OpenAI client
+    # retries it `elephant_retries` times.
+    goldfish_timeout_s: float = 20.0
+    elephant_timeout_s: float = 90.0
+    elephant_retries: int = 2
 
     # ── Video ──────────────────────────────────────────────────────
     # Render the story on the LTX-2.5 server; off, it plays as text.
@@ -50,7 +50,7 @@ class Config(BaseModel):
     # Clips rendered before playback starts, beyond the first.
     startup_clips: int = 0
     # How far ahead of its time on air a clip's render is fired, beyond the
-    # render's own estimate: what a slow Now call or render can eat.
+    # render's own estimate: what a slow Goldfish call or render can eat.
     buffer_seconds: float = 4.7
     # The server's address (LTXV_SERVER_URL overrides it).
     ltxv_server_url: str = "http://localhost:8000"
@@ -59,17 +59,17 @@ class Config(BaseModel):
     ltxv_continuity_strength: float = 1.0
 
     # ── The story's pace ───────────────────────────────────────────
-    # The clips Now reads word for word.
+    # The clips Goldfish reads word for word.
     recent_clips: int = 6
     # The most clips a beat may have, and a beat that answers the viewer
     # (its latency is the steering delay).
     max_clips_per_beat: int = 4
     answer_max_clips: int = 2
-    # Then runs every this many clips (once before the first, and soon after
-    # the viewer types), at most one at a time and at least `then_min_gap`
+    # Elephant runs every this many clips (once before the first, and soon after
+    # the viewer types), at most one at a time and at least `elephant_min_gap`
     # clips apart.
-    then_every: int = 10
-    then_min_gap: int = 4
+    elephant_every: int = 10
+    elephant_min_gap: int = 4
 
     @classmethod
     def from_yaml(cls, path: Path | str) -> "Config":

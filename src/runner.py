@@ -18,7 +18,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from src.agents.now import NowFailed
+from src.agents.goldfish import GoldfishFailed
 from src.engine import EmitFailed, Emitted, Engine
 from src.i2v import LtxvI2V
 from src.i2v.base import I2VBackend
@@ -73,8 +73,8 @@ def _start_timing(config: Config, frame_zero: FrameZero, film_id: str, film_dir:
     timing.write(
         "film_start", film=film_id, config=config.name, first_frame=frame_zero.scene,
         revision=revision, dirty=dirty,
-        now_model=config.now_model,
-        now_reasoning_effort=config.now_reasoning_effort or None,
+        goldfish_model=config.goldfish_model,
+        goldfish_reasoning_effort=config.goldfish_reasoning_effort or None,
         video=config.video_enabled,
         clip_seconds=round(shape.delivered_seconds, 4), shape=shape.record(),
         **fields,
@@ -153,7 +153,7 @@ async def run_live(
 ) -> None:
     """Live loop: a producer generating clips, a player showing them.
 
-    The producer emits one clip at a time from Now's current beat and
+    The producer emits one clip at a time from Goldfish's current beat and
     pushes each rendered clip onto a bounded queue (size =
     `startup_clips + 1`). The consumer hands them to the player one at a
     time; the player holds each for its duration, so the server is the
@@ -162,10 +162,10 @@ async def run_live(
 
     Just in time: once playback runs, a clip's render is fired as late as
     it safely can be (the render estimate plus `buffer_seconds` before the
-    clip is due on air), and Now is asked for the next beat as soon as
+    clip is due on air), and Goldfish is asked for the next beat as soon as
     the current one has no clip left. Until the fire the producer listens
     for the viewer. An input cuts the beat in progress short (its
-    unrendered clips are dropped), cancels a Now call in flight, and Now
+    unrendered clips are dropped), cancels a Goldfish call in flight, and Goldfish
     writes the next beat from that input at once, so the input reaches the
     earliest clip that is not yet rendering. Before playback starts the
     producer runs flat out to build the lead.
@@ -173,14 +173,14 @@ async def run_live(
     With a video backend each item is a rendered clip. Without one it is
     the clip's text, held for the clip's duration.
 
-    A film that cannot go on (Now failed twice, clips or saves failed
+    A film that cannot go on (Goldfish failed twice, clips or saves failed
     three times in a row) raises once it has stopped, saved as of the clip
     on air, so the page can say why; clips already rendered play out
     first, unless saving is what failed.
 
     The film's records go to `logs/films/<id>/`: the transcript, the
     models' raw outputs and the timing log (fires, renders, the queue, air
-    time, viewer inputs, Now calls; see `src.util.timing_log`). The story
+    time, viewer inputs, Goldfish calls; see `src.util.timing_log`). The story
     itself is committed as each clip goes on air (`Engine.commit`), so a
     film stopped or killed anywhere resumes from the last clip the viewer
     saw.
@@ -210,7 +210,7 @@ async def run_live(
             i2v.resume_from(folder.last_frames)
         else:
             # Nothing saved to continue the picture from: it starts again
-            # from the first frame, and Now hears so.
+            # from the first frame, and Goldfish hears so.
             engine.from_frame_zero()
     timing.write("story", id=folder.id, resumed_at=resumed_at, last_frames=folder.last_frames is not None)
     print(("Your story continues from clip %d." % resumed_at if resumed_at else "Your story begins.")
@@ -232,7 +232,7 @@ async def run_live(
     saves = {"failed": 0}
     tasks: list[asyncio.Task] = []
 
-    def _fail_now(exc: BaseException) -> None:
+    def _fail_goldfish(exc: BaseException) -> None:
         """Stop the film at once: it cannot go on safely."""
         if not failed:
             failed.append(exc)
@@ -263,7 +263,7 @@ async def run_live(
             timing.write("commit_failed", clip=item.clip, error=repr(exc))
             saves["failed"] += 1
             if saves["failed"] >= MAX_FAILED_SAVES:
-                _fail_now(RuntimeError(f"the story could not be saved {saves['failed']} times in a row "
+                _fail_goldfish(RuntimeError(f"the story could not be saved {saves['failed']} times in a row "
                                        f"({type(exc).__name__}: {exc}); it is saved as of the last clip that was"))
         finally:
             if last_frames is not None:
@@ -278,7 +278,7 @@ async def run_live(
     air: dict = {"clip": None, "start": None, "hold": 0.0}
     queued_holds: list[float] = []
     # Viewer inputs as the timing log follows them, by the player's input
-    # id: taken into a Now call, then carried by the planned beat until its
+    # id: taken into a Goldfish call, then carried by the planned beat until its
     # first clip is emitted (landed) or the beat is cut first (dropped).
     plan_inputs: list[int] = []
     beat_inputs: list[int] = []
@@ -373,7 +373,7 @@ async def run_live(
             item.overlap_seconds = shape.overlap_seconds
         if i2v.last_render.get("reseeded"):
             # A restart the client could not restore from the last clip's
-            # tail: Now hears the picture was reset.
+            # tail: Goldfish hears the picture was reset.
             timing.write("reseeded", clip=item.clip)
             engine.note_reseed(item.clip)
         item.duration = shape.delivered_seconds
@@ -477,7 +477,7 @@ async def run_live(
                 beat_inputs.clear()
 
         async def _plan(text: str) -> None:
-            """Ask Now for the next beat from `text`. An input that arrives
+            """Ask Goldfish for the next beat from `text`. An input that arrives
             while the call runs cancels it, and the call restarts with
             everything the viewer typed. A film stopped meanwhile cancels
             the call too: nothing keeps running, or billing, after it."""
@@ -507,7 +507,7 @@ async def run_live(
             """A viewer input arrived before the next clip was emitted: cut
             the beat in progress short and plan from the input. When the
             planned beat has not played a clip and its plan answered an
-            earlier input (the second of the pair arrived after Now
+            earlier input (the second of the pair arrived after Goldfish
             returned), that earlier input is joined to this one and planned
             once, as an input that cancels a call in flight is: its
             recorded input is dropped so the pair is recorded once, with
@@ -526,7 +526,7 @@ async def run_live(
         async def _listen(n: int) -> None:
             """Wait for the just-in-time moment of clip `n`, taking the
             viewer's inputs as they come: an input cuts the beat short and
-            has Now write the next one at once."""
+            has Goldfish write the next one at once."""
             while True:
                 need = _needed_at()
                 if need is None:
@@ -629,7 +629,7 @@ async def run_live(
         except Exception as exc:
             # The film ends once what is rendered has played; the page is
             # told why.
-            if isinstance(exc, NowFailed):
+            if isinstance(exc, GoldfishFailed):
                 logger.error("Clip %s: %s", clip_no, exc)
             else:
                 logger.exception("Live producer crashed on clip %s", clip_no)
@@ -684,7 +684,7 @@ async def run_live(
         except Exception as exc:
             logger.exception("Live consumer crashed")
             timing.write("error", where="consumer", error=repr(exc))
-            _fail_now(exc)
+            _fail_goldfish(exc)
 
     await player.start()
     producer_task = asyncio.create_task(producer())

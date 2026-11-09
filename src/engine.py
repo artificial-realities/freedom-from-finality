@@ -1,17 +1,17 @@
 """The engine: two LLM roles on two clocks, everything else deterministic.
 
-- **Now** — one structured call per **beat**: one action or state of
+- **Goldfish** — one structured call per **beat**: one action or state of
   the story that lasts one to a few clips. Reads the assembled context
   and returns a `BeatPlan`; the engine then emits its clips one at a
   time with no LLM on the way, applying each clip's world changes as it
-  goes. Now is called again when the beat's last clip has been emitted,
+  goes. Goldfish is called again when the beat's last clip has been emitted,
   or at once when the viewer types: the rest of the beat is dropped and
   the next call is told where the picture actually ends.
-- **Then** — once before the story's first clip (`open`), then an async
-  task on a slow clock: every `then_every` clips, spawned when the beat's first
+- **Elephant** — once before the story's first clip (`open`), then an async
+  task on a slow clock: every `elephant_every` clips, spawned when the beat's first
   clip has been applied, so its snapshot and the clips it reads include
   the clip that caused it. At most one is in flight and runs are at
-  least `then_min_gap` clips apart. Its update lands at the start of the
+  least `elephant_min_gap` clips apart. Its update lands at the start of the
   first plan that finds it finished; nothing ever waits for it.
   Summarises the clips since its last run, rewrites the notebook,
   rewrites its understanding of the viewer, and may name a checkpoint
@@ -34,14 +34,14 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from src.agents import now as now_agent
-from src.agents import then as then_agent
+from src.agents import goldfish as goldfish_agent
+from src.agents import elephant as elephant_agent
 from src.i2v.shape import ClipShape
 from src.llm import OpenAIBackend
 from src.models.config import Config
 from src.story.compiler import compile_clip
-from src.story.schemas import BeatPlan, ThenUpdate
-from src.story.validator import Report, apply_clip, apply_then
+from src.story.schemas import BeatPlan, ElephantUpdate
+from src.story.validator import Report, apply_clip, apply_elephant
 from src.story.viewer import Input, Outcome
 from src.story.history import History
 from src.story.world import ClipRecord, WorldModel
@@ -101,12 +101,12 @@ class Engine:
         self.history = folder.history
         self.frame_zero = folder.frame_zero
         self.viewer = folder.viewer
-        # Now's own attempts are its retries (`now_agent.ATTEMPTS`); Then
+        # Goldfish's own attempts are its retries (`goldfish_agent.ATTEMPTS`); Elephant
         # is off the critical path, so the SDK may retry it.
-        self.llm_now = OpenAIBackend(model=config.now_model, reasoning_effort=config.now_reasoning_effort,
-                                     timeout_s=config.now_timeout_s, retries=0)
-        self.llm_then = OpenAIBackend(model=config.then_model, reasoning_effort=config.then_reasoning_effort,
-                                      timeout_s=config.then_timeout_s, retries=config.then_retries)
+        self.llm_goldfish = OpenAIBackend(model=config.goldfish_model, reasoning_effort=config.goldfish_reasoning_effort,
+                                     timeout_s=config.goldfish_timeout_s, retries=0)
+        self.llm_elephant = OpenAIBackend(model=config.elephant_model, reasoning_effort=config.elephant_reasoning_effort,
+                                      timeout_s=config.elephant_timeout_s, retries=config.elephant_retries)
         # Each emitted clip until it goes on air: the world as of it, its
         # record, what it did with the viewer's inputs, which of those were
         # staged before it, and how many history records its world has
@@ -117,22 +117,22 @@ class Engine:
         # the first clip that airs (so a film that never gets that far
         # leaves them unanswered, and the next resume finds them again).
         self._staged: list[Outcome] = []
-        self._then_task: asyncio.Task | None = None
+        self._elephant_task: asyncio.Task | None = None
         # (at_clip, reason, records read)
-        self._then_meta: tuple[int, str, int] | None = None
-        self._then_notes: list[str] = []
+        self._elephant_meta: tuple[int, str, int] | None = None
+        self._elephant_notes: list[str] = []
         self._last_spawn: int = 0
-        # How many records of the viewer's memory the last Then run read: an
+        # How many records of the viewer's memory the last Elephant run read: an
         # input after them calls the next run early (`_trigger`).
-        self._then_upto: int = len(self.viewer.records)
+        self._elephant_upto: int = len(self.viewer.records)
         self._pending_spawn: str | None = None
         self._emit_snapshot: dict | None = None
         # The world as of the last clip emitted, as the JSON its commit
-        # saves, and the Then updates landed since: together what a clip
+        # saves, and the Elephant updates landed since: together what a clip
         # that never airs rolls back to, so the world is written out once
         # per clip and never deep-copied.
         self._base_json = ""
-        self._base_landed: list[tuple[ThenUpdate, int]] = []
+        self._base_landed: list[tuple[ElephantUpdate, int]] = []
         self._beat: BeatPlan | None = None
         self._clip_index: int = 0
         self._beat_no: int = 0
@@ -147,7 +147,7 @@ class Engine:
         # seeds it from: the story's first clip, or the first after a
         # resume with no frames to continue from.
         self._opening = not self.world.clips
-        self._last_spawn = self.world.last_then
+        self._last_spawn = self.world.last_elephant
         self._resume()
         self._base_json = self.world.model_dump_json()
 
@@ -173,12 +173,12 @@ class Engine:
             self._staged.append(Outcome(inputs=ids, clip=world.clip + 1, outcome="deferred", reason=item.reason))
 
     async def open(self) -> None:
-        """Before the story's first clip: Then's opening run, once, so the
+        """Before the story's first clip: Elephant's opening run, once, so the
         first beat has a notebook. If it fails the story begins without
-        one, and Then runs again on its usual clock."""
-        if self.world.clip or self.world.then_runs:
+        one, and Elephant runs again on its usual clock."""
+        if self.world.clip or self.world.elephant_runs:
             return
-        await self._run_then_now(reason="the story opens", at_clip=0)
+        await self._run_elephant_now(reason="the story opens", at_clip=0)
 
     def has_next_clip(self) -> bool:
         return self._beat is not None and self._clip_index < len(self._beat.clips)
@@ -186,35 +186,35 @@ class Engine:
     def beat_unplayed(self) -> bool:
         return self._beat is not None and self._clip_index == 0
 
-    # ── Plan: the Now call ──────────────────────────────────────────
+    # ── Plan: the Goldfish call ──────────────────────────────────────────
 
     async def plan(self, clip_no: int, text: str = "", inputs: list[int] = ()) -> None:
-        """Ask Now for the beat that starts at clip `clip_no`, answering
+        """Ask Goldfish for the beat that starts at clip `clip_no`, answering
         `text`, the viewer's input (`inputs`: the ids of its lines in the
-        viewer's memory), or none. Raises `now_agent.NowFailed` when Now
+        viewer's memory), or none. Raises `goldfish_agent.GoldfishFailed` when Goldfish
         could not write it."""
         text = (text or "").strip()
         started = time.monotonic()
-        spent = dict(self.llm_now.usage)
-        self.timing.write("now_start", clip=clip_no, input=bool(text))
+        spent = dict(self.llm_goldfish.usage)
+        self.timing.write("goldfish_start", clip=clip_no, input=bool(text))
         try:
             cost = await self._plan(clip_no, text, list(inputs))
         except BaseException as exc:
             cancelled = isinstance(exc, asyncio.CancelledError)
-            self.timing.write("now_end", clip=clip_no, input=bool(text), cancelled=cancelled,
+            self.timing.write("goldfish_end", clip=clip_no, input=bool(text), cancelled=cancelled,
                               plan_s=round(time.monotonic() - started, 4),
                               **({} if cancelled else {"error": type(exc).__name__}))
             raise
-        tokens = {f"tokens_{k}": v - spent[k] for k, v in self.llm_now.usage.items() if k != "calls"}
-        self.timing.write("now_end", clip=clip_no, input=bool(text),
+        tokens = {f"tokens_{k}": v - spent[k] for k, v in self.llm_goldfish.usage.items() if k != "calls"}
+        self.timing.write("goldfish_end", clip=clip_no, input=bool(text),
                           plan_s=round(time.monotonic() - started, 4), **cost, **tokens)
 
     async def _plan(self, clip_no: int, text: str, inputs: list[int]) -> dict:
         world = self.world
 
         self._land_if_done(clip_no)
-        notes: list[str] = list(self._then_notes)
-        self._then_notes = []
+        notes: list[str] = list(self._elephant_notes)
+        self._elephant_notes = []
 
         world.clip = clip_no
         if text:
@@ -222,8 +222,8 @@ class Engine:
 
         called = time.monotonic()
         try:
-            beat, dnotes, calls = await now_agent.run(
-                world=world, history=self.history, viewer=self.viewer, text=text, llm=self.llm_now,
+            beat, dnotes, calls = await goldfish_agent.run(
+                world=world, history=self.history, viewer=self.viewer, text=text, llm=self.llm_goldfish,
                 config=self.config,
                 beat_status=self._beat_status(), clip_seconds=self.shape.delivered_seconds,
             )
@@ -232,19 +232,19 @@ class Engine:
             # the next resume.
             world.drop_pending_inputs(clip_no)
             raise
-        now_s = time.monotonic() - called
+        goldfish_s = time.monotonic() - called
         self._reseed_note = ""
         notes.extend(dnotes)
-        beat.clips = beat.clips[: now_agent.clip_cap(self.config, text)]
+        beat.clips = beat.clips[: goldfish_agent.clip_cap(self.config, text)]
 
         world.beats += 1
         self._beat, self._clip_index, self._beat_no = beat, 0, world.beats
         self._beat_input = text
         self._pending_note = ""
 
-        # A run that finished during the Now call lands before the clock is
+        # A run that finished during the Goldfish call lands before the clock is
         # read, so it counts from the clips that run summarised.
-        if self._then_task is not None and self._then_task.done():
+        if self._elephant_task is not None and self._elephant_task.done():
             self._land_if_done(clip_no)
         reason = self._trigger()
         self._pending_spawn = None
@@ -252,13 +252,13 @@ class Engine:
         if reason:
             held = self._hold_reason(clip_no)
             if held:
-                notes.append(f"then trigger held ({reason}): {held}")
+                notes.append(f"elephant trigger held ({reason}): {held}")
             else:
                 self._pending_spawn = reason
                 spawning = reason
         self._plan_notes = notes
         self._plan_meta = {"trigger": spawning}
-        cost = {"beat": world.beats, "clips": len(beat.clips), "now_s": round(now_s, 4), "calls": calls}
+        cost = {"beat": world.beats, "clips": len(beat.clips), "goldfish_s": round(goldfish_s, 4), "calls": calls}
         self._record_plan(clip_no, beat, {"calls": calls})
         return cost
 
@@ -286,21 +286,21 @@ class Engine:
         self._beat = None
         self._clip_index = 0
         if done == 0 and self._pending_spawn is not None:
-            self._then_notes.append(
-                f"then ({self._pending_spawn}): not spawned, the beat was cut before its first clip",
+            self._elephant_notes.append(
+                f"elephant ({self._pending_spawn}): not spawned, the beat was cut before its first clip",
             )
             self._pending_spawn = None
         if done == 0 and self._plan_notes:
-            self._then_notes = self._plan_notes + self._then_notes
+            self._elephant_notes = self._plan_notes + self._elephant_notes
             self._plan_notes = []
-        self._then_notes.append(
+        self._elephant_notes.append(
             f'beat "{beat.intent}" cut short after clip {done} of {total} ({reason}); {dropped} clip(s) dropped',
         )
         return dropped
 
     def from_frame_zero(self) -> None:
         """The film resumes with no frames to continue the picture from: its
-        first clip opens on Frame Zero's picture again, and Now hears so."""
+        first clip opens on Frame Zero's picture again, and Goldfish hears so."""
         self._opening = True
         self.note_reseed(self.world.clip + 1)
 
@@ -310,7 +310,7 @@ class Engine:
                              "Bring back in this beat whatever the story needs on screen. ")
 
     def _scene(self) -> str:
-        """What Frame Zero's first frame shows. Now hears it only when the
+        """What Frame Zero's first frame shows. Goldfish hears it only when the
         picture is that frame: at the opening, or after a re-seed."""
         return " ".join(self.frame_zero.scene.split()).rstrip(".")
 
@@ -405,10 +405,10 @@ class Engine:
         except OSError:
             logger.exception("Could not write plan record to %s", path)
 
-    def _record_then(self, update, *, reason: str, at_clip: int, landed_at: int | None = None) -> None:
+    def _record_elephant(self, update, *, reason: str, at_clip: int, landed_at: int | None = None) -> None:
         if self.film_dir is None or update is None:
             return
-        path = self.film_dir / "then.jsonl"
+        path = self.film_dir / "elephant.jsonl"
         record = {"at_clip": at_clip, "reason": reason,
                   "update": update.model_dump(mode="json")}
         if landed_at is not None:
@@ -420,7 +420,7 @@ class Engine:
             logger.exception("Could not write then record to %s", path)
 
     def _restore(self, snap: dict) -> None:
-        """The world as of the clip before `snap`'s, with every Then update
+        """The world as of the clip before `snap`'s, with every Elephant update
         landed since applied again (their viewer part landed once, and
         stays), and the beat as it was."""
         # Clip ids are never reused, not even a rolled-back clip's.
@@ -430,7 +430,7 @@ class Engine:
         self.history.truncate(self.world.history_count)
         landed = snap["landed"] + (self._base_landed if self._base_json is not snap["world_json"] else [])
         for update, at_clip in landed:
-            apply_then(self.world, self.history, update, at_clip=at_clip)
+            apply_elephant(self.world, self.history, update, at_clip=at_clip)
         self._base_json, self._base_landed = snap["world_json"], landed
         self._beat, self._clip_index, self._beat_no = snap["beat"], snap["clip_index"], snap["beat_no"]
         self._beat_input, self._plan_notes, self._plan_meta = snap["beat_input"], snap["plan_notes"], snap["plan_meta"]
@@ -450,7 +450,7 @@ class Engine:
             )
             self._last_beat = (beat.intent, done, total)
         self._beat, self._clip_index, self._pending_spawn = None, 0, None
-        self._then_notes.append(f"clip {snap['clip']}: {reason}; rolled back to before it and replanned")
+        self._elephant_notes.append(f"clip {snap['clip']}: {reason}; rolled back to before it and replanned")
 
     async def _emit(self, clip_no: int) -> Emitted:
         world = self.world
@@ -500,7 +500,7 @@ class Engine:
         self._base_json, self._base_landed = world_json, []
         if first and self._pending_spawn is not None:
             reason, self._pending_spawn = self._pending_spawn, None
-            self._spawn_then(reason=reason, at_clip=clip_no)
+            self._spawn_elephant(reason=reason, at_clip=clip_no)
 
         notes = self._plan_notes if first else []
         self._plan_notes = [] if first else self._plan_notes
@@ -550,112 +550,112 @@ class Engine:
         return True
 
     def close(self) -> None:
-        """The film stopped. A Then run in flight is dropped: its work is
+        """The film stopped. An Elephant run in flight is dropped: its work is
         redone after resuming, since nothing past the last aired clip is
         saved."""
-        if self._then_task is not None:
-            self._then_task.cancel()
-            self._then_task, self._then_meta = None, None
-        self.timing.write("llm_usage", now=dict(self.llm_now.usage), then=dict(self.llm_then.usage))
+        if self._elephant_task is not None:
+            self._elephant_task.cancel()
+            self._elephant_task, self._elephant_meta = None, None
+        self.timing.write("llm_usage", goldfish=dict(self.llm_goldfish.usage), elephant=dict(self.llm_elephant.usage))
 
-    # ── Then clock ─────────────────────────────────────────────────
+    # ── Elephant clock ─────────────────────────────────────────────────
 
     def _trigger(self) -> str | None:
-        if self.world.clip - self.world.last_summary >= self.config.then_every:
-            return f"every {self.config.then_every} clips"
-        # The notebook was written before the viewer's latest input, and Now
-        # reads it at every beat: Then rewrites it as soon as it may.
-        if any(isinstance(r, Input) for r in self.viewer.records[self._then_upto:]):
+        if self.world.clip - self.world.last_summary >= self.config.elephant_every:
+            return f"every {self.config.elephant_every} clips"
+        # The notebook was written before the viewer's latest input, and Goldfish
+        # reads it at every beat: Elephant rewrites it as soon as it may.
+        if any(isinstance(r, Input) for r in self.viewer.records[self._elephant_upto:]):
             return "the viewer spoke"
         return None
 
-    def _spawn_then(self, *, reason: str, at_clip: int) -> None:
+    def _spawn_elephant(self, *, reason: str, at_clip: int) -> None:
         snapshot = WorldModel.model_validate_json(self._on_air[at_clip][0]) if at_clip in self._on_air \
             else self.world.model_copy(deep=True)
         history = self.history.view(snapshot.history_count)
         upto = len(self.viewer.records)
-        self._then_upto = upto
+        self._elephant_upto = upto
 
         async def _task():
-            return await self._then(at_clip, world=snapshot, history=history, upto=upto, mode="summary")
+            return await self._elephant(at_clip, world=snapshot, history=history, upto=upto, mode="summary")
 
-        self._then_meta = (at_clip, reason, upto)
-        self._then_task = asyncio.create_task(_task())
+        self._elephant_meta = (at_clip, reason, upto)
+        self._elephant_task = asyncio.create_task(_task())
         self._last_spawn = at_clip
 
-    async def _run_then_now(self, *, reason: str, at_clip: int) -> None:
+    async def _run_elephant_now(self, *, reason: str, at_clip: int) -> None:
         """The opening run: the only synchronous one."""
         self._last_spawn = at_clip
         upto = len(self.viewer.records)
-        self._then_upto = upto
-        update = await self._then(at_clip, world=self.world, history=self.history.view(self.world.history_count),
+        self._elephant_upto = upto
+        update = await self._elephant(at_clip, world=self.world, history=self.history.view(self.world.history_count),
                                   upto=upto, mode="opening")
         self._land(update, at_clip=at_clip, reason=reason, upto=upto)
 
-    async def _then(self, at_clip: int, *, world: WorldModel, history: History, upto: int,
-                    mode: str) -> ThenUpdate | None:
-        """One Then run, its time and tokens in the timing log."""
-        started, spent = time.monotonic(), dict(self.llm_then.usage)
+    async def _elephant(self, at_clip: int, *, world: WorldModel, history: History, upto: int,
+                    mode: str) -> ElephantUpdate | None:
+        """One Elephant run, its time and tokens in the timing log."""
+        started, spent = time.monotonic(), dict(self.llm_elephant.usage)
         update = None
         try:
-            update = await then_agent.run(
+            update = await elephant_agent.run(
                 world=world, history=history, viewer=self.viewer, upto=upto, scene=self.frame_zero.scene,
-                llm=self.llm_then, config=self.config, mode=mode, clip_seconds=self.shape.delivered_seconds,
+                llm=self.llm_elephant, config=self.config, mode=mode, clip_seconds=self.shape.delivered_seconds,
             )
             return update
         finally:
-            self.timing.write("then_end", at_clip=at_clip, mode=mode, ok=update is not None,
-                              then_s=round(time.monotonic() - started, 4),
+            self.timing.write("elephant_end", at_clip=at_clip, mode=mode, ok=update is not None,
+                              elephant_s=round(time.monotonic() - started, 4),
                               reply_chars=len(update.model_dump_json()) if update is not None else 0,
-                              **{f"tokens_{k}": v - spent[k] for k, v in self.llm_then.usage.items()})
+                              **{f"tokens_{k}": v - spent[k] for k, v in self.llm_elephant.usage.items()})
 
     def _hold_reason(self, clip_no: int) -> str | None:
-        task = self._then_task
+        task = self._elephant_task
         if task is not None:
-            spawned_at = self._then_meta[0] if self._then_meta else "?"
+            spawned_at = self._elephant_meta[0] if self._elephant_meta else "?"
             return f"a run spawned at clip {spawned_at} is still in flight"
         gap = clip_no - self._last_spawn
-        if gap < self.config.then_min_gap:
-            return f"{gap} clip(s) since the last run, minimum {self.config.then_min_gap}"
+        if gap < self.config.elephant_min_gap:
+            return f"{gap} clip(s) since the last run, minimum {self.config.elephant_min_gap}"
         return None
 
     def _land_if_done(self, clip_no: int) -> None:
-        task, meta = self._then_task, self._then_meta
+        task, meta = self._elephant_task, self._elephant_meta
         if task is None:
             return
         at_clip, reason, upto = meta or (self.world.clip, "?", 0)
         if not task.done():
-            self._then_notes.append(
-                f"then ({reason}, spawned at clip {at_clip}): still running; continuing with the current notebook",
+            self._elephant_notes.append(
+                f"elephant ({reason}, spawned at clip {at_clip}): still running; continuing with the current notebook",
             )
             return
-        self._then_task, self._then_meta = None, None
+        self._elephant_task, self._elephant_meta = None, None
         try:
             update = task.result()
         except Exception:
-            logger.exception("Then task failed; continuing with the current notebook")
-            self._then_notes.append("then: task failed; notebook unchanged")
+            logger.exception("Elephant task failed; continuing with the current notebook")
+            self._elephant_notes.append("elephant: task failed; notebook unchanged")
             return
         self._land(update, at_clip=at_clip, reason=reason, upto=upto, landed_at=clip_no)
 
-    def _land(self, update: ThenUpdate | None, *, at_clip: int, reason: str, upto: int,
+    def _land(self, update: ElephantUpdate | None, *, at_clip: int, reason: str, upto: int,
               landed_at: int | None = None) -> None:
-        """Land a Then update: the world's part (re-applied if the world is
+        """Land an Elephant update: the world's part (re-applied if the world is
         rolled back) and the viewer's part (landed once: their memory is
         never rolled back)."""
         if update is None:
-            self._then_notes.append(f"then ({reason}): no update (parse failure)")
+            self._elephant_notes.append(f"elephant ({reason}): no update (parse failure)")
             return
-        landed = apply_then(self.world, self.history, update, at_clip=at_clip)
+        landed = apply_elephant(self.world, self.history, update, at_clip=at_clip)
         landed += self.viewer.land(update, self.world, at_clip=at_clip, seen=upto)
         self._base_landed.append((update, at_clip))
-        self._record_then(update, reason=reason, at_clip=at_clip, landed_at=landed_at)
-        line = f"then ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
+        self._record_elephant(update, reason=reason, at_clip=at_clip, landed_at=landed_at)
+        line = f"elephant ({reason}): " + ("; ".join(landed) if landed else "nothing to land")
         if landed_at is not None and landed_at > at_clip + 1:
             line += f" · landed at clip {landed_at} (spawned at {at_clip})"
         if update.rationale.strip():
             line += f" · rationale: {update.rationale.strip()}"
-        self._then_notes.append(line)
+        self._elephant_notes.append(line)
 
     # ── The transcript ─────────────────────────────────────────────
 
@@ -681,7 +681,7 @@ class Engine:
         if spec.dialogue:
             out.append("- Dialogue: " + " / ".join(f"{d.speaker}: {d.line}" for d in spec.dialogue))
         if first and meta.get("trigger"):
-            out.append(f"- Then spawned: {meta['trigger']}")
+            out.append(f"- Elephant spawned: {meta['trigger']}")
         for n in notes:
             out.append(f"- {n}")
         return "\n".join(out) + "\n"

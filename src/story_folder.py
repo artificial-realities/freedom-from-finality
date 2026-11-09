@@ -9,7 +9,7 @@ and holds what the story needs to continue, never the rendered video:
     frame_zero/           the Frame Zero it began from, copied once
     viewer.jsonl          the viewer's memory (`src/story/viewer.py`)
     clips.jsonl           every clip the viewer saw, one per line
-    history.jsonl         Then's summaries and checkpoints, one per line
+    history.jsonl         Elephant's summaries and checkpoints, one per line
                           (`src/story/history.py`)
     state/<clip>/         the saved state, the newest only
         world.json        the world as of that clip

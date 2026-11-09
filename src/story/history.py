@@ -1,6 +1,6 @@
-"""The story's long memory: Then's summaries and checkpoints, for good.
+"""The story's long memory: Elephant's summaries and checkpoints, for good.
 
-Then writes a **summary** of the clips since its last run (about every
+Elephant writes a **summary** of the clips since its last run (about every
 ten clips) and, when it sees the story has turned, names a
 **checkpoint**: the clip it turned on and a summary of the story from the
 checkpoint before (or the beginning) up to there. Each record also keeps
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class Summary(BaseModel):
-    """Clips `first_clip`-`last_clip`, as Then summarised them."""
+    """Clips `first_clip`-`last_clip`, as Elephant summarised them."""
 
     kind: Literal["summary"] = "summary"
     first_clip: int
@@ -42,9 +42,9 @@ class Summary(BaseModel):
 
 
 class Checkpoint(BaseModel):
-    """Where the story turned: clip `at`, which Then named `name`, and its
+    """Where the story turned: clip `at`, which Elephant named `name`, and its
     summary of the story from `first_clip` (after the checkpoint before)
-    up to there. `noticed_at` is the clip Then had read up to."""
+    up to there. `noticed_at` is the clip Elephant had read up to."""
 
     kind: Literal["checkpoint"] = "checkpoint"
     name: str
@@ -104,7 +104,7 @@ class History:
         del self.records[max(count, self.on_disk):]
 
     def view(self, count: int) -> "History":
-        """The first `count` records, apart from this history: what a Then
+        """The first `count` records, apart from this history: what an Elephant
         run reads while the story goes on."""
         view = History()
         view.records = list(self.records[:count])

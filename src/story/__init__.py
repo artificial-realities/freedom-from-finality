@@ -6,7 +6,7 @@ from src.story.schemas import (
     EntityOp,
     Notebook,
     Seed,
-    ThenUpdate,
+    ElephantUpdate,
 )
 from src.story.history import Checkpoint, History, Summary
 from src.story.world import (
@@ -19,5 +19,5 @@ from src.story.world import (
 
 __all__ = [
     "BeatPlan", "CharacterPortrait", "ClipSpec", "DialogueLine", "EntityOp", "Notebook", "Seed",
-    "ThenUpdate", "Checkpoint", "History", "Summary", "ClipRecord", "Entity", "OpenInput", "WorldModel", "slugify",
+    "ElephantUpdate", "Checkpoint", "History", "Summary", "ClipRecord", "Entity", "OpenInput", "WorldModel", "slugify",
 ]

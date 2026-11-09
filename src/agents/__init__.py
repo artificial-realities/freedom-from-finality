@@ -1,3 +1,3 @@
-from src.agents import now, then
+from src.agents import elephant, goldfish
 
-__all__ = ["now", "then"]
+__all__ = ["elephant", "goldfish"]

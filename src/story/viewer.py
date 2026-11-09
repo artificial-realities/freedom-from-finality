@@ -1,5 +1,5 @@
 """The viewer's memory: what the person watching has said and put into
-the story, and Then's understanding of them.
+the story, and Elephant's understanding of them.
 
 It belongs to the person, not to the world: the world is rolled back
 when a clip never reaches the screen, and this memory never is. Every
@@ -11,7 +11,7 @@ being written, and that only damages its own line.
 Facts and interpretation are kept apart. Code writes the facts: each
 input as it arrives with the clip on air then (`Input`), and what the
 story did with it once that clip reached the screen (`Outcome`: how a
-beat took it, a deferred one later delivered or let go). Then writes the interpretation: its understanding of the viewer,
+beat took it, a deferred one later delivered or let go). Elephant writes the interpretation: its understanding of the viewer,
 each reading citing the inputs it rests on (`Understanding`), and the
 viewer's marks on the story (`Mark`).
 """
@@ -24,13 +24,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, TypeAdapter, ValidationError
 
-from src.story.schemas import Reading, ThenUpdate, ViewerUnderstanding
+from src.story.schemas import Reading, ElephantUpdate, ViewerUnderstanding
 from src.story.world import WorldModel, words
 from src.util.durable import append_line, read_jsonl
 
 logger = logging.getLogger(__name__)
 
-# Then's readings of the viewer, as it is told: a few.
+# Elephant's readings of the viewer, as it is told: a few.
 READINGS_KEPT = 6
 
 # What became of an input: how the beat that answered it took it; a
@@ -66,7 +66,7 @@ class Outcome(BaseModel):
 
 
 class Mark(BaseModel):
-    """Something the viewer put into the story, as Then noticed it: a name,
+    """Something the viewer put into the story, as Elephant noticed it: a name,
     a decision, a relationship, a change. `clip` is where it entered the
     story; `entities` what it touches, for finding it again; `replaces`
     the mark it takes the place of, when the viewer changed their mind
@@ -82,8 +82,8 @@ class Mark(BaseModel):
 
 
 class Understanding(ViewerUnderstanding):
-    """Then's understanding of the viewer, landed at `clip`. `seen` is how
-    many records the memory held when Then was given it to read: whatever
+    """Elephant's understanding of the viewer, landed at `clip`. `seen` is how
+    many records the memory held when Elephant was given it to read: whatever
     came after is new to its next run."""
 
     kind: Literal["understanding"] = "understanding"
@@ -162,8 +162,8 @@ class ViewerMemory(BaseModel):
                      text=" ".join(text.split()), during=during, entities=sorted(entities))
         return self.add(line)
 
-    def land(self, update: ThenUpdate, world: WorldModel, *, at_clip: int, seen: int) -> list[str]:
-        """Land Then's understanding of the viewer and its new marks. A
+    def land(self, update: ElephantUpdate, world: WorldModel, *, at_clip: int, seen: int) -> list[str]:
+        """Land Elephant's understanding of the viewer and its new marks. A
         reading must cite an input it rests on and a mark the inputs it came
         from: ids that name no input are dropped, and a reading or mark left
         citing none is not kept. A mark already recorded is not recorded

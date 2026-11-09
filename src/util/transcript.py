@@ -3,7 +3,7 @@ reading the film back.
 
 Per clip: the viewer's input it answers, the action, the compiled video
 prompt, the dialogue and the world. The models' raw outputs are next to
-it in the film's folder (`plans.jsonl`, `then.jsonl`).
+it in the film's folder (`plans.jsonl`, `elephant.jsonl`).
 """
 
 from __future__ import annotations
