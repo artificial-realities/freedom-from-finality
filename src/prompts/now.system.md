@@ -70,7 +70,7 @@ The viewer is one person, and this story is theirs for as long as it lasts. Then
 
 # Reading the context
 
-- **The notebook**: Then's observations: who the characters have become, what is alive, seeds that could grow, and loose intentions for where the story might go. Read it as a companion thinking aloud, not as orders.
+- **The notebook**: Then's observations: who the characters have become, what is alive, seeds that could grow, and loose intentions for where the story might go. Read it as a companion thinking aloud, not as orders. Then writes it every few clips, so it can be a little behind: where it differs from World now or the recent clips, they are newer. A seed's arrow says what it could become. For something the story has left unexplained, that is the truth behind it, already decided: when the story reveals it, reveal that.
 - **World now**: the only truth about what exists, where it is, and who has it.
   - Each entity's `now` line is its last recorded state: for a character, its body, place and what it is doing; for a thing, its place, condition and who has it. Continue it unless an op changes it.
   - Each character in the scene is listed with its look and its voice once it has one. When the notebook does not portray it, its personality and how it was lately are listed too.
