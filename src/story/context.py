@@ -59,16 +59,10 @@ def format_notebook(world: WorldModel) -> str:
 
 PRESENT_IN_FULL = 12
 RECALLED_IN_FULL = 6
-STATE_CHARS = 160
 # Absent characters and props not in the scene listed one line each, the
 # most recently seen first; the rest are counted.
 AWAY_LISTED = 12
 GONE_LISTED = 12
-
-
-def _clip(text: str, n: int) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= n else text[: n - 1].rstrip() + "…"
 
 
 def _more(items: list, shown: int, what: str) -> str:
@@ -107,13 +101,13 @@ def _character(ent: Entity, portrayed: set[str], lead: list[str]) -> str:
     return " · ".join(bits)
 
 
-def _first_sentence(text: str, n: int = STATE_CHARS) -> str:
+def _first_sentence(text: str) -> str:
     text = " ".join(text.split())
     for stop in (". ", "! ", "? "):
         cut = text.find(stop)
         if cut > 0:
             text = text[: cut + 1]
-    return _clip(text, n)
+    return text
 
 
 def named_now(world: WorldModel, viewer_input: str = "", recent: int = 6,
@@ -162,7 +156,7 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
     else:
         drawn = " ".join((here.look_short or here.look).split()).rstrip(".")
         out.append(f"Location: `{here.id}` {here.name}" + (f" · drawn as: {drawn}" if drawn else "")
-                   + (f" · now: {_clip(here.state, STATE_CHARS)}" if here.state else ""))
+                   + (f" · now: {here.state}" if here.state else ""))
     portrayed = {e.id for c in world.notebook.characters if (e := world.resolve(c.entity)) is not None}
     present = world.present_entities()
     if present:
@@ -172,9 +166,9 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
         for ent in full:
             if ent.kind == "character":
                 now = ent.state or "(not recorded yet: describe it in your first op)"
-                out.append(_character(ent, portrayed, [f"now: {_clip(now, STATE_CHARS)}"]))
+                out.append(_character(ent, portrayed, [f"now: {now}"]))
                 continue
-            now = f" · now: {_clip(ent.state, STATE_CHARS)}" if ent.state else ""
+            now = f" · now: {ent.state}" if ent.state else ""
             looks = f" · looks: {ent.look}" if ent.look_since else ""
             out.append(f"- {ent.id} ({ent.kind}): {_name(ent)}{now}{looks}")
         if rest:
@@ -198,14 +192,14 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
         for e in full:
             lead = [f"last seen clip {e.last_seen}", where(e)]
             if e.state:
-                lead.append(f"then: {_clip(e.state, STATE_CHARS)}")
+                lead.append(f"then: {e.state}")
             out.append(_character(e, portrayed, [b for b in lead if b]))
     rest = sorted((e for e in away if e.id not in full_ids), key=lambda e: -e.last_seen)
     if rest:
         # Who each one is, at a glance, so the story can bring back someone
         # it has rather than invent someone like them.
         def about(e) -> str:
-            bits = [f"last seen clip {e.last_seen}", where(e), e.state and f"then: {_clip(e.state, STATE_CHARS)}",
+            bits = [f"last seen clip {e.last_seen}", where(e), e.state and f"then: {e.state}",
                     e.personality and _first_sentence(e.personality),
                     e.lately and f"lately (clip {e.lately_at}): {_first_sentence(e.lately)}"]
             return " · ".join(b for b in bits if b)
@@ -227,7 +221,7 @@ def format_world_now(world: WorldModel, recall: list[Entity] = ()) -> str:
     if gone:
         out.append("Gone from the story (an update with `present: true` brings one back; introducing a name of "
                    "theirs makes someone new): "
-                   + "; ".join(f"`{e.id}` {e.name} ({e.kind}, clip {e.last_seen}: {_clip(e.state, 80)})"
+                   + "; ".join(f"`{e.id}` {e.name} ({e.kind}, clip {e.last_seen}: {e.state})"
                                for e in gone[:GONE_LISTED])
                    + _more(gone, GONE_LISTED, "earlier"))
     return "\n".join(out)
@@ -295,7 +289,7 @@ def _input(viewer: ViewerMemory, said: Input, *, full: bool) -> str:
     adds what was on screen when they typed it and Now's reasons."""
     head = f"- #{said.id} ({_at(said.clip)}"
     if full and said.during:
-        head += f", while: {_clip(said.during, 140).rstrip('.')}"
+        head += f", while: {said.during.rstrip('.')}"
     head += f'): "{said.text}"'
     outcomes = []
     for o in viewer.outcomes():
@@ -331,7 +325,7 @@ def _recent(world: WorldModel, viewer: ViewerMemory) -> list[str]:
             how = beat.taken + (f": {beat.taken_why}" if beat.taken_why else "")
         else:
             how = "not answered yet"
-        out.append(f'- {_ago(world, s.clip)}: "{_clip(s.text, 200)}" → {how}')
+        out.append(f'- {_ago(world, s.clip)}: "{s.text}" → {how}')
     return out
 
 
@@ -360,7 +354,7 @@ def format_viewer(world: WorldModel, viewer: ViewerMemory, current_input: str, *
         if older:
             out.append(f"- {len(older)} older: " + ", ".join(f"#{i.id} (clip {i.clip})" for i in older))
         for i in owed[-OWED_SHOWN:]:
-            out.append(f'- #{i.id} ({_ago(world, i.clip)}): "{_clip(i.text, 200)}" '
+            out.append(f'- #{i.id} ({_ago(world, i.clip)}): "{i.text}" '
                        f'(deferred: {i.reason or "no reason given"})')
     understanding = _understanding(viewer, ids=False)
     if understanding:
@@ -420,16 +414,7 @@ SUMMARIES_FOR_THEN = 6
 # The part of the past shown for what comes back into the story, at most.
 PAST_FOR_NOW = (2, 3)          # checkpoints, summaries
 PAST_FOR_THEN = (4, 4)
-# The rolling summaries are Then's prose, asked to stay short; a longer
-# one is cut where Now reads it, and Then is told its length.
-STORY_SO_FAR_WORDS = 500
-SINCE_WORDS = 300
 CHECKPOINTS_NAMED = 10
-
-
-def _words(text: str, n: int) -> str:
-    words = text.split()
-    return text if len(words) <= n else " ".join(words[:n]) + " …"
 
 
 def in_play(world: WorldModel, named: set[str], recall: list[Entity] = ()) -> set[str]:
@@ -501,7 +486,7 @@ def format_memory(world: WorldModel, history: History, back: list[str], *, recen
         at = world.story_so_far_at
         name = next((c.name for c in checkpoints if c.at == at), "")
         out.append(f'The story so far (up to "{name}", clip {at}):\n'
-                   f"{_words(world.story_so_far, STORY_SO_FAR_WORDS)}")
+                   f"{world.story_so_far}")
     for c in checkpoints:
         if c.at > world.story_so_far_at:
             out.append(f"{_span(c)}: {c.summary}")
@@ -510,7 +495,7 @@ def format_memory(world: WorldModel, history: History, back: list[str], *, recen
         first = last.at + 1 if last else 1
         span = f" (clips {first}-{world.last_summary})" if world.last_summary >= first else ""
         since = f'Since "{last.name}"' if last else "From the beginning"
-        out.append(f"{since}{span}:\n{_words(world.since_checkpoint, SINCE_WORDS)}")
+        out.append(f"{since}{span}:\n{world.since_checkpoint}")
     for r, ents in _past(history, back, shown=recent, caps=caps):
         who = ", ".join(f"`{e}`" for e in ents)
         out.append(f"{_span(r)}, when {who} {'was' if len(ents) == 1 else 'were'} last part of the story: "
