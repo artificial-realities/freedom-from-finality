@@ -30,8 +30,9 @@ EntityKind = Literal["character", "prop", "location"]
 class EntityOp(BaseModel):
     """One world change proposed by Now, in the clip where it happens.
 
-    `entity` is an existing entity id for `update`/`remove`, or the name
-    of a new thing for `introduce`. Empty strings mean "unchanged".
+    `entity` is an existing entity id for `update`/`remove`, or a handle
+    for a new thing for `introduce` (its id is made from it, and `name`,
+    when given, is what it is called). Empty strings mean "unchanged".
     `look` is how a new thing looks (introduce), or the whole new look of
     an existing character, prop or place whose appearance changes for good
     (update); a new character also gives its `personality`, as Frame Zero

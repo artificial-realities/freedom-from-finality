@@ -239,6 +239,10 @@ class Engine:
         self._beat_input = text
         self._pending_note = ""
 
+        # A run that finished during the Now call lands before the clock is
+        # read, so it counts from the clips that run summarised.
+        if self._then_task is not None and self._then_task.done():
+            self._land_if_done(clip_no)
         reason = self._trigger()
         self._pending_spawn = None
         spawning: str | None = None
@@ -593,9 +597,6 @@ class Engine:
 
     def _hold_reason(self, clip_no: int) -> str | None:
         task = self._then_task
-        if task is not None and task.done():
-            self._land_if_done(clip_no)
-            task = self._then_task
         if task is not None:
             spawned_at = self._then_meta[0] if self._then_meta else "?"
             return f"a run spawned at clip {spawned_at} is still in flight"

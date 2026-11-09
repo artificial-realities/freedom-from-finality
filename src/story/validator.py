@@ -60,6 +60,22 @@ def resolve_location(world: WorldModel, ref: str):
     return max(found, key=lambda e: len(e.id)) if found else None
 
 
+def _handles(op: EntityOp) -> set[str]:
+    """What the rest of a beat may call something it introduces: its
+    `entity`, and the `name` it is given, when Now gives one."""
+    return {slugify(ref) for ref in (op.entity, op.name) if ref.strip()}
+
+
+def _introduced_name(op: EntityOp) -> str:
+    """The name a new entity goes by: the `name` Now gave it, or else its
+    `entity` (written as a handle, `old_lighthouse`, it reads as words)."""
+    name = " ".join(op.name.split())
+    if name:
+        return name
+    name = op.entity.strip()
+    return name.replace("_", " ") if "_" in name and " " not in name else name
+
+
 def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, where: str) -> None:
     existing = world.resolve(op.entity)
     if op.op == "introduce":
@@ -78,9 +94,9 @@ def _check_op(op: EntityOp, world: WorldModel, introduced: set[str], r: Report, 
             if not op.voice.strip():
                 r.warnings.append(f"{where}: new character '{op.entity}' has no `voice`; it will not sound "
                                   "the same from clip to clip")
-            introduced.add(slugify(op.entity))
+            introduced.update(_handles(op))
         else:
-            introduced.add(slugify(op.entity))
+            introduced.update(_handles(op))
     elif existing is None and slugify(op.entity) not in introduced:
         r.violations.append(
             f"{where}: {op.op} of unknown entity '{op.entity}'; use an id from "
@@ -172,7 +188,8 @@ def _alias(beat: BeatPlan, index: int, introduce: EntityOp, gone_id: str, new_id
     """A gone name introduced again: in the rest of the beat, the name and
     the gone one's id mean the new one, since Now wrote them before it
     could know the new id."""
-    names = {slugify(introduce.entity), introduce.entity.strip().lower(), gone_id}
+    names = _handles(introduce) | {introduce.entity.strip().lower(), introduce.name.strip().lower(), gone_id}
+    names.discard("")
 
     def means(ref: str) -> bool:
         return ref.strip().lower() in names or slugify(ref) in names
@@ -217,9 +234,7 @@ def apply_clip(beat: BeatPlan, index: int, world: WorldModel, *, clip_no: int) -
                 r.applied.append(f"{op.entity.strip()} is someone new ({eid}); {namesake.id} left the story "
                                  f"at clip {namesake.last_seen}")
                 _alias(beat, index, op, namesake.id, eid)
-            name = op.entity.strip()
-            if "_" in name and " " not in name:
-                name = name.replace("_", " ")
+            name = _introduced_name(op)
             look = " ".join(op.look.split())
             # A new place keeps its look too: the video model draws it from that.
             ent = Entity(

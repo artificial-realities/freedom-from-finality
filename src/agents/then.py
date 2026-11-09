@@ -65,9 +65,10 @@ INSTRUCTIONS = {
         "how each character has been lately, and "
         "whether the story has changed who any of them is at heart; who the "
         "story is following and who else is pulling at it; what is alive, "
-        "which seeds remain or are new, and where the story might go. Then "
-        "rewrite your understanding of the viewer from their inputs, and record "
-        "any new mark they have put on the story."
+        "which seeds remain or are new, and where the story might go, and "
+        "whether it is still moving or going in circles. Then rewrite your "
+        "understanding of the viewer from their inputs, and record any new "
+        "mark they have put on the story."
     ),
 }
 
